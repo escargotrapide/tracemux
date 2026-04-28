@@ -2734,8 +2734,10 @@ name = "wanlogger-replay"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
+ "serde_json",
  "tokio",
  "tracing",
+ "uuid",
  "wanlogger-core",
 ]
 
