@@ -1,0 +1,41 @@
+name: Bug report
+description: Report misbehaviour or a regression
+labels: ["type:bug"]
+body:
+  - type: input
+    id: error_id
+    attributes:
+      label: Error id (if any)
+      description: E-NNNN. See docs/errors/.
+      placeholder: E-1023
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: |
+        Prefer a `session-dir/` snippet or a `wanlogger replay` invocation.
+        See `.github/skills/repro-channel/SKILL.md`.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: wanlogger version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: clock
+    attributes:
+      label: Multi-node?
+      options:
+        - "no"
+        - "yes (provide clock-table.jsonl)"
+    validations:
+      required: true

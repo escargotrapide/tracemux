@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a new capability for wanlogger
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening: skim `docs/requirements.md` and `docs/adr/` to
+        check for overlap. If your request changes a frozen API surface
+        (wire / log / cli / traits), please prepare an ADR first.
+  - type: input
+    id: req_id
+    attributes:
+      label: Proposed requirement id
+      description: e.g. FR-SRC-mqtt5, NFR-PERF-tile
+      placeholder: FR-SRC-mqtt5
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation / user story
+      description: Who needs this and why? Link logs, screenshots.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria (受入条件)
+      description: A bulleted, testable list. Each bullet maps to one test.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Layer
+      multiple: true
+      options:
+        - Source
+        - Sink
+        - Framer
+        - Decoder
+        - LogSink
+        - Importer / Exporter
+        - TimeseriesSink
+        - Server (wire / auth / TLS)
+        - CLI
+        - UI (web / Tauri)
+        - Docs / ADR / Skill
+    validations:
+      required: true
+  - type: dropdown
+    id: compat
+    attributes:
+      label: Compatibility impact
+      multiple: true
+      options:
+        - wire-protocol
+        - log-format
+        - cli-output
+        - none
+    validations:
+      required: true

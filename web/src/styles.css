@@ -1,0 +1,88 @@
+/* Global styles for wanlogger UI.
+   Dockview + xterm import their own CSS in main.tsx. */
+
+:root {
+  color-scheme: dark;
+  --wl-bg: #0e1116;
+  --wl-bg-elev: #161b22;
+  --wl-border: #30363d;
+  --wl-fg: #c9d1d9;
+  --wl-fg-muted: #8b949e;
+  --wl-accent: #2f81f7;
+  --wl-warn: #d29922;
+  --wl-error: #f85149;
+  --wl-ok: #3fb950;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Hiragino Sans",
+    "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  font-size: 13px;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--wl-bg);
+  color: var(--wl-fg);
+}
+
+button {
+  background: var(--wl-bg-elev);
+  color: var(--wl-fg);
+  border: 1px solid var(--wl-border);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+
+button:hover {
+  border-color: var(--wl-accent);
+}
+
+.wl-app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+}
+
+.wl-topbar,
+.wl-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--wl-bg-elev);
+  border-bottom: 1px solid var(--wl-border);
+}
+
+.wl-statusbar {
+  border-bottom: none;
+  border-top: 1px solid var(--wl-border);
+  font-size: 12px;
+  color: var(--wl-fg-muted);
+}
+
+.wl-dock {
+  position: relative;
+  overflow: hidden;
+}
+
+.wl-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--wl-fg-muted);
+}
+.wl-status-dot.ok {
+  background: var(--wl-ok);
+}
+.wl-status-dot.warn {
+  background: var(--wl-warn);
+}
+.wl-status-dot.err {
+  background: var(--wl-error);
+}

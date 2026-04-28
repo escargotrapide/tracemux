@@ -1,0 +1,33 @@
+[package]
+name = "wanlogger-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "wanlogger CLI / server / Tauri sidecar binary"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "wanlogger"
+path = "src/main.rs"
+
+[features]
+default = []
+desktop = []
+metrics = ["wanlogger-core/metrics", "wanlogger-server/metrics"]
+headless = []
+
+[dependencies]
+wanlogger-core = { path = "../core" }
+wanlogger-server = { path = "../server" }
+wanlogger-replay = { path = "../replay" }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }

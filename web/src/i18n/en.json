@@ -1,0 +1,20 @@
+{
+  "app.title": "wanlogger",
+  "app.subtitle": "unified terminal for local & networked logs",
+  "status.idle": "idle",
+  "status.connecting": "connecting…",
+  "status.open": "connected",
+  "status.closed": "disconnected",
+  "status.error": "error",
+  "panel.terminal": "Terminal",
+  "panel.sources": "Sources",
+  "panel.metrics": "Metrics",
+  "sources.empty": "No sources yet. Start one from the CLI or add a connection.",
+  "sources.column.name": "Name",
+  "sources.column.kind": "Kind",
+  "sources.column.channels": "Channels",
+  "sources.column.bytes": "Bytes in",
+  "sources.column.last": "Last",
+  "action.reconnect": "Reconnect",
+  "action.add_source": "Add source"
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wanlogger.dev/cli-output/v1/version.schema.json",
+  "title": "wanlogger --version JSON output",
+  "type": "object",
+  "required": ["schema", "name", "version"],
+  "properties": {
+    "schema": { "type": "string", "const": "wanlogger/version/v1" },
+    "name": { "type": "string" },
+    "version": { "type": "string" },
+    "commit": { "type": ["string", "null"] },
+    "rust_version": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

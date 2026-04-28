@@ -1,0 +1,20 @@
+{
+  "app.title": "wanlogger",
+  "app.subtitle": "ローカルとネットワークのログを束ねる統合ターミナル",
+  "status.idle": "待機中",
+  "status.connecting": "接続中…",
+  "status.open": "接続済み",
+  "status.closed": "切断",
+  "status.error": "エラー",
+  "panel.terminal": "ターミナル",
+  "panel.sources": "ソース一覧",
+  "panel.metrics": "メトリクス",
+  "sources.empty": "ソースがまだありません。CLI から起動するか、接続を追加してください。",
+  "sources.column.name": "名前",
+  "sources.column.kind": "種別",
+  "sources.column.channels": "ch",
+  "sources.column.bytes": "受信バイト",
+  "sources.column.last": "最終受信",
+  "action.reconnect": "再接続",
+  "action.add_source": "ソースを追加"
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wanlogger.dev/cli-output/v1/ai-verify.schema.json",
+  "title": "wanlogger ai-verify report",
+  "description": "Schema for target/ai-verify.json produced by `just ai-verify`.",
+  "type": "object",
+  "required": ["schema", "summary", "steps"],
+  "properties": {
+    "schema": { "type": "string", "const": "wanlogger/ai-verify/v1" },
+    "summary": { "type": "string" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "passed", "ok", "success", "fail", "failed", "error", "skip", "skipped"]
+          },
+          "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+          "detail": { "type": ["string", "null"] }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

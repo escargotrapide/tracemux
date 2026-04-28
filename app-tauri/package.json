@@ -1,0 +1,17 @@
+{
+  "name": "@wanlogger/app-tauri",
+  "version": "0.1.0-dev",
+  "private": true,
+  "description": "Tauri 2 desktop shell for wanlogger. Spawns the `wanlogger serve` sidecar and loads the SolidJS UI.",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

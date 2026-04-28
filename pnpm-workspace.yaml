@@ -1,0 +1,6 @@
+packages:
+  - "web"
+  - "app-tauri"
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true

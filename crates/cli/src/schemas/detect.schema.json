@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wanlogger.dev/cli-output/v1/detect.schema.json",
+  "title": "wanlogger detect output",
+  "description": "Schema for `wanlogger detect --format json`.",
+  "type": "object",
+  "required": ["schema", "candidates"],
+  "properties": {
+    "schema": { "type": "string", "const": "wanlogger/detect/v1" },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "spec"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["serial", "tcp", "udp", "file", "mqtt", "syslog", "process", "pipe", "http_webhook", "replay"]
+          },
+          "spec": { "type": "string" },
+          "label": { "type": ["string", "null"] },
+          "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

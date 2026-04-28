@@ -1,0 +1,39 @@
+[package]
+name = "wanlogger-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "wanlogger server: axum + rustls + WSS mux"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+metrics = ["wanlogger-core/metrics"]
+
+[dependencies]
+wanlogger-core = { path = "../core" }
+axum = { workspace = true }
+axum-server = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+rcgen = { workspace = true }
+argon2 = { workspace = true }
+bytes = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+uuid = { workspace = true }
+futures = { workspace = true }
