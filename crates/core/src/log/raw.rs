@@ -75,6 +75,7 @@ impl RawWriter {
 }
 
 /// Random-access reader for `raw.bin`.
+#[derive(Debug)]
 pub struct RawReader {
     file: File,
 }

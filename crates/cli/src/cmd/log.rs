@@ -1,0 +1,158 @@
+//! `wanlogger log` ? record a channel into a v0.1 session-dir.
+//!
+//! Layout (see `docs/protocols/log-format.md`):
+//! ```text
+//! {prefix}_{kind}_{iface}_{YYYYMMDD-HHMMSS}/
+//!   meta.toml
+//!   raw.bin
+//!   index.jsonl
+//! ```
+//!
+//! v0.1 writes the **plain** raw.bin path (the WAL/group-commit/zstd
+//! pipeline lives in `wanlogger-core::log::wal` / `group_commit` and
+//! is a frozen critical path applied by the server when bound).
+
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+use serde::Serialize;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+use uuid::Uuid;
+use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
+use wanlogger_core::log::raw::RawWriter;
+use wanlogger_core::source::{ChannelSpec, ControlEvt, Frame};
+use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
+
+use super::spec;
+
+#[derive(Debug, Serialize)]
+struct MetaToml {
+    prefix: String,
+    spec: ChannelSpec,
+    sid: Uuid,
+    started: String,
+}
+
+/// Run the `log` subcommand.
+///
+/// # Errors
+/// Returns an `anyhow::Error` for spec / I/O / source failure.
+pub async fn run(spec_str: &str, prefix: Option<&str>) -> Result<()> {
+    let s = spec::parse(spec_str).context("parsing channel spec")?;
+    let prefix = prefix.unwrap_or("wanlogger");
+    let now = OffsetDateTime::now_utc();
+    let stamp = format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    );
+    let dir_name = format!(
+        "{prefix}_{}_{}_{stamp}",
+        spec::kind_tag(&s),
+        spec::iface_tag(&s)
+    );
+    let dir = PathBuf::from(&dir_name);
+    std::fs::create_dir_all(&dir).context("creating session-dir")?;
+    tracing::info!(dir = %dir.display(), "log: opened session-dir");
+
+    let sid = Uuid::new_v4();
+    let started = now.format(&Rfc3339).unwrap_or_else(|_| stamp.clone());
+    let meta = MetaToml {
+        prefix: prefix.to_string(),
+        spec: s.clone(),
+        sid,
+        started,
+    };
+    std::fs::write(
+        dir.join("meta.toml"),
+        toml::to_string_pretty(&meta).context("serialising meta.toml")?,
+    )
+    .context("writing meta.toml")?;
+
+    let mut raw = RawWriter::create(&dir).context("opening raw.bin")?;
+    let mut index = IndexWriter::create(&dir).context("opening index.jsonl")?;
+
+    let mut source = spec::open(&s).context("opening source")?;
+    source.open().await.context("Source::open failed")?;
+
+    let mut count = 0u64;
+    loop {
+        match source.recv().await? {
+            Some(frame) => {
+                let (data, kind) = frame_payload(&frame);
+                let (off, len) = raw.append(&data).context("raw append")?;
+                let ts = synth_dual_ts();
+                let mut e = IndexEntry::from_envelope(&ts, sid, Dir::In, kind, off, len);
+                e.source = Some(format!("{}:{}", spec::kind_tag(&s), spec::iface_tag(&s)));
+                index.append(&e).context("index append")?;
+                count += 1;
+                if count % 256 == 0 {
+                    raw.flush().ok();
+                    index.flush().ok();
+                }
+            }
+            None => {
+                tracing::info!("log: source returned None");
+                break;
+            }
+        }
+        match source.recv_ctl().await? {
+            Some(ControlEvt::Eof) => {
+                tracing::info!("log: EOF");
+                break;
+            }
+            Some(ControlEvt::Disconnected { reason }) => {
+                tracing::warn!(?reason, "log: disconnected");
+                break;
+            }
+            Some(ControlEvt::Error { id, message }) => {
+                tracing::error!(code = id.code(), %message, "log: source error");
+                break;
+            }
+            Some(other) => tracing::debug!(?other, "log: ctl"),
+            None => {}
+        }
+    }
+
+    raw.flush().ok();
+    index.flush().ok();
+    source.close().await.ok();
+    tracing::info!(records = count, "log: session closed");
+    Ok(())
+}
+
+fn frame_payload(f: &Frame) -> (Vec<u8>, Kind) {
+    match f {
+        Frame::Bytes(b) => (b.to_vec(), Kind::Bytes),
+        Frame::Datagram { data, .. } => (data.to_vec(), Kind::Datagram),
+        Frame::Ssh { data, .. }
+        | Frame::Visa { data, .. }
+        | Frame::Other { data, .. } => (data.to_vec(), Kind::Frame),
+        _ => (Vec::new(), Kind::Frame),
+    }
+}
+
+/// Produce a CLI-side [`DualTimestamp`] envelope.
+///
+/// The CLI is not the canonical clock source; the server fills in
+/// `ts_ingest`. For the standalone `log` subcommand, we approximate
+/// both with `now` and mark the quality as `BestEffort`.
+fn synth_dual_ts() -> DualTimestamp {
+    let now_ns = wanlogger_core::time::unix_ns_now();
+    DualTimestamp {
+        ts_origin_ns: now_ns,
+        ts_ingest_ns: now_ns,
+        mono_ns: 0,
+        boot_id: Uuid::nil(),
+        node_id: Uuid::nil(),
+        clock_offset_ms: 0,
+        clock_quality: ClockQuality::BestEffort,
+        drift_ppm: 0.0,
+        clock_source: ClockSource::System,
+    }
+}

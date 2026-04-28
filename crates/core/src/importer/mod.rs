@@ -20,3 +20,4 @@ pub trait Importer: Send + Sync + 'static {
 pub mod csv;
 pub mod pcapng;
 pub mod teraterm;
+pub mod text;

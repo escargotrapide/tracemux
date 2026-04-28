@@ -6,6 +6,7 @@
 use clap::{Parser, Subcommand};
 
 mod ai_verify;
+mod cmd;
 mod json_schema;
 
 /// wanlogger — unified terminal & log platform.
@@ -27,11 +28,11 @@ enum Cmd {
     /// Log a single channel to a session-dir.
     Log(LogArgs),
     /// Manage saved profiles.
-    Profile,
+    Profile(ProfileArgs),
     /// Replay an existing session-dir.
     Replay(ReplayArgs),
-    /// Wireshark extcap interface — stub.
-    Extcap,
+    /// Wireshark extcap interface.
+    Extcap(ExtcapArgs),
     /// Import a foreign log artefact into a session-dir.
     Import(ImportArgs),
     /// Export a session-dir to a foreign format.
@@ -101,6 +102,60 @@ struct ExportArgs {
 }
 
 #[derive(Debug, clap::Args)]
+struct ProfileArgs {
+    /// Profile directory (defaults to platform config dir).
+    #[arg(long)]
+    dir: Option<std::path::PathBuf>,
+    #[command(subcommand)]
+    action: ProfileAction,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum ProfileAction {
+    /// List profile names.
+    List,
+    /// Show one profile.
+    Show {
+        /// Profile name.
+        name: String,
+    },
+    /// Save a profile.
+    Set {
+        /// Profile name.
+        name: String,
+        /// Channel spec.
+        spec: String,
+    },
+    /// Delete a profile.
+    Del {
+        /// Profile name.
+        name: String,
+    },
+}
+
+#[derive(Debug, clap::Args)]
+struct ExtcapArgs {
+    /// Wireshark `--extcap-interfaces` mode.
+    #[arg(long, group = "extcap_mode")]
+    extcap_interfaces: bool,
+    /// Wireshark `--extcap-dlts` mode.
+    #[arg(long, group = "extcap_mode")]
+    extcap_dlts: bool,
+    /// Wireshark `--extcap-config` mode.
+    #[arg(long, group = "extcap_mode")]
+    extcap_config: bool,
+    /// Wireshark `--capture` mode.
+    #[arg(long, group = "extcap_mode")]
+    capture: bool,
+    /// Selected interface (from `--extcap-interface NAME`).
+    #[arg(long)]
+    extcap_interface: Option<String>,
+    /// Capture FIFO path (from `--fifo PATH`).
+    #[arg(long)]
+    fifo: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
 struct JsonSchemaArgs {
     /// Output directory.
     #[arg(long, default_value = "docs/protocols/cli-output/v1")]
@@ -118,22 +173,53 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Serve(args) => {
             wanlogger_server::run(&args.bind, args.no_auth).await?;
         }
-        Cmd::Connect(args) => {
-            tracing::warn!(spec = %args.spec, "connect: v0.1 stub");
+        Cmd::Connect(args) => cmd::connect::run(&args.spec).await?,
+        Cmd::Detect => cmd::detect::run()?,
+        Cmd::Log(args) => cmd::log::run(&args.spec, args.prefix.as_deref()).await?,
+        Cmd::Profile(args) => {
+            let dir = args.dir.unwrap_or_else(cmd::profile::default_dir);
+            let action = match args.action {
+                ProfileAction::List => cmd::profile::Action::List,
+                ProfileAction::Show { name } => cmd::profile::Action::Show { name },
+                ProfileAction::Set { name, spec } => cmd::profile::Action::Set { name, spec },
+                ProfileAction::Del { name } => cmd::profile::Action::Del { name },
+            };
+            cmd::profile::run(&dir, action)?;
         }
-        Cmd::Detect => tracing::warn!("detect: v0.1 stub"),
-        Cmd::Log(args) => tracing::warn!(spec = %args.spec, "log: v0.1 stub"),
-        Cmd::Profile => tracing::warn!("profile: v0.1 stub"),
         Cmd::Replay(args) => {
             wanlogger_replay::run(&args.session, args.rate, args.seed).await?;
         }
-        Cmd::Extcap => tracing::warn!("extcap: v0.1 stub"),
-        Cmd::Import(args) => {
-            tracing::warn!(kind = %args.kind, src = ?args.src, dst = ?args.dst, "import: v0.1 stub");
+        Cmd::Extcap(args) => {
+            let mode = if args.extcap_interfaces {
+                cmd::extcap::Mode::Interfaces
+            } else if args.extcap_dlts {
+                cmd::extcap::Mode::Dlts {
+                    interface: args
+                        .extcap_interface
+                        .ok_or_else(|| anyhow::anyhow!("--extcap-dlts requires --extcap-interface"))?,
+                }
+            } else if args.extcap_config {
+                cmd::extcap::Mode::Config {
+                    interface: args
+                        .extcap_interface
+                        .ok_or_else(|| anyhow::anyhow!("--extcap-config requires --extcap-interface"))?,
+                }
+            } else if args.capture {
+                cmd::extcap::Mode::Capture {
+                    interface: args
+                        .extcap_interface
+                        .ok_or_else(|| anyhow::anyhow!("--capture requires --extcap-interface"))?,
+                    fifo: args
+                        .fifo
+                        .ok_or_else(|| anyhow::anyhow!("--capture requires --fifo"))?,
+                }
+            } else {
+                anyhow::bail!("extcap: one of --extcap-interfaces / --extcap-dlts / --extcap-config / --capture is required");
+            };
+            cmd::extcap::run(mode)?;
         }
-        Cmd::Export(args) => {
-            tracing::warn!(kind = %args.kind, src = ?args.src, dst = ?args.dst, "export: v0.1 stub");
-        }
+        Cmd::Import(args) => cmd::import::run(&args.kind, &args.src, &args.dst)?,
+        Cmd::Export(args) => cmd::export::run(&args.kind, &args.src, &args.dst)?,
         Cmd::AiVerify => ai_verify::run().await?,
         Cmd::JsonSchema(args) => json_schema::emit(&args.out)?,
     }

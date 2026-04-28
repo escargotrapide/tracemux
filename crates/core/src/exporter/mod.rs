@@ -10,7 +10,7 @@ use crate::Result;
 /// Exporter of `session-dir/` to foreign artefacts.
 #[async_trait]
 pub trait Exporter: Send + Sync + 'static {
-    /// Stable kind string (e.g. `"csv"`, `"text"`).
+    /// Stable kind string (e.g. `"csv"`, `"text"`, `"jsonl"`).
     fn kind(&self) -> &'static str;
 
     /// Export `session-dir/` rooted at `src` to `dst`.
@@ -18,4 +18,5 @@ pub trait Exporter: Send + Sync + 'static {
 }
 
 pub mod csv;
+pub mod jsonl;
 pub mod text;
