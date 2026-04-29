@@ -76,6 +76,30 @@ the server's `/api/ai/verify` endpoint.
 
 Toolchain pin: `rust-toolchain.toml` → 1.88. Web: pnpm workspaces.
 
+### Running the GUI (dev mode)
+
+| Goal                           | Command                          |
+| ------------------------------ | -------------------------------- |
+| Backend server only            | `just dev-server`                |
+| Web UI only (browser)          | `just dev-web`                   |
+| Backend + Web UI together      | `just dev-all`                   |
+| Tauri desktop (prep required)  | `just dev-prepare && just dev-tauri` |
+
+**First-time Tauri setup** (Windows):
+
+1. Add Defender exclusions (one-time, to unblock `build-script-build.exe`):
+   ```pwsh
+   Start-Process pwsh -Verb RunAs -Wait -ArgumentList '-Command',
+     "Add-MpPreference -ExclusionPath '$env:CARGO_HOME','<target-dir>'; Add-MpPreference -ExclusionProcess '$env:CARGO_HOME\bin\cargo.exe'"
+   ```
+2. `pnpm install`
+3. `just dev-prepare`   ← builds CLI sidecar + generates placeholder icons
+4. `just dev-tauri`     ← starts Vite + Tauri window
+
+`app-tauri/src-tauri/binaries/` and `app-tauri/src-tauri/icons/` are
+generated (`.gitignore`d). Re-run `just dev-prepare` after rebuilding the
+CLI binary. Production icons must be replaced before a release build.
+
 ## 4. Directory map
 
 The map below is also exposed (machine-parseable) at the bottom of this file
@@ -364,4 +388,4 @@ patterns = [
 -->
 
 ## 10. After completion of a user instruction.
-After you complete a user instruction, ask the user what to do by vscode_askQuestion.
+After you complete a user instruction, ask the user what to do by vscode_askQuestion. Never skip this step.
