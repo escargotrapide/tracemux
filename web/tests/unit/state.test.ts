@@ -1,0 +1,45 @@
+import { describe, it, expect } from "vitest";
+import {
+  __ingestFrameForTest,
+  metricsState,
+  sourcesStore,
+} from "../../src/state";
+
+describe("state frame handler", () => {
+  it("updates sourcesStore on data frames", () => {
+    __ingestFrameForTest({
+      type: "data",
+      seq: 1,
+      payload: {
+        ts_origin: 0,
+        ts_ingest: 1_000_000,
+        mono_ns: 0,
+        boot_id: "b",
+        node_id: "n",
+        clock_offset_ms: 0,
+        clock_quality: "best-effort",
+        drift_ppm: 0,
+        clock_source: "system",
+        sid: "s1",
+        ch: 0,
+        dir: "in",
+        kind: "bytes",
+        body: new Uint8Array([1, 2, 3]),
+        source: "uart0",
+      },
+    });
+    expect(sourcesStore.s1).toBeDefined();
+    expect(sourcesStore.s1.bytesIn).toBe(3);
+    expect(sourcesStore.s1.channels).toEqual([0]);
+  });
+
+  it("captures the latest metrics frame", () => {
+    // REQ: FR-UI-007
+    __ingestFrameForTest({
+      type: "metrics",
+      seq: 2,
+      payload: { records: { "s1/0": 42 } },
+    });
+    expect(metricsState()).toEqual({ records: { "s1/0": 42 } });
+  });
+});

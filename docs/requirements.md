@@ -154,3 +154,9 @@ The CLI guarantees that for any plain-text input file `F`,
 `wanlogger export text S G` produces a `G` whose final whitespace-
 trimmed column for each row equals the corresponding line of `F` in
 order.
+
+### FR-UI-007  Metrics panel
+The Metrics panel renders the latest `metrics` wire frame as a flat
+key/value table and shows the current connection state. It updates
+reactively as new frames arrive; if no metrics frames have been
+received it shows an empty-state message.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveWanloggerUrl } from "../src/adapters/wss";
+import { resolveWanloggerUrl } from "../../src/adapters/wss";
 
 describe("resolveWanloggerUrl", () => {
   it("returns a fallback when no window or env", () => {

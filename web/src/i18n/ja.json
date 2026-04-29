@@ -16,5 +16,9 @@
   "sources.column.bytes": "受信バイト",
   "sources.column.last": "最終受信",
   "action.reconnect": "再接続",
-  "action.add_source": "ソースを追加"
+  "action.add_source": "ソースを追加",
+  "metrics.connection": "接続",
+  "metrics.empty": "メトリクス未受信",
+  "metrics.column.metric": "指標",
+  "metrics.column.value": "値"
 }

@@ -16,5 +16,9 @@
   "sources.column.bytes": "Bytes in",
   "sources.column.last": "Last",
   "action.reconnect": "Reconnect",
-  "action.add_source": "Add source"
+  "action.add_source": "Add source",
+  "metrics.connection": "Connection",
+  "metrics.empty": "No metrics received yet.",
+  "metrics.column.metric": "Metric",
+  "metrics.column.value": "Value"
 }

@@ -9,6 +9,7 @@ import {
   type ConnState,
   type DataPayload,
   type Frame,
+  type MetricsPayload,
 } from "~/adapters/wss";
 
 export interface SourceInfo {
@@ -27,6 +28,7 @@ export interface ChannelKey {
 
 const [conn, setConn] = createSignal<ConnState>({ status: "idle" });
 const [sources, setSources] = createStore<Record<string, SourceInfo>>({});
+const [metrics, setMetrics] = createSignal<MetricsPayload | null>(null);
 
 let client: WireClient | null = null;
 
@@ -88,6 +90,10 @@ function handleFrame(frame: Frame): void {
     // surfaced via state only for now
     return;
   }
+  if (frame.type === "metrics") {
+    setMetrics(frame.payload as MetricsPayload);
+    return;
+  }
 }
 
 /** Subscribe to a (sid, ch) channel. Returns an unsubscribe fn. */
@@ -117,3 +123,13 @@ export function useChannel(
 
 export const connState = conn;
 export const sourcesStore = sources;
+export const metricsState = metrics;
+
+/**
+ * Test-only entry point: feed a frame through the same handler the
+ * `WireClient` uses, without opening a WebSocket. Not part of the
+ * public API.
+ */
+export function __ingestFrameForTest(frame: Frame): void {
+  handleFrame(frame);
+}

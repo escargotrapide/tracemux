@@ -56,6 +56,17 @@ export interface DataPayload {
   schema_id?: string;
 }
 
+export interface MetricsPayload {
+  /** ISO timestamp or epoch ms; opaque on the wire. */
+  ts?: string | number;
+  /** Per-source byte counters keyed by `sid`. */
+  bytes_in?: Record<string, number>;
+  /** Per-channel record counters keyed by `sid/ch`. */
+  records?: Record<string, number>;
+  /** Free-form additional gauges. */
+  [key: string]: unknown;
+}
+
 export interface CtlPayload {
   event:
     | "connected"
