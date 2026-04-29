@@ -86,3 +86,67 @@ button:hover {
 .wl-status-dot.err {
   background: var(--wl-error);
 }
+
+.wl-toasts {
+  position: fixed;
+  right: 12px;
+  bottom: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 1000;
+  pointer-events: none;
+}
+.wl-toast {
+  pointer-events: auto;
+  background: var(--wl-bg-elev);
+  border: 1px solid var(--wl-border);
+  padding: 6px 10px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+}
+.wl-toast-error { border-color: var(--wl-error); }
+.wl-toast-warn  { border-color: var(--wl-warn); }
+.wl-toast-info  { border-color: var(--wl-accent); }
+.wl-toast-close {
+  background: transparent;
+  border: none;
+  color: var(--wl-fg-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.wl-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  box-sizing: border-box;
+}
+.wl-tile {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--wl-border);
+  background: var(--wl-bg);
+  min-height: 0;
+  min-width: 0;
+}
+.wl-tile-header {
+  font-size: 10px;
+  color: var(--wl-fg-muted);
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--wl-border);
+  background: var(--wl-bg-elev);
+}
+.wl-tile-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}

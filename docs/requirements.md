@@ -160,3 +160,32 @@ The Metrics panel renders the latest `metrics` wire frame as a flat
 key/value table and shows the current connection state. It updates
 reactively as new frames arrive; if no metrics frames have been
 received it shows an empty-state message.
+
+### FR-UI-008  Source actions
+The Sources panel exposes `start` / `stop` / `remove` buttons per row,
+which the UI translates into a `ctl` frame (`payload.action`) sent to
+the server. The server is the authority — the UI only mirrors the
+result.
+
+### FR-UI-009  Toast notifications
+Inbound `ctl` frames whose `event` is `error`, `auth_failed`,
+`ratelimited`, `disconnected` or `eof` are surfaced as toast
+notifications with the matching severity. Toasts are dismissable and
+include the `error_id` (E-NNNN) when present.
+
+### FR-UI-010  Terminal TX
+The Terminal panel forwards `xterm.onData` keystrokes to the server as
+a `write` frame whose payload contains the UTF-8-encoded bytes. The
+server is responsible for routing the bytes to the underlying source.
+
+### FR-UI-011  Terminal channel switching
+The Terminal panel exposes `sid` / `ch` selectors populated from
+`sourcesStore`. Changing either selector tears down the previous
+subscription and resubscribes to the newly selected `(sid, ch)`.
+
+### FR-UI-012  Tile grid (16-tile virtualization)
+A `TileGridPanel` renders up to 16 mini-terminals (4×4 CSS grid),
+each bound to a distinct `(sid, ch)` from `sourcesStore`. Off-screen
+tiles report `panel_priority{visible:false}` via `IntersectionObserver`
+so the server may switch them to the slow coalescing bucket
+(NFR-PERF-001).

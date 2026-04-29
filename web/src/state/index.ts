@@ -30,6 +30,28 @@ const [conn, setConn] = createSignal<ConnState>({ status: "idle" });
 const [sources, setSources] = createStore<Record<string, SourceInfo>>({});
 const [metrics, setMetrics] = createSignal<MetricsPayload | null>(null);
 
+export interface ToastInfo {
+  id: number;
+  level: "info" | "warn" | "error";
+  message: string;
+  errorId?: string;
+  ts: number;
+}
+const [toasts, setToasts] = createStore<ToastInfo[]>([]);
+let toastSeq = 1;
+
+export function pushToast(t: Omit<ToastInfo, "id" | "ts">): number {
+  const id = toastSeq++;
+  setToasts((prev) => [...prev, { ...t, id, ts: Date.now() }]);
+  return id;
+}
+
+export function dismissToast(id: number): void {
+  setToasts((prev) => prev.filter((t) => t.id !== id));
+}
+
+export const toastsStore = toasts;
+
 let client: WireClient | null = null;
 
 const channelListeners = new Map<string, Set<(p: DataPayload) => void>>();
@@ -87,7 +109,21 @@ function handleFrame(frame: Frame): void {
     return;
   }
   if (frame.type === "ctl") {
-    // surfaced via state only for now
+    const p = frame.payload as {
+      event?: string;
+      message?: string;
+      error_id?: string;
+    };
+    const evt = p.event ?? "";
+    if (evt === "error" || evt === "auth_failed" || evt === "ratelimited") {
+      pushToast({
+        level: "error",
+        message: p.message ?? evt,
+        ...(p.error_id ? { errorId: p.error_id } : {}),
+      });
+    } else if (evt === "disconnected" || evt === "eof") {
+      pushToast({ level: "warn", message: p.message ?? evt });
+    }
     return;
   }
   if (frame.type === "metrics") {
@@ -119,6 +155,19 @@ export function useChannel(
       client?.send({ type: "unsub", sid, ch, payload: {} });
     }
   };
+}
+
+/** Send a control frame (e.g. start/stop a source). */
+export function sendCtl(
+  sid: string,
+  action: "start" | "stop" | "remove",
+): void {
+  getClient().send({ type: "ctl", sid, payload: { action } });
+}
+
+/** Send raw bytes to a (sid, ch). Used by terminal panel for TX. */
+export function sendWrite(sid: string, ch: number, body: Uint8Array): void {
+  getClient().send({ type: "write", sid, ch, payload: { body } });
 }
 
 export const connState = conn;

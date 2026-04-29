@@ -1,11 +1,16 @@
-// Terminal panel ? xterm.js with WebGL renderer (NFR-PERF-001).
-// Subscribes to a single (sid, ch) and prints incoming bytes.
+// Terminal panel ? xterm.js + WebGL renderer (NFR-PERF-001).
+// Subscribes to a (sid, ch), prints incoming bytes, and forwards user
+// keystrokes back to the server via a `write` frame.
+//
+// REQ: FR-UI-002
+// REQ: FR-UI-010
+// REQ: FR-UI-011
 
-import { onCleanup, onMount } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { useChannel } from "~/state";
+import { sendWrite, sourcesStore, useChannel } from "~/state";
 import { observeVisibility } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
 
@@ -14,6 +19,8 @@ export interface TerminalPanelProps {
   ch: number;
 }
 
+const encoder = new TextEncoder();
+
 export function TerminalPanel(props: TerminalPanelProps) {
   let host!: HTMLDivElement;
   let term: Terminal | null = null;
@@ -21,6 +28,26 @@ export function TerminalPanel(props: TerminalPanelProps) {
   let unsub: (() => void) | null = null;
   let unobserve: (() => void) | null = null;
   let resizeObs: ResizeObserver | null = null;
+
+  const [sid, setSid] = createSignal(props.sid);
+  const [ch, setCh] = createSignal(props.ch);
+
+  const sidOptions = createMemo(() => Object.values(sourcesStore));
+  const chOptions = createMemo(() => {
+    const s = sourcesStore[sid()];
+    return s ? s.channels : [ch()];
+  });
+
+  function rebind(): void {
+    unsub?.();
+    unsub = useChannel(sid(), ch(), (p: DataPayload) => {
+      if (p.body instanceof Uint8Array) {
+        term?.write(p.body);
+      } else if (typeof p.body === "object" && p.body) {
+        term?.writeln(JSON.stringify(p.body));
+      }
+    });
+  }
 
   onMount(() => {
     term = new Terminal({
@@ -42,18 +69,21 @@ export function TerminalPanel(props: TerminalPanelProps) {
     term.open(host);
     fit.fit();
 
-    resizeObs = new ResizeObserver(() => fit?.fit());
-    resizeObs.observe(host);
-
-    unsub = useChannel(props.sid, props.ch, (p: DataPayload) => {
-      if (p.body instanceof Uint8Array) {
-        term?.write(p.body);
-      } else if (typeof p.body === "object" && p.body) {
-        term?.writeln(JSON.stringify(p.body));
+    // TX: forward keystrokes to the server.
+    term.onData((data) => {
+      const bytes = encoder.encode(data);
+      try {
+        sendWrite(sid(), ch(), bytes);
+      } catch {
+        // ignore; surfaced via ctl error toast
       }
     });
 
-    unobserve = observeVisibility(host, { sid: props.sid, ch: props.ch });
+    resizeObs = new ResizeObserver(() => fit?.fit());
+    resizeObs.observe(host);
+
+    rebind();
+    unobserve = observeVisibility(host, { sid: sid(), ch: ch() });
   });
 
   onCleanup(() => {
@@ -63,5 +93,54 @@ export function TerminalPanel(props: TerminalPanelProps) {
     term?.dispose();
   });
 
-  return <div ref={host!} style={{ width: "100%", height: "100%" }} />;
+  return (
+    <div
+      style={{
+        display: "flex",
+        "flex-direction": "column",
+        width: "100%",
+        height: "100%",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          gap: "6px",
+          padding: "4px 6px",
+          "border-bottom": "1px solid var(--wl-border)",
+          background: "var(--wl-bg-elev)",
+        }}
+      >
+        <select
+          value={sid()}
+          onChange={(e) => {
+            setSid(e.currentTarget.value);
+            const opts = sourcesStore[e.currentTarget.value]?.channels ?? [];
+            const first = opts[0];
+            if (first !== undefined && !opts.includes(ch())) setCh(first);
+            rebind();
+          }}
+          aria-label="sid"
+        >
+          <option value={sid()}>{sid()}</option>
+          <For each={sidOptions().filter((s) => s.sid !== sid())}>
+            {(s) => <option value={s.sid}>{s.name}</option>}
+          </For>
+        </select>
+        <select
+          value={ch()}
+          onChange={(e) => {
+            setCh(Number(e.currentTarget.value));
+            rebind();
+          }}
+          aria-label="ch"
+        >
+          <For each={chOptions()}>
+            {(c) => <option value={c}>ch {c}</option>}
+          </For>
+        </select>
+      </div>
+      <div ref={host!} style={{ flex: "1 1 auto", "min-height": 0 }} />
+    </div>
+  );
 }

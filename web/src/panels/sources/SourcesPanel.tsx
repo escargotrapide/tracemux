@@ -1,8 +1,23 @@
-// Sources panel ? table of currently known sources.
+// Sources panel ? table of currently known sources with start/stop
+// controls. Server is the source of truth.
+//
+// REQ: FR-UI-008
 
 import { For, Show } from "solid-js";
-import { sourcesStore } from "~/state";
+import { sourcesStore, sendCtl, pushToast } from "~/state";
 import { t } from "~/i18n";
+
+function onAction(sid: string, action: "start" | "stop" | "remove"): void {
+  try {
+    sendCtl(sid, action);
+    pushToast({ level: "info", message: `${action}: ${sid.slice(0, 8)}` });
+  } catch (err) {
+    pushToast({
+      level: "error",
+      message: (err as Error).message ?? "ctl failed",
+    });
+  }
+}
 
 export function SourcesPanel() {
   const rows = () => Object.values(sourcesStore);
@@ -25,6 +40,7 @@ export function SourcesPanel() {
               <th>{t("sources.column.channels")}</th>
               <th>{t("sources.column.bytes")}</th>
               <th>{t("sources.column.last")}</th>
+              <th>{t("sources.column.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -36,9 +52,30 @@ export function SourcesPanel() {
                   <td>{s.channels.join(", ")}</td>
                   <td>{s.bytesIn}</td>
                   <td>
-                    {s.lastTsMs
-                      ? new Date(s.lastTsMs).toISOString()
-                      : "-"}
+                    {s.lastTsMs ? new Date(s.lastTsMs).toISOString() : "-"}
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => onAction(s.sid, "start")}
+                      title={t("sources.action.start")}
+                    >
+                      ?
+                    </button>{" "}
+                    <button
+                      type="button"
+                      onClick={() => onAction(s.sid, "stop")}
+                      title={t("sources.action.stop")}
+                    >
+                      ?
+                    </button>{" "}
+                    <button
+                      type="button"
+                      onClick={() => onAction(s.sid, "remove")}
+                      title={t("sources.action.remove")}
+                    >
+                      ?
+                    </button>
                   </td>
                 </tr>
               )}

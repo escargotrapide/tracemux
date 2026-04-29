@@ -3,6 +3,9 @@ import {
   __ingestFrameForTest,
   metricsState,
   sourcesStore,
+  toastsStore,
+  pushToast,
+  dismissToast,
 } from "../../src/state";
 
 describe("state frame handler", () => {
@@ -41,5 +44,26 @@ describe("state frame handler", () => {
       payload: { records: { "s1/0": 42 } },
     });
     expect(metricsState()).toEqual({ records: { "s1/0": 42 } });
+  });
+
+  it("ctl error frames produce error toasts", () => {
+    // REQ: FR-UI-009
+    const before = toastsStore.length;
+    __ingestFrameForTest({
+      type: "ctl",
+      seq: 3,
+      payload: { event: "auth_failed", message: "bad token", error_id: "E-2001" },
+    });
+    expect(toastsStore.length).toBe(before + 1);
+    const t = toastsStore[toastsStore.length - 1];
+    expect(t.level).toBe("error");
+    expect(t.errorId).toBe("E-2001");
+  });
+
+  it("pushToast / dismissToast round-trip", () => {
+    const id = pushToast({ level: "info", message: "hi" });
+    expect(toastsStore.find((t) => t.id === id)?.message).toBe("hi");
+    dismissToast(id);
+    expect(toastsStore.find((t) => t.id === id)).toBeUndefined();
   });
 });

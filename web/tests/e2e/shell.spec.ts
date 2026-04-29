@@ -1,8 +1,16 @@
+// E2E shell test driving the UI through the dev-only
+// `window.__wanloggerInject` hook (no real WSS server needed).
+//
+// REQ: FR-UI-001
+// REQ: FR-UI-005
+// REQ: FR-UI-008
+// REQ: FR-UI-009
+
 import { test, expect } from "@playwright/test";
 
 test("loads shell and shows top-bar title", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("wanlogger")).toBeVisible();
+  await expect(page.getByText("wanlogger").first()).toBeVisible();
 });
 
 test("language toggle switches between ja and en", async ({ page }) => {
@@ -12,4 +20,65 @@ test("language toggle switches between ja and en", async ({ page }) => {
   await toggle.click();
   const after = await toggle.textContent();
   expect(after).not.toEqual(before);
+});
+
+test("injected ctl error frame surfaces a toast", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { __wanloggerInject?: unknown })
+        .__wanloggerInject === "function",
+  );
+  await page.evaluate(() => {
+    const fn = (
+      window as unknown as { __wanloggerInject: (f: unknown) => void }
+    ).__wanloggerInject;
+    fn({
+      type: "ctl",
+      seq: 1,
+      payload: {
+        event: "auth_failed",
+        message: "bad token in e2e",
+        error_id: "E-2001",
+      },
+    });
+  });
+  await expect(page.getByText("bad token in e2e")).toBeVisible();
+  await expect(page.getByText("E-2001")).toBeVisible();
+});
+
+test("injected data frame populates the sources panel", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { __wanloggerInject?: unknown })
+        .__wanloggerInject === "function",
+  );
+  await page.evaluate(() => {
+    const fn = (
+      window as unknown as { __wanloggerInject: (f: unknown) => void }
+    ).__wanloggerInject;
+    fn({
+      type: "data",
+      seq: 1,
+      payload: {
+        ts_origin: 0,
+        ts_ingest: 1_000_000,
+        mono_ns: 0,
+        boot_id: "b",
+        node_id: "n",
+        clock_offset_ms: 0,
+        clock_quality: "best-effort",
+        drift_ppm: 0,
+        clock_source: "system",
+        sid: "e2e-source",
+        ch: 0,
+        dir: "in",
+        kind: "bytes",
+        body: new Uint8Array([72, 73]),
+        source: "uart-e2e",
+      },
+    });
+  });
+  await expect(page.getByRole("cell", { name: "uart-e2e" })).toBeVisible();
 });

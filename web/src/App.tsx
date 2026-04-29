@@ -13,6 +13,8 @@ import { t, locale, setLocale } from "~/i18n";
 import { SourcesPanel } from "~/panels/sources/SourcesPanel";
 import { MetricsPanel } from "~/panels/metrics/MetricsPanel";
 import { TerminalPanel } from "~/panels/terminal/TerminalPanel";
+import { TileGridPanel } from "~/panels/tiles/TileGridPanel";
+import { Toasts } from "~/panels/Toasts";
 
 interface PanelParams {
   sid?: string;
@@ -41,6 +43,7 @@ class SolidPanel implements IContentRenderer {
 const components: Record<string, () => IContentRenderer> = {
   sources: () => new SolidPanel(() => SourcesPanel()),
   metrics: () => new SolidPanel(() => MetricsPanel()),
+  tiles: () => new SolidPanel(() => TileGridPanel()),
   terminal: () =>
     new SolidPanel((p) =>
       TerminalPanel({ sid: p.sid ?? "default", ch: p.ch ?? 0 }),
@@ -83,6 +86,12 @@ export function App() {
       params: { sid: "default", ch: 0 },
       position: { referencePanel: "sources", direction: "below" },
     });
+    api.addPanel({
+      id: "tiles",
+      component: "tiles",
+      title: t("panel.tiles"),
+      position: { referencePanel: "terminal", direction: "right" },
+    });
   });
 
   onCleanup(() => {
@@ -119,6 +128,7 @@ export function App() {
         <span class={`wl-status-dot ${statusClass()}`} />
         <span>{t(`status.${connState().status}`)}</span>
       </footer>
+      <Toasts />
     </div>
   );
 }
