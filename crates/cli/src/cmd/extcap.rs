@@ -26,8 +26,10 @@ pub enum Mode {
     /// `--capture --extcap-interface NAME --fifo PATH`
     Capture {
         /// Interface name.
+        #[allow(dead_code)]
         interface: String,
         /// FIFO path.
+        #[allow(dead_code)]
         fifo: String,
     },
 }

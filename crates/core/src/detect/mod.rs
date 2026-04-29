@@ -1,4 +1,4 @@
-//! Auto-detection probes (serial / TCP / UDP). v0.1 stub.
+//! Auto-detection probes (serial / TCP / UDP).
 //!
 //! See `add-source` skill for adding probes.
 

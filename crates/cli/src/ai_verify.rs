@@ -40,6 +40,7 @@ struct Step {
 /// # Errors
 /// Returns an error if the report file is missing, cannot be read, or
 /// is not valid JSON.
+#[allow(clippy::unused_async)]
 pub async fn run() -> anyhow::Result<()> {
     let path = PathBuf::from(DEFAULT_REPORT_PATH);
     run_at(&path).await
@@ -49,6 +50,7 @@ pub async fn run() -> anyhow::Result<()> {
 ///
 /// # Errors
 /// See [`run`].
+#[allow(clippy::unused_async)]
 pub async fn run_at(path: &Path) -> anyhow::Result<()> {
     let bytes =
         std::fs::read(path).with_context(|| format!("read {}", path.display()))?;

@@ -36,8 +36,7 @@ pub fn parse(spec: &str) -> Result<ChannelSpec> {
             path: body.trim_start_matches('/').to_string(),
             follow: query
                 .get("follow")
-                .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
-                .unwrap_or(false),
+                .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes")),
         },
         "tcp" => ChannelSpec::Tcp {
             addr: body.to_string(),
@@ -165,6 +164,7 @@ fn hex_val(b: u8) -> Option<u8> {
 }
 
 /// Render a [`ChannelSpec`] back to the URI form parsed by [`parse`].
+#[allow(dead_code)]
 #[must_use]
 pub fn render(spec: &ChannelSpec) -> String {
     match spec {
@@ -185,7 +185,7 @@ pub fn render(spec: &ChannelSpec) -> String {
             "serial://{port}?baud={baud}&data={data_bits}&parity={parity}&stop={stop_bits}&flow={flow}"
         ),
         ChannelSpec::Process { argv } => {
-            let prog = argv.first().map(String::as_str).unwrap_or("");
+            let prog = argv.first().map_or("", String::as_str);
             let rest: Vec<&str> = argv.iter().skip(1).map(String::as_str).collect();
             if rest.is_empty() {
                 format!("process:///{prog}")
@@ -240,7 +240,7 @@ pub fn iface_tag(spec: &ChannelSpec) -> String {
             sanitize(last)
         }
         ChannelSpec::Process { argv } => {
-            let prog = argv.first().map(String::as_str).unwrap_or("proc");
+            let prog = argv.first().map_or("proc", String::as_str);
             let last = std::path::Path::new(prog)
                 .file_name()
                 .and_then(|s| s.to_str())
@@ -275,6 +275,7 @@ fn sanitize(s: &str) -> String {
 ///
 /// # Errors
 /// Returns the underlying parse error.
+#[allow(dead_code)]
 pub fn from_toml(s: &str) -> Result<ChannelSpec> {
     toml::from_str(s).context("parsing channel spec from TOML")
 }

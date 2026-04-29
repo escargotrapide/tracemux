@@ -134,3 +134,23 @@ and defaults to Japanese when `navigator.language` starts with `ja`.
 A Tauri 2 shell under `app-tauri/` wraps the web UI. The shell is
 outside the Cargo workspace and is responsible for spawning the
 `wanlogger serve` sidecar in production builds.
+
+### FR-IMP-001  Plain-text importer
+`wanlogger import text <src> <dst>` ingests a UTF-8 text file as one
+record per `\n`-terminated line and produces a v0.1 session-dir at
+`<dst>` with `raw.bin` + `index.jsonl`. Records carry
+`clock_quality = imported`, `clock_source = imported`. The CLI refuses
+to overwrite a non-empty destination directory.
+
+### FR-EXP-001  Plain-text / CSV / JSONL exporters
+`wanlogger export {text,csv,jsonl} <session-dir> <dst>` reads the
+session-dir's `index.jsonl` + `raw.bin` and writes one row per record
+to `<dst>`. The CLI refuses to run when `<session-dir>` lacks an
+`index.jsonl` file.
+
+### FR-CLI-001  Import / export round-trip
+The CLI guarantees that for any plain-text input file `F`,
+`wanlogger import text F S` followed by
+`wanlogger export text S G` produces a `G` whose final whitespace-
+trimmed column for each row equals the corresponding line of `F` in
+order.

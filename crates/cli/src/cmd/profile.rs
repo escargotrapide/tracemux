@@ -78,8 +78,7 @@ pub fn run(dir: &Path, action: Action) -> Result<()> {
 pub fn default_dir() -> PathBuf {
     if cfg!(windows) {
         std::env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
+            .map_or_else(|| PathBuf::from("."), PathBuf::from)
             .join("wanlogger")
             .join("profiles")
     } else {

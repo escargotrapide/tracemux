@@ -134,6 +134,7 @@ enum ProfileAction {
 }
 
 #[derive(Debug, clap::Args)]
+#[allow(clippy::struct_excessive_bools)]
 struct ExtcapArgs {
     /// Wireshark `--extcap-interfaces` mode.
     #[arg(long, group = "extcap_mode")]
@@ -218,8 +219,8 @@ async fn main() -> anyhow::Result<()> {
             };
             cmd::extcap::run(mode)?;
         }
-        Cmd::Import(args) => cmd::import::run(&args.kind, &args.src, &args.dst)?,
-        Cmd::Export(args) => cmd::export::run(&args.kind, &args.src, &args.dst)?,
+        Cmd::Import(args) => cmd::import::run(&args.kind, &args.src, &args.dst).await?,
+        Cmd::Export(args) => cmd::export::run(&args.kind, &args.src, &args.dst).await?,
         Cmd::AiVerify => ai_verify::run().await?,
         Cmd::JsonSchema(args) => json_schema::emit(&args.out)?,
     }
