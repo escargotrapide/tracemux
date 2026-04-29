@@ -1,15 +1,86 @@
-# Aggregate the AI verification results into target/ai-verify.json.
-# Windows equivalent of scripts/ai-verify-summary.sh. v0.1 stub.
-$ErrorActionPreference = 'Stop'
+# Run every AI-verify step in sequence, capture (name, status,
+# duration_ms, detail), and emit target/ai-verify.json.
+#
+# Detail is the last 20 lines of stdout+stderr on failure; empty on
+# success.  Exit code is the number of failed steps (0 = green).
+#
+# Steps are defined inline below so this script does not depend on
+# YAML/TOML parsing.  The Rust side (`wanlogger ai-verify`) only
+# reads the JSON.
+[CmdletBinding()]
+param(
+    [string]$ReportPath = 'target/ai-verify.json',
+    [switch]$IncludeOptional
+)
 
-$null = New-Item -ItemType Directory -Force -Path 'target'
-$json = @'
-{
-  "schema": "wanlogger/ai-verify/v1",
-  "summary": "stub",
-  "steps": []
+$ErrorActionPreference = 'Continue'
+
+$steps = @(
+    @{ name = 'encoding-check'; cmd = 'pwsh'; args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-encoding.ps1') }
+    @{ name = 'fmt-check';      cmd = 'cargo'; args = @('fmt', '--all', '--', '--check') }
+    @{ name = 'clippy';         cmd = 'cargo'; args = @('clippy', '--workspace', '--all-targets', '--all-features', '--', '-D', 'warnings') }
+    @{ name = 'test';           cmd = 'cargo'; args = @('test', '--workspace', '--all-features') }
+    @{ name = 'rtm';            cmd = 'pwsh'; args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/gen-rtm.ps1') }
+)
+if ($IncludeOptional) {
+    $steps += @{ name = 'web-typecheck'; cmd = 'pnpm'; args = @('--filter', './web', 'typecheck') }
+    $steps += @{ name = 'web-test';      cmd = 'pnpm'; args = @('--filter', './web', 'test') }
 }
-'@
-$fullOut = Join-Path (Get-Location) 'target/ai-verify.json'
-[System.IO.File]::WriteAllText($fullOut, $json, [System.Text.UTF8Encoding]::new($false))
-Write-Host 'Wrote target/ai-verify.json'
+
+$results = @()
+$failed = 0
+
+foreach ($s in $steps) {
+    $name = $s.name
+    $cmd  = $s.cmd
+    $args = $s.args
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $tmpOut = [System.IO.Path]::GetTempFileName()
+    $tmpErr = [System.IO.Path]::GetTempFileName()
+    try {
+        $proc = Start-Process -FilePath $cmd -ArgumentList $args `
+            -NoNewWindow -PassThru -Wait `
+            -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr
+        $code = $proc.ExitCode
+    } catch {
+        $code = 1
+        $_.Exception.Message | Out-File -FilePath $tmpErr -Append -Encoding utf8
+    }
+    $sw.Stop()
+    $stdout = (Get-Content -Raw -ErrorAction SilentlyContinue -Path $tmpOut)
+    $stderr = (Get-Content -Raw -ErrorAction SilentlyContinue -Path $tmpErr)
+    Remove-Item -Force $tmpOut, $tmpErr -ErrorAction SilentlyContinue
+
+    $status = if ($code -eq 0) { 'pass' } else { 'fail' }
+    $detail = $null
+    if ($code -ne 0) {
+        $combined = (("$stdout`n$stderr") -split "`n")
+        $tail = $combined | Select-Object -Last 20
+        $detail = ($tail -join "`n").Trim()
+        $failed += 1
+    }
+
+    $results += [ordered]@{
+        name        = $name
+        status      = $status
+        duration_ms = [int]$sw.ElapsedMilliseconds
+        detail      = $detail
+    }
+    Write-Host ("[{0,-15}] {1,-5} {2,6} ms" -f $name, $status, $sw.ElapsedMilliseconds)
+}
+
+$report = [ordered]@{
+    schema  = 'wanlogger/ai-verify/v1'
+    summary = if ($failed -eq 0) { 'green' } else { "$failed failed" }
+    steps   = $results
+}
+
+$null = New-Item -ItemType Directory -Force -Path (Split-Path $ReportPath -Parent)
+$json = $report | ConvertTo-Json -Depth 6
+[System.IO.File]::WriteAllText(
+    (Resolve-Path -LiteralPath (Split-Path $ReportPath -Parent) | Join-Path -ChildPath (Split-Path $ReportPath -Leaf)),
+    $json,
+    [System.Text.UTF8Encoding]::new($false))
+Write-Host "Wrote $ReportPath"
+
+exit $failed

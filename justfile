@@ -113,29 +113,20 @@ _verify-summary:
     bash scripts/ai-verify-summary.sh
 
 # ---- Aggregate AI verification gate ---------------------------------------
-# Outputs JSON summary to target/ai-verify.json. Used by /api/ai/verify.
-# Heavy steps (audit/deny/coverage/bench/fuzz) are gated on tool presence so
-# this recipe also runs locally on a fresh checkout. CI runs the full set.
+# The driver script in scripts/ai-verify-summary.{ps1,sh} runs each step,
+# captures status/duration/last-20-lines-of-output, and writes
+# target/ai-verify.json. Exit code = number of failed steps (0 = green).
 ai-verify:
-    just encoding-check
-    just fmt-check
-    just clippy
-    just test
     just _verify-summary
 
-# Full verification including optional tooling (CI-only by default).
+# Full verification including web + optional tooling.
+[windows]
 ai-verify-full:
-    just encoding-check
-    just fmt-check
-    just clippy
-    just test
-    just audit
-    just deny
-    just coverage
-    just bench
-    just fuzz-smoke
-    just rtm
-    just _verify-summary
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/ai-verify-summary.ps1 -IncludeOptional
+
+[unix]
+ai-verify-full:
+    INCLUDE_OPTIONAL=1 bash scripts/ai-verify-summary.sh
 
 # ---- Release --------------------------------------------------------------
 

@@ -1,15 +1,73 @@
 #!/usr/bin/env bash
-# Aggregate the AI verification results into target/ai-verify.json.
-# v0.1 stub. Real impl reads each step's exit code and produces a
-# stable JSON document consumed by the server's /api/ai/verify.
-set -euo pipefail
+# Run every AI-verify step in sequence, capture (name, status,
+# duration_ms, detail), and emit target/ai-verify.json. Detail is the
+# last 20 lines of stdout+stderr on failure; empty on success. Exit
+# code is the number of failed steps (0 = green).
+set -uo pipefail
 
-mkdir -p target
-cat > target/ai-verify.json <<'JSON'
-{
-  "schema": "wanlogger/ai-verify/v1",
-  "summary": "stub",
-  "steps": []
-}
+REPORT_PATH="${REPORT_PATH:-target/ai-verify.json}"
+INCLUDE_OPTIONAL="${INCLUDE_OPTIONAL:-0}"
+
+mkdir -p "$(dirname "$REPORT_PATH")"
+
+declare -a NAMES=(
+  "encoding-check"
+  "fmt-check"
+  "clippy"
+  "test"
+  "rtm"
+)
+declare -a CMDS=(
+  "bash scripts/check-encoding.sh"
+  "cargo fmt --all -- --check"
+  "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+  "cargo test --workspace --all-features"
+  "bash scripts/gen-rtm.sh"
+)
+
+if [[ "$INCLUDE_OPTIONAL" == "1" ]]; then
+  NAMES+=("web-typecheck" "web-test")
+  CMDS+=("pnpm --filter ./web typecheck" "pnpm --filter ./web test")
+fi
+
+failed=0
+json_steps=""
+for i in "${!NAMES[@]}"; do
+  name="${NAMES[$i]}"
+  cmd="${CMDS[$i]}"
+  start_ns=$(date +%s%N)
+  set +e
+  out=$(eval "$cmd" 2>&1)
+  code=$?
+  set -e
+  end_ns=$(date +%s%N)
+  dur_ms=$(( (end_ns - start_ns) / 1000000 ))
+  if [[ $code -eq 0 ]]; then
+    status="pass"
+    detail="null"
+  else
+    status="fail"
+    failed=$((failed + 1))
+    tail_text=$(printf '%s' "$out" | tail -n 20 | tr -d '\r')
+    # JSON-escape
+    escaped=$(printf '%s' "$tail_text" | python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.stdin.read()))' 2>/dev/null \
+      || printf '"%s"' "$(printf '%s' "$tail_text" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | awk 'BEGIN{ORS="\\n"}1' | sed 's/\\n$//')")
+    detail="$escaped"
+  fi
+  printf '[%-15s] %-4s %6d ms\n' "$name" "$status" "$dur_ms"
+  json_steps+="{\"name\":\"$name\",\"status\":\"$status\",\"duration_ms\":$dur_ms,\"detail\":$detail}"
+  if [[ $i -lt $((${#NAMES[@]} - 1)) ]]; then
+    json_steps+=","
+  fi
+done
+
+if [[ $failed -eq 0 ]]; then
+  summary="green"
+else
+  summary="$failed failed"
+fi
+cat > "$REPORT_PATH" <<JSON
+{"schema":"wanlogger/ai-verify/v1","summary":"$summary","steps":[$json_steps]}
 JSON
-echo "Wrote target/ai-verify.json"
+echo "Wrote $REPORT_PATH"
+exit $failed
