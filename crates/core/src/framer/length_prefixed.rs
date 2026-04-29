@@ -59,12 +59,7 @@ pub struct LengthPrefixedFramer {
 impl LengthPrefixedFramer {
     /// Construct.
     #[must_use]
-    pub fn new(
-        width: HeaderWidth,
-        endian: Endian,
-        include_header: bool,
-        max_frame: usize,
-    ) -> Self {
+    pub fn new(width: HeaderWidth, endian: Endian, include_header: bool, max_frame: usize) -> Self {
         Self {
             width,
             endian,
@@ -76,18 +71,14 @@ impl LengthPrefixedFramer {
     fn read_len(&self, hdr: &[u8]) -> u64 {
         match (self.width, self.endian) {
             (HeaderWidth::U8, _) => u64::from(hdr[0]),
-            (HeaderWidth::U16, Endian::Big) => {
-                u64::from(u16::from_be_bytes([hdr[0], hdr[1]]))
+            (HeaderWidth::U16, Endian::Big) => u64::from(u16::from_be_bytes([hdr[0], hdr[1]])),
+            (HeaderWidth::U16, Endian::Little) => u64::from(u16::from_le_bytes([hdr[0], hdr[1]])),
+            (HeaderWidth::U32, Endian::Big) => {
+                u64::from(u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]))
             }
-            (HeaderWidth::U16, Endian::Little) => {
-                u64::from(u16::from_le_bytes([hdr[0], hdr[1]]))
+            (HeaderWidth::U32, Endian::Little) => {
+                u64::from(u32::from_le_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]))
             }
-            (HeaderWidth::U32, Endian::Big) => u64::from(u32::from_be_bytes([
-                hdr[0], hdr[1], hdr[2], hdr[3],
-            ])),
-            (HeaderWidth::U32, Endian::Little) => u64::from(u32::from_le_bytes([
-                hdr[0], hdr[1], hdr[2], hdr[3],
-            ])),
             (HeaderWidth::U64, Endian::Big) => u64::from_be_bytes([
                 hdr[0], hdr[1], hdr[2], hdr[3], hdr[4], hdr[5], hdr[6], hdr[7],
             ]),
@@ -114,9 +105,7 @@ impl Framer for LengthPrefixedFramer {
         if payload_len_u64 > max {
             return Err(WanloggerError::new(
                 ErrorId::E1003FramerOverflow,
-                format!(
-                    "length-prefixed: declared {payload_len_u64} > max {max}"
-                ),
+                format!("length-prefixed: declared {payload_len_u64} > max {max}"),
             ));
         }
         let payload_len = payload_len_u64 as usize;
@@ -139,12 +128,7 @@ mod tests {
 
     #[test]
     fn u16_be_two_frames() {
-        let mut f = LengthPrefixedFramer::new(
-            HeaderWidth::U16,
-            Endian::Big,
-            false,
-            1024,
-        );
+        let mut f = LengthPrefixedFramer::new(HeaderWidth::U16, Endian::Big, false, 1024);
         let mut buf = BytesMut::new();
         buf.extend_from_slice(&[0, 3]);
         buf.extend_from_slice(b"abc");
@@ -157,12 +141,7 @@ mod tests {
 
     #[test]
     fn u32_le_partial_returns_none() {
-        let mut f = LengthPrefixedFramer::new(
-            HeaderWidth::U32,
-            Endian::Little,
-            false,
-            1024,
-        );
+        let mut f = LengthPrefixedFramer::new(HeaderWidth::U32, Endian::Little, false, 1024);
         let mut buf = BytesMut::new();
         buf.extend_from_slice(&[5, 0, 0, 0]);
         buf.extend_from_slice(b"abc"); // only 3 of 5 payload bytes
@@ -173,12 +152,7 @@ mod tests {
 
     #[test]
     fn include_header_subtracts_width() {
-        let mut f = LengthPrefixedFramer::new(
-            HeaderWidth::U16,
-            Endian::Big,
-            true,
-            1024,
-        );
+        let mut f = LengthPrefixedFramer::new(HeaderWidth::U16, Endian::Big, true, 1024);
         let mut buf = BytesMut::new();
         // total length 5: 2 hdr + 3 payload
         buf.extend_from_slice(&[0, 5]);
@@ -188,12 +162,7 @@ mod tests {
 
     #[test]
     fn overflow_is_error() {
-        let mut f = LengthPrefixedFramer::new(
-            HeaderWidth::U32,
-            Endian::Big,
-            false,
-            8,
-        );
+        let mut f = LengthPrefixedFramer::new(HeaderWidth::U32, Endian::Big, false, 8);
         let mut buf = BytesMut::from(&[0u8, 0, 0, 99, 0, 0, 0, 0, 0, 0][..]);
         let err = f.poll_frame(&mut buf).unwrap_err();
         assert_eq!(err.id, ErrorId::E1003FramerOverflow);

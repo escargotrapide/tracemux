@@ -54,11 +54,8 @@ impl Decoder for NmeaDecoder {
                 Some(idx) if idx + 3 <= body.len() => {
                     let computed = xor_checksum(&body[1..idx]);
                     let stated_hex = &body[idx + 1..idx + 3];
-                    let stated = u8::from_str_radix(
-                        std::str::from_utf8(stated_hex).unwrap_or(""),
-                        16,
-                    )
-                    .ok();
+                    let stated =
+                        u8::from_str_radix(std::str::from_utf8(stated_hex).unwrap_or(""), 16).ok();
                     let ok = stated == Some(computed);
                     (&body[1..idx], Some(ok))
                 }

@@ -55,10 +55,7 @@ impl NodeClockTable {
     /// Best-known offset (ms) for `node`. Returns `0` when unknown.
     #[must_use]
     pub fn offset_ms(&self, node: Uuid) -> i32 {
-        self.inner
-            .lock()
-            .get(&node)
-            .map_or(0, |e| e.offset_ms)
+        self.inner.lock().get(&node).map_or(0, |e| e.offset_ms)
     }
 
     /// Snapshot the most recent entry per node.

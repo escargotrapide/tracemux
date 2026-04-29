@@ -34,8 +34,7 @@ impl Exporter for JsonlExporter {
 }
 
 fn run(src: &Path, dst: &Path) -> Result<()> {
-    let idx = File::open(src.join("index.jsonl"))
-        .map_err(|e| err("opening index.jsonl", e))?;
+    let idx = File::open(src.join("index.jsonl")).map_err(|e| err("opening index.jsonl", e))?;
     let mut raw = RawReader::open(src).map_err(|e| err("opening raw.bin", e))?;
     let out = File::create(dst).map_err(|e| err("creating dst", e))?;
     let mut w = BufWriter::new(out);
@@ -65,13 +64,19 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
 }
 
 fn err(ctx: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("jsonl-export: {ctx}"))
-        .with_source(e)
+    WanloggerError::new(
+        ErrorId::E1001PipelineGeneric,
+        format!("jsonl-export: {ctx}"),
+    )
+    .with_source(e)
 }
 
 fn serde_err(ctx: &str, e: serde_json::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("jsonl-export: {ctx}"))
-        .with_source(e)
+    WanloggerError::new(
+        ErrorId::E1001PipelineGeneric,
+        format!("jsonl-export: {ctx}"),
+    )
+    .with_source(e)
 }
 
 #[cfg(test)]

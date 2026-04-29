@@ -83,7 +83,10 @@ fn fixture_hello() {
             Value::String("app".into()),
             Value::String("wanlogger-test".into()),
         ),
-        (Value::String("version".into()), Value::String("0.1.0".into())),
+        (
+            Value::String("version".into()),
+            Value::String("0.1.0".into()),
+        ),
     ]);
     let env = Envelope::new(FrameType::Hello, 0, payload);
     check("hello", &env);

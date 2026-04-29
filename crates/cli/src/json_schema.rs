@@ -37,12 +37,10 @@ const SCHEMAS: &[(&str, &str)] = &[
 /// Returns an error if the directory cannot be created or any file
 /// cannot be written.
 pub fn emit(out: &Path) -> anyhow::Result<()> {
-    std::fs::create_dir_all(out)
-        .with_context(|| format!("create {}", out.display()))?;
+    std::fs::create_dir_all(out).with_context(|| format!("create {}", out.display()))?;
     for (name, body) in SCHEMAS {
         let target = out.join(name);
-        std::fs::write(&target, body)
-            .with_context(|| format!("write {}", target.display()))?;
+        std::fs::write(&target, body).with_context(|| format!("write {}", target.display()))?;
         tracing::info!(path = %target.display(), "json-schema: wrote");
     }
     tracing::info!(out = %out.display(), count = SCHEMAS.len(), "json-schema: done");

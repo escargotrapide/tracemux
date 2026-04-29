@@ -130,9 +130,9 @@ fn frame_payload(f: &Frame) -> (Vec<u8>, Kind) {
     match f {
         Frame::Bytes(b) => (b.to_vec(), Kind::Bytes),
         Frame::Datagram { data, .. } => (data.to_vec(), Kind::Datagram),
-        Frame::Ssh { data, .. }
-        | Frame::Visa { data, .. }
-        | Frame::Other { data, .. } => (data.to_vec(), Kind::Frame),
+        Frame::Ssh { data, .. } | Frame::Visa { data, .. } | Frame::Other { data, .. } => {
+            (data.to_vec(), Kind::Frame)
+        }
         _ => (Vec::new(), Kind::Frame),
     }
 }

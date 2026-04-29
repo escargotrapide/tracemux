@@ -82,8 +82,7 @@ pub fn parse(spec: &str) -> Result<ChannelSpec> {
 /// this build.
 pub fn open(spec: &ChannelSpec) -> Result<Box<dyn Source>> {
     use wanlogger_core::source::{
-        file::FileSource, mock::MockSource, process::ProcessSource, tcp::TcpSource,
-        udp::UdpSource,
+        file::FileSource, mock::MockSource, process::ProcessSource, tcp::TcpSource, udp::UdpSource,
     };
     Ok(match spec.clone() {
         ChannelSpec::File { path, follow } => Box::new(FileSource::new(path, follow)),
@@ -140,9 +139,7 @@ fn pct_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(h), Some(l)) =
-                (hex_val(bytes[i + 1]), hex_val(bytes[i + 2]))
-            {
+            if let (Some(h), Some(l)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
                 out.push((h << 4) | l);
                 i += 3;
                 continue;
@@ -226,9 +223,9 @@ pub fn kind_tag(spec: &ChannelSpec) -> &'static str {
 pub fn iface_tag(spec: &ChannelSpec) -> String {
     match spec {
         ChannelSpec::Serial { port, .. } => sanitize(port),
-        ChannelSpec::Tcp { addr } | ChannelSpec::Telnet { addr } | ChannelSpec::Ssh { addr, .. } => {
-            sanitize(addr)
-        }
+        ChannelSpec::Tcp { addr }
+        | ChannelSpec::Telnet { addr }
+        | ChannelSpec::Ssh { addr, .. } => sanitize(addr),
         ChannelSpec::Udp { bind }
         | ChannelSpec::Syslog { bind }
         | ChannelSpec::HttpWebhook { bind, .. } => sanitize(bind),
@@ -297,7 +294,9 @@ mod tests {
     fn parse_serial_defaults() {
         let s = parse("serial://COM3").unwrap();
         match s {
-            ChannelSpec::Serial { port, baud, parity, .. } => {
+            ChannelSpec::Serial {
+                port, baud, parity, ..
+            } => {
                 assert_eq!(port, "COM3");
                 assert_eq!(baud, 115_200);
                 assert_eq!(parity, "none");

@@ -54,7 +54,9 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
 
     let sid = Uuid::new_v4();
     let mut buf = String::new();
-    let n = rd.read_line(&mut buf).map_err(|e| err("reading header", e))?;
+    let n = rd
+        .read_line(&mut buf)
+        .map_err(|e| err("reading header", e))?;
     if n == 0 {
         return Ok(());
     }
@@ -62,7 +64,16 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
     let (col_ts, col_level, col_text) = locate_cols(&header);
     let has_header = col_ts.is_some() || col_level.is_some() || col_text.is_some();
     if !has_header {
-        emit_row(&header, None, None, None, sid, &mut raw, &mut idx, &mut lines_writer)?;
+        emit_row(
+            &header,
+            None,
+            None,
+            None,
+            sid,
+            &mut raw,
+            &mut idx,
+            &mut lines_writer,
+        )?;
     }
 
     loop {
@@ -77,7 +88,14 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
         }
         let row = parse_row(trimmed);
         emit_row(
-            &row, col_ts, col_level, col_text, sid, &mut raw, &mut idx, &mut lines_writer,
+            &row,
+            col_ts,
+            col_level,
+            col_text,
+            sid,
+            &mut raw,
+            &mut idx,
+            &mut lines_writer,
         )?;
     }
 
@@ -130,7 +148,9 @@ fn emit_row(
             correlation_id: None,
             tags: Vec::new(),
         };
-        lines_writer.append(&line).map_err(|e| err("lines append", e))?;
+        lines_writer
+            .append(&line)
+            .map_err(|e| err("lines append", e))?;
     }
     Ok(())
 }
@@ -201,8 +221,7 @@ fn imported_ts() -> DualTimestamp {
 }
 
 fn err(ctx: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("csv-import: {ctx}"))
-        .with_source(e)
+    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("csv-import: {ctx}")).with_source(e)
 }
 
 #[cfg(test)]

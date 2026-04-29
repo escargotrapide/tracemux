@@ -21,7 +21,10 @@ pub const KINDS: &[&str] = &["csv", "text", "jsonl"];
 /// session-dir, or when the underlying [`Exporter`] fails.
 pub async fn run(kind: &str, src: &Path, dst: &Path) -> Result<()> {
     if !KINDS.contains(&kind) {
-        bail!("unknown exporter kind `{kind}`; known: {}", KINDS.join(", "));
+        bail!(
+            "unknown exporter kind `{kind}`; known: {}",
+            KINDS.join(", ")
+        );
     }
     if !src.is_dir() {
         bail!("source must be a session-dir: {}", src.display());

@@ -52,8 +52,7 @@ pub async fn run() -> anyhow::Result<()> {
 /// See [`run`].
 #[allow(clippy::unused_async)]
 pub async fn run_at(path: &Path) -> anyhow::Result<()> {
-    let bytes =
-        std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let report: Report = serde_json::from_slice(&bytes)
         .with_context(|| format!("parse {} as JSON", path.display()))?;
 

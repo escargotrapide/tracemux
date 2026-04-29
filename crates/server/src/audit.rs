@@ -70,10 +70,7 @@ impl AuditLog {
     /// Returns the underlying `io::Error` on failure.
     pub fn create(dir: &Path) -> io::Result<Self> {
         let path = dir.join("audit.jsonl");
-        let f = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let f = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self {
             path,
             inner: Mutex::new(BufWriter::new(f)),

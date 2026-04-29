@@ -74,9 +74,9 @@ fn is_safe_id(id: &str) -> bool {
     if id.is_empty() || id == "." || id == ".." {
         return false;
     }
-    id.chars().all(|c| {
-        c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':')
-    }) && !id.contains("..")
+    id.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+        && !id.contains("..")
 }
 
 #[cfg(test)]
@@ -84,8 +84,7 @@ mod tests {
     use super::*;
 
     fn tempdir() -> PathBuf {
-        let p = std::env::temp_dir()
-            .join(format!("wanlogger-schema-{}", uuid::Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!("wanlogger-schema-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }

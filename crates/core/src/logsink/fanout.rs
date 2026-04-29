@@ -89,11 +89,7 @@ mod tests {
             self.raws.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
-        async fn append_record(
-            &mut self,
-            _ts: &DualTimestamp,
-            _record: &Record,
-        ) -> Result<()> {
+        async fn append_record(&mut self, _ts: &DualTimestamp, _record: &Record) -> Result<()> {
             Ok(())
         }
         async fn commit(&mut self) -> Result<()> {

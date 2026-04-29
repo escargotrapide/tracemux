@@ -32,8 +32,7 @@ impl Exporter for CsvExporter {
 }
 
 fn run(src: &Path, dst: &Path) -> Result<()> {
-    let idx = File::open(src.join("index.jsonl"))
-        .map_err(|e| err("opening index.jsonl", e))?;
+    let idx = File::open(src.join("index.jsonl")).map_err(|e| err("opening index.jsonl", e))?;
     let mut raw = RawReader::open(src).map_err(|e| err("opening raw.bin", e))?;
     let out = File::create(dst).map_err(|e| err("creating dst", e))?;
     let mut w = BufWriter::new(out);
@@ -102,13 +101,11 @@ fn quote(s: &str) -> String {
 }
 
 fn err(ctx: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("csv-export: {ctx}"))
-        .with_source(e)
+    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("csv-export: {ctx}")).with_source(e)
 }
 
 fn serde_err(ctx: &str, e: serde_json::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("csv-export: {ctx}"))
-        .with_source(e)
+    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("csv-export: {ctx}")).with_source(e)
 }
 
 #[cfg(test)]
@@ -130,7 +127,10 @@ mod tests {
         CsvExporter.export(&session, &dst).await.unwrap();
         let body = std::fs::read_to_string(&dst).unwrap();
         let mut lines = body.lines();
-        assert_eq!(lines.next().unwrap(), "ts_origin,ts_ingest,dir,kind,len,text");
+        assert_eq!(
+            lines.next().unwrap(),
+            "ts_origin,ts_ingest,dir,kind,len,text"
+        );
         let row1 = lines.next().unwrap();
         assert!(row1.ends_with(r#","hi,there""#));
         let row2 = lines.next().unwrap();

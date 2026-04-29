@@ -57,31 +57,22 @@ impl Source for ReplaySource {
         let mut entries = Vec::new();
         for line in BufReader::new(f).lines() {
             let line = line.map_err(|e| {
-                WanloggerError::new(
-                    ErrorId::E1101SourceOpen,
-                    format!("replay read: {e}"),
-                )
-                .with_source(e)
+                WanloggerError::new(ErrorId::E1101SourceOpen, format!("replay read: {e}"))
+                    .with_source(e)
             })?;
             if line.is_empty() {
                 continue;
             }
             let entry: IndexEntry = serde_json::from_str(&line).map_err(|e| {
-                WanloggerError::new(
-                    ErrorId::E1101SourceOpen,
-                    format!("replay parse: {e}"),
-                )
-                .with_source(e)
+                WanloggerError::new(ErrorId::E1101SourceOpen, format!("replay parse: {e}"))
+                    .with_source(e)
             })?;
             entries.push(entry);
         }
         self.iter = Some(entries.into_iter());
         self.raw = Some(RawReader::open(dir).map_err(|e| {
-            WanloggerError::new(
-                ErrorId::E1101SourceOpen,
-                format!("replay raw.bin: {e}"),
-            )
-            .with_source(e)
+            WanloggerError::new(ErrorId::E1101SourceOpen, format!("replay raw.bin: {e}"))
+                .with_source(e)
         })?);
         Ok(())
     }

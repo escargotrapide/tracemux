@@ -152,10 +152,7 @@ impl IndexWriter {
     /// Returns the underlying `io::Error` on failure.
     pub fn create(dir: &Path) -> io::Result<Self> {
         let path = dir.join("index.jsonl");
-        let f = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let f = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self {
             path,
             inner: BufWriter::new(f),
@@ -229,8 +226,7 @@ mod tests {
     }
 
     fn tempdir() -> PathBuf {
-        let p = std::env::temp_dir()
-            .join(format!("wanlogger-index-{}", uuid::Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!("wanlogger-index-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }

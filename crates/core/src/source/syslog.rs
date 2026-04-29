@@ -103,7 +103,10 @@ mod tests {
         let local = src.local_addr().unwrap();
         let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         sender.connect(local).await.unwrap();
-        sender.send(b"<13>Oct 11 22:14:15 host app: hi").await.unwrap();
+        sender
+            .send(b"<13>Oct 11 22:14:15 host app: hi")
+            .await
+            .unwrap();
         let f = src.recv().await.unwrap().unwrap();
         match f {
             Frame::Datagram { data, src: _ } => assert!(data.starts_with(b"<13>")),

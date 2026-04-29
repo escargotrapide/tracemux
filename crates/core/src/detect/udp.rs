@@ -30,9 +30,8 @@ mod tests {
         let bind = listener.local_addr().unwrap().to_string();
         drop(listener);
         let bind_clone = bind.clone();
-        let recv = tokio::spawn(async move {
-            probe(&bind_clone, Duration::from_millis(800)).await
-        });
+        let recv =
+            tokio::spawn(async move { probe(&bind_clone, Duration::from_millis(800)).await });
         // Give the receiver time to bind.
         tokio::time::sleep(Duration::from_millis(100)).await;
         let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();

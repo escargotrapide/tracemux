@@ -22,7 +22,10 @@ pub const KINDS: &[&str] = &["teraterm", "pcapng", "csv", "text"];
 /// always bail (not implemented in v0.1).
 pub async fn run(kind: &str, src: &Path, dst: &Path) -> Result<()> {
     if !KINDS.contains(&kind) {
-        bail!("unknown importer kind `{kind}`; known: {}", KINDS.join(", "));
+        bail!(
+            "unknown importer kind `{kind}`; known: {}",
+            KINDS.join(", ")
+        );
     }
     if !src.exists() {
         bail!("source artefact does not exist: {}", src.display());
@@ -62,7 +65,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("in.txt");
         std::fs::write(&src, b"x").unwrap();
-        let err = run("nope", &src, &dir.path().join("out")).await.unwrap_err();
+        let err = run("nope", &src, &dir.path().join("out"))
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("unknown importer kind"));
     }
 

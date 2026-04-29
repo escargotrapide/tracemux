@@ -328,4 +328,3 @@ mod tests {
         assert!(matches!(err, WireError::Malformed(_)));
     }
 }
-

@@ -53,7 +53,10 @@ mod tests {
     #[test]
     fn invalid_utf8_is_replaced_not_dropped() {
         let mut d = PassthroughDecoder::new();
-        let rec = d.decode(Bytes::from_static(&[0xff, 0xfe])).unwrap().unwrap();
+        let rec = d
+            .decode(Bytes::from_static(&[0xff, 0xfe]))
+            .unwrap()
+            .unwrap();
         assert!(rec.text.is_some());
     }
 

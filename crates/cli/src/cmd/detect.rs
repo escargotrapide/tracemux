@@ -19,9 +19,7 @@ struct DetectReport<'a> {
 /// Currently never fails (placeholder for transport probes that may
 /// raise I/O errors in later versions).
 pub fn run() -> Result<()> {
-    let kinds: &[&str] = &[
-        "file", "tcp", "udp", "serial", "process", "pipe", "mock",
-    ];
+    let kinds: &[&str] = &["file", "tcp", "udp", "serial", "process", "pipe", "mock"];
     let serial_candidates = scan_serial_candidates();
     let report = DetectReport {
         kinds,

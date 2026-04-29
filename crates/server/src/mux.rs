@@ -79,8 +79,14 @@ mod tests {
     #[test]
     fn ids_are_monotonic_and_unique() {
         let m = Mux::new();
-        let a = m.open(ChannelInfo { kind: "raw".into(), sid: None });
-        let b = m.open(ChannelInfo { kind: "lines".into(), sid: None });
+        let a = m.open(ChannelInfo {
+            kind: "raw".into(),
+            sid: None,
+        });
+        let b = m.open(ChannelInfo {
+            kind: "lines".into(),
+            sid: None,
+        });
         assert!(b.0 > a.0);
         assert_eq!(m.len(), 2);
         let info = m.close(a).unwrap();

@@ -79,7 +79,10 @@ mod tests {
     fn shift_jis_label() {
         let mut d = Utf8TextDecoder::new("shift_jis");
         // 0x82 0xA0 = "あ" in Shift_JIS
-        let rec = d.decode(Bytes::from_static(&[0x82, 0xA0])).unwrap().unwrap();
+        let rec = d
+            .decode(Bytes::from_static(&[0x82, 0xA0]))
+            .unwrap()
+            .unwrap();
         assert_eq!(rec.text.as_deref(), Some("あ"));
     }
 

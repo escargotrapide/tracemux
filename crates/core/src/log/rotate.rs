@@ -74,8 +74,7 @@ pub fn format_session_dirname(
     iface: &str,
     now: OffsetDateTime,
 ) -> String {
-    const FMT: &[FormatItem<'_>] =
-        format_description!("[year][month][day]-[hour][minute][second]");
+    const FMT: &[FormatItem<'_>] = format_description!("[year][month][day]-[hour][minute][second]");
     let ts = now.format(FMT).unwrap_or_else(|_| "00000000-000000".into());
     let safe_iface = sanitize_iface(iface);
     format!("{prefix}_{kind}_{safe_iface}_{ts}")

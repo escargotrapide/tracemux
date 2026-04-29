@@ -81,11 +81,8 @@ impl Source for FileSource {
             };
             let mut buf = vec![0u8; READ_CHUNK];
             let n = f.read(&mut buf).await.map_err(|e| {
-                WanloggerError::new(
-                    ErrorId::E1102SourceClosed,
-                    format!("file read: {e}"),
-                )
-                .with_source(e)
+                WanloggerError::new(ErrorId::E1102SourceClosed, format!("file read: {e}"))
+                    .with_source(e)
             })?;
             if n > 0 {
                 buf.truncate(n);

@@ -60,7 +60,9 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
             correlation_id: None,
             tags: Vec::new(),
         };
-        lines_writer.append(&line_entry).map_err(|e| err("lines append", e))?;
+        lines_writer
+            .append(&line_entry)
+            .map_err(|e| err("lines append", e))?;
     }
     raw.flush().map_err(|e| err("flush raw", e))?;
     idx.flush().map_err(|e| err("flush index", e))?;
@@ -113,8 +115,11 @@ fn imported_ts() -> DualTimestamp {
 }
 
 fn err(ctx: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("teraterm-import: {ctx}"))
-        .with_source(e)
+    WanloggerError::new(
+        ErrorId::E1001PipelineGeneric,
+        format!("teraterm-import: {ctx}"),
+    )
+    .with_source(e)
 }
 
 #[cfg(test)]

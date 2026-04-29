@@ -50,8 +50,8 @@ impl TokenBucket {
     pub fn try_consume(&mut self, cost: u32, now: Instant) -> bool {
         let dt = now.saturating_duration_since(self.last).as_secs_f64();
         self.last = now;
-        self.tokens = (self.tokens + dt * f64::from(self.rate_per_sec))
-            .min(f64::from(self.capacity));
+        self.tokens =
+            (self.tokens + dt * f64::from(self.rate_per_sec)).min(f64::from(self.capacity));
         let cost_f = f64::from(cost);
         if self.tokens >= cost_f {
             self.tokens -= cost_f;
@@ -93,12 +93,10 @@ impl ConnCounter {
             if cur >= self.cap {
                 return None;
             }
-            match self.cur.compare_exchange_weak(
-                cur,
-                cur + 1,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
+            match self
+                .cur
+                .compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Acquire)
+            {
                 Ok(_) => return Some(ConnGuard { counter: self }),
                 Err(observed) => cur = observed,
             }
@@ -153,12 +151,10 @@ impl ConnCounter {
             if cur >= self.cap {
                 return None;
             }
-            match self.cur.compare_exchange_weak(
-                cur,
-                cur + 1,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
+            match self
+                .cur
+                .compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Acquire)
+            {
                 Ok(_) => {
                     return Some(OwnedConnGuard {
                         counter: self.clone(),
@@ -169,7 +165,6 @@ impl ConnCounter {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

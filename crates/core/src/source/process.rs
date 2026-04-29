@@ -168,11 +168,7 @@ mod tests {
 
     fn echo_argv(text: &str) -> Vec<String> {
         if cfg!(windows) {
-            vec![
-                "cmd".into(),
-                "/C".into(),
-                format!("echo {text}"),
-            ]
+            vec!["cmd".into(), "/C".into(), format!("echo {text}")]
         } else {
             vec!["sh".into(), "-c".into(), format!("printf '{text}'")]
         }

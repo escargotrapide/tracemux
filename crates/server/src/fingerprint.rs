@@ -281,10 +281,16 @@ mod tests {
         let mut store = PinStore::open(&path).unwrap();
         assert!(store.is_empty());
         let cert = b"DERDERDER";
-        assert_eq!(store.verify_or_pin("h:1", cert).unwrap(), PinOutcome::Pinned);
+        assert_eq!(
+            store.verify_or_pin("h:1", cert).unwrap(),
+            PinOutcome::Pinned
+        );
         assert_eq!(store.len(), 1);
         // Second time matches.
-        assert_eq!(store.verify_or_pin("h:1", cert).unwrap(), PinOutcome::Matched);
+        assert_eq!(
+            store.verify_or_pin("h:1", cert).unwrap(),
+            PinOutcome::Matched
+        );
 
         // Reopen and confirm persistence.
         let store2 = PinStore::open(&path).unwrap();
@@ -332,4 +338,3 @@ mod tests {
         assert_eq!(e.id, ErrorId::E2103TofuMismatch);
     }
 }
-

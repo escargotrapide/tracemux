@@ -84,10 +84,7 @@ pub fn default_dir() -> PathBuf {
     } else {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(|h| PathBuf::from(h).join(".config"))
-            })
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
             .unwrap_or_else(|| PathBuf::from("."));
         base.join("wanlogger").join("profiles")
     }
@@ -110,8 +107,8 @@ fn list(dir: &Path) -> Result<Vec<String>> {
 
 fn read(dir: &Path, name: &str) -> Result<Profile> {
     let path = file_for(dir, name)?;
-    let body = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let body =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let p: Profile = toml::from_str(&body).context("parsing profile TOML")?;
     Ok(p)
 }
@@ -132,9 +129,7 @@ fn del(dir: &Path, name: &str) -> Result<()> {
 
 fn file_for(dir: &Path, name: &str) -> Result<PathBuf> {
     if name.is_empty()
-        || name.contains(|c: char| {
-            !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-        })
+        || name.contains(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')))
     {
         return Err(anyhow!("invalid profile name: {name:?}"));
     }
@@ -146,10 +141,8 @@ mod tests {
     use super::*;
 
     fn tempdir() -> PathBuf {
-        let p = std::env::temp_dir().join(format!(
-            "wanlogger-cli-profile-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let p =
+            std::env::temp_dir().join(format!("wanlogger-cli-profile-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }

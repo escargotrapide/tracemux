@@ -59,9 +59,11 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
         }
         let body_len = total_len - 12;
         let mut body = vec![0u8; body_len];
-        rd.read_exact(&mut body).map_err(|e| err("reading body", e))?;
+        rd.read_exact(&mut body)
+            .map_err(|e| err("reading body", e))?;
         let mut tail = [0u8; 4];
-        rd.read_exact(&mut tail).map_err(|e| err("reading tail", e))?;
+        rd.read_exact(&mut tail)
+            .map_err(|e| err("reading tail", e))?;
 
         match block_type {
             BLOCK_SHB => {
@@ -70,9 +72,7 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
                 }
                 let magic = u32::from_le_bytes([body[0], body[1], body[2], body[3]]);
                 if magic != SHB_MAGIC {
-                    return Err(simple(
-                        "pcapng byte-order swap not supported in v0.1",
-                    ));
+                    return Err(simple("pcapng byte-order swap not supported in v0.1"));
                 }
             }
             BLOCK_EPB => {
@@ -92,7 +92,12 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
                 let ts_ns = (ts_us as i64).saturating_mul(1_000);
                 let ts = imported_ts(ts_ns);
                 idx.append(&IndexEntry::from_envelope(
-                    &ts, sid, Dir::In, Kind::Datagram, off, len,
+                    &ts,
+                    sid,
+                    Dir::In,
+                    Kind::Datagram,
+                    off,
+                    len,
                 ))
                 .map_err(|e| err("index append", e))?;
             }
@@ -119,12 +124,18 @@ fn imported_ts(ts_origin_ns: i64) -> DualTimestamp {
 }
 
 fn err(ctx: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("pcapng-import: {ctx}"))
-        .with_source(e)
+    WanloggerError::new(
+        ErrorId::E1001PipelineGeneric,
+        format!("pcapng-import: {ctx}"),
+    )
+    .with_source(e)
 }
 
 fn simple(msg: &str) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("pcapng-import: {msg}"))
+    WanloggerError::new(
+        ErrorId::E1001PipelineGeneric,
+        format!("pcapng-import: {msg}"),
+    )
 }
 
 #[cfg(test)]

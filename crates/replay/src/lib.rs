@@ -29,16 +29,11 @@ pub struct ReplayStats {
 ///
 /// # Errors
 /// Returns an error if `index.jsonl` cannot be read or parsed.
-pub async fn run(
-    session_dir: &Path,
-    rate: f32,
-    seed: Option<u64>,
-) -> anyhow::Result<ReplayStats> {
+pub async fn run(session_dir: &Path, rate: f32, seed: Option<u64>) -> anyhow::Result<ReplayStats> {
     tracing::info!(?session_dir, rate, ?seed, "replay: starting");
     let started = std::time::Instant::now();
     let idx_path = session_dir.join("index.jsonl");
-    let f = File::open(&idx_path)
-        .with_context(|| format!("replay open {}", idx_path.display()))?;
+    let f = File::open(&idx_path).with_context(|| format!("replay open {}", idx_path.display()))?;
     let mut prev_ts: Option<u64> = None;
     let mut count = 0u64;
     for line in BufReader::new(f).lines() {
@@ -46,8 +41,7 @@ pub async fn run(
         if line.is_empty() {
             continue;
         }
-        let entry: IndexEntry =
-            serde_json::from_str(&line).context("replay parse")?;
+        let entry: IndexEntry = serde_json::from_str(&line).context("replay parse")?;
         if rate > 0.0 {
             if let Some(prev) = prev_ts {
                 let delta_ns = entry.mono_ns.saturating_sub(prev);
@@ -85,8 +79,7 @@ mod tests {
 
     #[tokio::test]
     async fn replays_an_empty_session() {
-        let dir =
-            std::env::temp_dir().join(format!("wlg-replay-lib-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("wlg-replay-lib-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("index.jsonl"), b"").unwrap();
         let s = run(&dir, 0.0, None).await.unwrap();
@@ -97,8 +90,7 @@ mod tests {
     async fn replays_three_records_lockstep() {
         use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
         use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
-        let dir =
-            std::env::temp_dir().join(format!("wlg-replay-3-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("wlg-replay-3-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut iw = IndexWriter::create(&dir).unwrap();
         let sid = uuid::Uuid::nil();

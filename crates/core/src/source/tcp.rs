@@ -122,14 +122,11 @@ mod tests {
         }
         assert!(src.recv().await.unwrap().is_none());
         // Connected was recorded; then Eof.
-        let evts: Vec<_> = std::iter::from_fn(|| {
-            futures::executor::block_on(src.recv_ctl()).ok().flatten()
-        })
-        .collect();
+        let evts: Vec<_> =
+            std::iter::from_fn(|| futures::executor::block_on(src.recv_ctl()).ok().flatten())
+                .collect();
         assert!(matches!(evts.first(), Some(ControlEvt::Connected)));
-        assert!(evts
-            .iter()
-            .any(|e| matches!(e, ControlEvt::Eof)));
+        assert!(evts.iter().any(|e| matches!(e, ControlEvt::Eof)));
     }
 
     #[tokio::test]

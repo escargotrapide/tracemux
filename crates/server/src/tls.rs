@@ -137,8 +137,9 @@ impl CertBundle {
     ///
     /// # Errors
     /// Returns [`TlsError::Pem`] when either PEM is malformed.
-    pub fn parse(&self) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), TlsError>
-    {
+    pub fn parse(
+        &self,
+    ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), TlsError> {
         let mut cert_reader = self.cert_pem.as_bytes();
         let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_reader)
             .collect::<Result<_, _>>()
@@ -256,4 +257,3 @@ mod tests {
             .as_nanos() as u64
     }
 }
-

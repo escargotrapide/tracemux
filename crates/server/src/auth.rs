@@ -248,4 +248,3 @@ mod tests {
         assert_eq!(e.id, ErrorId::E2101AuthRejected);
     }
 }
-

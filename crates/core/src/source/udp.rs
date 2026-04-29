@@ -63,11 +63,7 @@ impl Source for UdpSource {
         };
         let mut buf = vec![0u8; RECV_BUF];
         let (n, peer) = s.recv_from(&mut buf).await.map_err(|e| {
-            WanloggerError::new(
-                ErrorId::E1102SourceClosed,
-                format!("udp recv: {e}"),
-            )
-            .with_source(e)
+            WanloggerError::new(ErrorId::E1102SourceClosed, format!("udp recv: {e}")).with_source(e)
         })?;
         buf.truncate(n);
         Ok(Some(Frame::Datagram {

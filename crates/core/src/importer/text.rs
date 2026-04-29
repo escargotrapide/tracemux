@@ -35,8 +35,7 @@ impl Importer for TextImporter {
 }
 
 fn run(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst)
-        .map_err(|e| err("creating dst dir", e))?;
+    std::fs::create_dir_all(dst).map_err(|e| err("creating dst dir", e))?;
     let f = File::open(src).map_err(|e| err("opening src", e))?;
     let rd = BufReader::new(f);
     let mut raw = RawWriter::create(dst).map_err(|e| err("opening raw.bin", e))?;
@@ -47,8 +46,15 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
         let bytes = line.as_bytes();
         let (off, len) = raw.append(bytes).map_err(|e| err("raw append", e))?;
         let ts = imported_ts();
-        idx.append(&IndexEntry::from_envelope(&ts, sid, Dir::In, Kind::Bytes, off, len))
-            .map_err(|e| err("index append", e))?;
+        idx.append(&IndexEntry::from_envelope(
+            &ts,
+            sid,
+            Dir::In,
+            Kind::Bytes,
+            off,
+            len,
+        ))
+        .map_err(|e| err("index append", e))?;
     }
     raw.flush().map_err(|e| err("flush raw", e))?;
     idx.flush().map_err(|e| err("flush index", e))?;
@@ -71,8 +77,7 @@ fn imported_ts() -> DualTimestamp {
 }
 
 fn err(ctx: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("text-import: {ctx}"))
-        .with_source(e)
+    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("text-import: {ctx}")).with_source(e)
 }
 
 #[cfg(test)]

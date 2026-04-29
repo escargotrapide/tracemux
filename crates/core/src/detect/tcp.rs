@@ -14,7 +14,11 @@ use tokio::time::timeout;
 ///
 /// Returns `true` if a TCP connection completed within the timeout.
 pub async fn probe(addr: &str, dur: Duration) -> bool {
-    timeout(dur, TcpStream::connect(addr)).await.ok().and_then(|r| r.ok()).is_some()
+    timeout(dur, TcpStream::connect(addr))
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .is_some()
 }
 
 #[cfg(test)]
