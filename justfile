@@ -128,6 +128,44 @@ ai-verify-full:
 ai-verify-full:
     INCLUDE_OPTIONAL=1 bash scripts/ai-verify-summary.sh
 
+# ---- Dev launch (GUI) -----------------------------------------------------
+
+# Start the backend server only (dev mode, port 9000).
+[windows]
+dev-server:
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev-server.ps1
+
+[unix]
+dev-server:
+    bash scripts/dev-server.sh
+
+# Start the SolidJS web UI dev server only (assumes backend is running).
+[windows]
+dev-web:
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev-web.ps1
+
+[unix]
+dev-web:
+    bash scripts/dev-web.sh
+
+# Start the Tauri desktop app in dev mode (assumes backend is running).
+[windows]
+dev-tauri:
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev-tauri.ps1
+
+[unix]
+dev-tauri:
+    bash scripts/dev-tauri.sh
+
+# Start both backend + web UI together (Ctrl+C stops both).
+[windows]
+dev-all:
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev-all.ps1
+
+[unix]
+dev-all:
+    bash scripts/dev-all.sh
+
 # ---- Release --------------------------------------------------------------
 
 [windows]
