@@ -80,6 +80,16 @@ the producing `Source` is told to apply flow control or fail closed.
 `just ai-verify` produces `target/ai-verify.json` with pass/fail per
 step. The server's `/api/ai/verify` returns the same JSON.
 
+### FR-AI-002  Release gate
+`just release-gate` (or `scripts/release-gate.{ps1,sh}`) refuses to
+release when any of the following hold: dirty git tree, dev/alpha/
+beta/rc workspace version, missing CHANGELOG entry for the current
+version, missing matching git tag, missing or failed
+`target/ai-verify.json`, or `cargo audit` / `cargo deny check`
+failures. Exit code is the number of blockers (0 = green). The
+`Dev` / `--allow-dev` mode skips the version-string and tag checks
+so the gate can be smoke-tested on a development tree.
+
 ### FR-SEC-001  Secrets indirection
 Configuration files only store `secret://name`. Resolution goes to
 the OS keyring.
