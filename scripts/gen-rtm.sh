@@ -11,9 +11,10 @@ OUT="docs/rtm.md"
   echo ""
   echo "| Requirement | Tests | Status |"
   echo "| ----------- | ----- | ------ |"
-  grep -RhoE '// REQ: [A-Z]+-[A-Za-z0-9_-]+' crates/ tests/ web/ 2>/dev/null \
+  grep -RhoE '(//|#) REQ: [A-Z]+-[A-Za-z0-9_-]+' crates/ tests/ web/ scripts/ 2>/dev/null \
+    | sed -E 's|^(//|#) REQ: ||' \
     | sort -u \
-    | awk '{ sub("// REQ: ", "", $0); print "| " $0 " | (auto) | covered |" }' \
+    | awk '{ print "| " $0 " | (auto) | covered |" }' \
     || true
 } > "$OUT"
 echo "Wrote $OUT"

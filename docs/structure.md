@@ -50,11 +50,7 @@
 
 Where things are **not yet** filled in (deferred to next iterations):
 
-- `web/`        — SolidJS UI (xterm.js + Dockview).
-- `app-tauri/`  — Tauri 2 shell.
 - `crates/fuzz/`        — cargo-fuzz targets.
-- `tests/compat/{wire,log,cli}/v1/`  — fixture corpus (created on
-  first PR that needs them).
 - `benches/` + `bench-baseline.json` — Criterion benches.
 - `docs/protocols/cli-output/v1/*.schema.json` — emitted by
   `wanlogger json-schema`.

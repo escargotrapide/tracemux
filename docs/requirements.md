@@ -1,7 +1,9 @@
 # Requirements
 
-Each requirement has a stable id. Tests reference ids in comments
-(`// REQ: FR-…`). `docs/rtm.md` is generated from those references.
+Each requirement has a stable id. Tests and tooling reference ids in
+comments (`// REQ: FR-…` for Rust/TS sources, `# REQ: FR-…` for shell
+and PowerShell scripts). `docs/rtm.md` is generated from those
+references.
 
 Categories:
 

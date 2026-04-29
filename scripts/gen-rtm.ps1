@@ -3,12 +3,12 @@
 $ErrorActionPreference = 'Stop'
 
 $out = 'docs/rtm.md'
-$searchDirs = @('crates', 'tests', 'web') | Where-Object { Test-Path $_ }
+$searchDirs = @('crates', 'tests', 'web', 'scripts') | Where-Object { Test-Path $_ }
 
 $ids = $searchDirs | ForEach-Object {
-    Get-ChildItem -Recurse -Path $_ -Include *.rs, *.ts, *.tsx -File -ErrorAction SilentlyContinue
+    Get-ChildItem -Recurse -Path $_ -Include *.rs, *.ts, *.tsx, *.ps1, *.sh -File -ErrorAction SilentlyContinue
 } | ForEach-Object {
-    Select-String -Path $_.FullName -Pattern '// REQ: ([A-Z]+-[A-Za-z0-9_-]+)' -AllMatches
+    Select-String -Path $_.FullName -Pattern '(?://|#) REQ: ([A-Z]+-[A-Za-z0-9_-]+)' -AllMatches
 } | ForEach-Object {
     $_.Matches | ForEach-Object { $_.Groups[1].Value }
 } | Sort-Object -Unique
