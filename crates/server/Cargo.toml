@@ -26,14 +26,20 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }
+rmpv = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 rcgen = { workspace = true }
 argon2 = { workspace = true }
+sha2 = { workspace = true }
 bytes = { workspace = true }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }
 uuid = { workspace = true }
 futures = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+tokio-tungstenite = "0.24"

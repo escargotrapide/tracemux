@@ -37,9 +37,11 @@ uuid = { workspace = true }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }
 zstd = { workspace = true }
+crc32fast = { workspace = true }
 keyring = { workspace = true }
 tokio-serial = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 serialport = { workspace = true }
+tempfile = { workspace = true }

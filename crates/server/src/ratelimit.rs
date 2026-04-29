@@ -8,7 +8,7 @@
 //! * `RATE_BPS = 1024` (per-connection byte rate; via [`TokenBucket`])
 
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Maximum simultaneous WSS connections.
 pub const MAX_CONNS: u32 = 32;
@@ -130,9 +130,51 @@ impl Drop for ConnGuard<'_> {
     }
 }
 
+/// Owned variant of [`ConnGuard`] suitable for moving into spawned
+/// tasks. Holds an [`Arc`] reference to the counter so the slot is
+/// released only when the guard itself is dropped.
+#[derive(Debug)]
+pub struct OwnedConnGuard {
+    counter: std::sync::Arc<ConnCounter>,
+}
+
+impl Drop for OwnedConnGuard {
+    fn drop(&mut self) {
+        self.counter.cur.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl ConnCounter {
+    /// `Arc`-flavoured variant of [`Self::acquire`] suitable for
+    /// moving the resulting guard into a spawned task.
+    pub fn acquire_owned(self: &std::sync::Arc<Self>) -> Option<OwnedConnGuard> {
+        let mut cur = self.cur.load(Ordering::Acquire);
+        loop {
+            if cur >= self.cap {
+                return None;
+            }
+            match self.cur.compare_exchange_weak(
+                cur,
+                cur + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    return Some(OwnedConnGuard {
+                        counter: self.clone(),
+                    })
+                }
+                Err(observed) => cur = observed,
+            }
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn bucket_refills_over_time() {

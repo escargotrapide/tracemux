@@ -51,6 +51,7 @@ pub async fn run(
         if rate > 0.0 {
             if let Some(prev) = prev_ts {
                 let delta_ns = entry.mono_ns.saturating_sub(prev);
+                #[allow(clippy::cast_precision_loss)]
                 let scaled = (delta_ns as f64 / f64::from(rate)) as u64;
                 if scaled > 0 {
                     tokio::time::sleep(Duration::from_nanos(scaled)).await;
