@@ -130,7 +130,17 @@ ai-verify-full:
 
 # ---- Dev launch (GUI) -----------------------------------------------------
 
-# Start the backend server only (dev mode, port 9000).
+# Prepare Tauri dev env: build CLI sidecar + generate placeholder icons.
+# Run once before dev-tauri. Re-run after rebuilding wanlogger-cli.
+[windows]
+dev-prepare:
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev-prepare.ps1
+
+[unix]
+dev-prepare:
+    bash scripts/dev-prepare.sh
+
+# Start the backend server only (dev mode, bind 127.0.0.1:9000).
 [windows]
 dev-server:
     pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev-server.ps1

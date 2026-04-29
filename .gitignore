@@ -11,6 +11,9 @@ dist/
 
 # --- Tauri ---
 src-tauri/target/
+# Tauri sidecar binary and generated icons (created by scripts/dev-prepare)
+app-tauri/src-tauri/binaries/
+app-tauri/src-tauri/icons/
 
 # --- IDE / OS ---
 .vscode/
