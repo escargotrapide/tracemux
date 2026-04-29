@@ -58,9 +58,10 @@ impl WsState {
 }
 
 /// Attach the `/ws` route to a router.
-#[must_use]
 pub fn router(state: WsState) -> Router {
-    Router::new().route("/ws", get(ws_handler)).with_state(state)
+    Router::new()
+        .route("/ws", get(ws_handler))
+        .with_state(state)
 }
 
 /// Outcome of the auth step. Exposed for testing.
@@ -127,9 +128,9 @@ async fn ws_handler(
         .max_frame_size(MAX_FRAME_BYTES)
         .max_message_size(MAX_FRAME_BYTES)
         .on_upgrade(move |socket| async move {
-            let _g = guard;
+            let g = guard;
             handle_socket(socket, peer).await;
-            drop(_g);
+            drop(g);
         })
 }
 
@@ -265,4 +266,3 @@ mod tests {
         }
     }
 }
-

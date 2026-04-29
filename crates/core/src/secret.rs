@@ -149,8 +149,7 @@ impl SecretResolver for KeyringResolver {
     fn delete(&self, name: &str) -> Result<(), WanloggerError> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, name).map_err(map_kr)?;
         match entry.delete_password() {
-            Ok(()) => Ok(()),
-            Err(keyring::Error::NoEntry) => Ok(()),
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(map_kr(e)),
         }
     }

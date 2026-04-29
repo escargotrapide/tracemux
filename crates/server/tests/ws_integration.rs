@@ -61,7 +61,9 @@ async fn loopback_no_auth_ping_pong_round_trip() {
     let addr = spawn_server(true, 8).await;
     let req = ws_request(addr);
 
-    let (mut socket, response) = tokio_tungstenite::connect_async(req).await.expect("connect");
+    let (mut socket, response) = tokio_tungstenite::connect_async(req)
+        .await
+        .expect("connect");
     assert_eq!(
         response
             .headers()
@@ -100,8 +102,7 @@ async fn missing_bearer_is_rejected_when_auth_required() {
 
     let err = tokio_tungstenite::connect_async(req)
         .await
-        .err()
-        .expect("must fail");
+        .expect_err("must fail");
     let s = err.to_string();
     assert!(
         s.contains("401") || s.to_lowercase().contains("unauthorized"),
@@ -122,8 +123,7 @@ async fn connection_cap_returns_503() {
     // Second attempt must be refused with 503.
     let err = tokio_tungstenite::connect_async(ws_request(addr))
         .await
-        .err()
-        .expect("must fail");
+        .expect_err("must fail");
     let s = err.to_string();
     assert!(
         s.contains("503") || s.to_lowercase().contains("service"),

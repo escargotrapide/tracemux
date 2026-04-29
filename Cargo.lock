@@ -2718,6 +2718,7 @@ name = "wanlogger-cli"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap",
  "serde",
  "serde_json",

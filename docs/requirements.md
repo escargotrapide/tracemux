@@ -155,6 +155,16 @@ The CLI guarantees that for any plain-text input file `F`,
 trimmed column for each row equals the corresponding line of `F` in
 order.
 
+### FR-CLI-002  Wireshark extcap capture
+`wanlogger extcap --capture --extcap-interface wanlogger --fifo PATH
+--spec URI` opens a [`Source`] from the given spec, writes a libpcap
+classic global header (link-type `DLT_USER0` = 147, snaplen 65535,
+microsecond resolution, little-endian) to the FIFO, then emits one
+pcap record per inbound frame. Records are truncated to the snaplen
+while preserving `orig_len`. The capture loop terminates cleanly when
+the source returns `None` or the FIFO peer (Wireshark) closes the
+pipe.
+
 ### FR-UI-007  Metrics panel
 The Metrics panel renders the latest `metrics` wire frame as a flat
 key/value table and shows the current connection state. It updates

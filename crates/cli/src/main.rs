@@ -154,6 +154,9 @@ struct ExtcapArgs {
     /// Capture FIFO path (from `--fifo PATH`).
     #[arg(long)]
     fifo: Option<String>,
+    /// Channel spec URI (forwarded to `--capture` mode).
+    #[arg(long)]
+    spec: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -195,15 +198,15 @@ async fn main() -> anyhow::Result<()> {
                 cmd::extcap::Mode::Interfaces
             } else if args.extcap_dlts {
                 cmd::extcap::Mode::Dlts {
-                    interface: args
-                        .extcap_interface
-                        .ok_or_else(|| anyhow::anyhow!("--extcap-dlts requires --extcap-interface"))?,
+                    interface: args.extcap_interface.ok_or_else(|| {
+                        anyhow::anyhow!("--extcap-dlts requires --extcap-interface")
+                    })?,
                 }
             } else if args.extcap_config {
                 cmd::extcap::Mode::Config {
-                    interface: args
-                        .extcap_interface
-                        .ok_or_else(|| anyhow::anyhow!("--extcap-config requires --extcap-interface"))?,
+                    interface: args.extcap_interface.ok_or_else(|| {
+                        anyhow::anyhow!("--extcap-config requires --extcap-interface")
+                    })?,
                 }
             } else if args.capture {
                 cmd::extcap::Mode::Capture {
@@ -213,11 +216,14 @@ async fn main() -> anyhow::Result<()> {
                     fifo: args
                         .fifo
                         .ok_or_else(|| anyhow::anyhow!("--capture requires --fifo"))?,
+                    spec: args
+                        .spec
+                        .ok_or_else(|| anyhow::anyhow!("--capture requires --spec"))?,
                 }
             } else {
                 anyhow::bail!("extcap: one of --extcap-interfaces / --extcap-dlts / --extcap-config / --capture is required");
             };
-            cmd::extcap::run(mode)?;
+            cmd::extcap::run(mode).await?;
         }
         Cmd::Import(args) => cmd::import::run(&args.kind, &args.src, &args.dst).await?,
         Cmd::Export(args) => cmd::export::run(&args.kind, &args.src, &args.dst).await?,
