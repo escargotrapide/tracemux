@@ -3,19 +3,20 @@
 # Usage: bash scripts/dev-all.sh [--port <n>] [--no-auth] [--url <wss://...>]
 set -euo pipefail
 
-PORT=9000
+BIND="127.0.0.1:9000"
 NO_AUTH=""
 URL=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --port)   PORT="$2";  shift 2 ;;
+        --bind)   BIND="$2"; shift 2 ;;
         --no-auth) NO_AUTH="--no-auth"; shift ;;
-        --url)    URL="$2";   shift 2 ;;
+        --url)    URL="$2";  shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
 
+PORT="${BIND##*:}"
 [[ -z "$URL" ]] && URL="wss://localhost:${PORT}/ws"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,8 +29,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Launching backend server on port $PORT ..."
-bash "$ROOT/scripts/dev-server.sh" --port "$PORT" $NO_AUTH &
+echo "Launching backend server ($BIND) ..."
+bash "$ROOT/scripts/dev-server.sh" --bind "$BIND" $NO_AUTH &
 SERVER_PID=$!
 
 echo "Waiting 3 s for backend to start ..."

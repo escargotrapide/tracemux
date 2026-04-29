@@ -1,26 +1,27 @@
 #!/usr/bin/env pwsh
 # Start both the backend server and the web UI dev server together.
 # Each process opens in a new PowerShell window (Windows) or background job.
-# Usage: pwsh scripts/dev-all.ps1 [-Port <int>] [-NoAuth] [-Url <wss://...>]
-#   -Port <int>    Backend listen port (default 9000)
+# Usage: pwsh scripts/dev-all.ps1 [-Bind <host:port>] [-NoAuth] [-Url <wss://...>]
+#   -Bind <h:p>    Backend bind address (default 127.0.0.1:9000)
 #   -NoAuth        Disable auth (loopback only)
-#   -Url <uri>     Override WS URL for the web UI (defaults to wss://localhost:<Port>/ws)
+#   -Url <uri>     Override WS URL for the web UI (defaults to wss://localhost:<port>/ws)
 [CmdletBinding()]
 param(
-    [int]    $Port  = 9000,
+    [string] $Bind  = "127.0.0.1:9000",
     [switch] $NoAuth,
     [string] $Url   = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if (-not $Url) { $Url = "wss://localhost:$Port/ws" }
+$port = ($Bind -split ':')[-1]
+if (-not $Url) { $Url = "wss://localhost:$port/ws" }
 
 $root = $PSScriptRoot ? (Split-Path $PSScriptRoot) : $PWD
 
-Write-Host "Launching backend server on port $Port ..." -ForegroundColor Cyan
+Write-Host "Launching backend server ($Bind) ..." -ForegroundColor Cyan
 $serverArgs = @("-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
-    "-File", (Join-Path $root "scripts\dev-server.ps1"), "-Port", $Port)
+    "-File", (Join-Path $root "scripts\dev-server.ps1"), "-Bind", $Bind)
 if ($NoAuth) { $serverArgs += "-NoAuth" }
 
 $serverProc = Start-Process pwsh -ArgumentList $serverArgs -PassThru

@@ -1,19 +1,19 @@
 #!/usr/bin/env pwsh
 # Start the wanlogger backend server (development mode).
-# Usage: pwsh scripts/dev-server.ps1 [-- extra args passed to `serve`]
-#   -Port <int>     Listen port (default 9000)
-#   -NoAuth         Disable auth (loopback only)
-#   -Release        Build in release mode
+# Usage: pwsh scripts/dev-server.ps1 [options]
+#   -Bind <host:port>   Bind address (default 127.0.0.1:9000)
+#   -NoAuth             Disable auth (loopback only)
+#   -Release            Build in release mode
 [CmdletBinding()]
 param(
-    [int]    $Port    = 9000,
+    [string] $Bind    = "127.0.0.1:9000",
     [switch] $NoAuth,
     [switch] $Release
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$extraArgs = @("--port", $Port)
+$extraArgs = @("--bind", $Bind)
 if ($NoAuth) { $extraArgs += "--no-auth" }
 
 $buildFlag = if ($Release) { @("--release") } else { @() }
