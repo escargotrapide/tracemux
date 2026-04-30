@@ -2,6 +2,8 @@
 // `window.__wanloggerInject` hook (no real WSS server needed).
 //
 // REQ: FR-UI-001
+// REQ: FR-UI-002
+// REQ: FR-UI-003
 // REQ: FR-UI-005
 // REQ: FR-UI-008
 // REQ: FR-UI-009
@@ -11,6 +13,7 @@ import { test, expect } from "@playwright/test";
 test("loads shell and shows top-bar title", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("wanlogger").first()).toBeVisible();
+  await expect(page.getByText(/Terminal|\u30bf\u30fc\u30df\u30ca\u30eb/).first()).toBeVisible();
 });
 
 test("language toggle switches between ja and en", async ({ page }) => {

@@ -12,6 +12,8 @@ use anyhow::Context;
 use serde::Deserialize;
 
 const DEFAULT_REPORT_PATH: &str = "target/ai-verify.json";
+const EXPECTED_SCHEMA: &str = "wanlogger/ai-verify/v1";
+const REQUIRED_STEPS: &[&str] = &["encoding-check", "fmt-check", "clippy", "test", "rtm"];
 
 #[derive(Debug, Deserialize)]
 struct Report {
@@ -55,6 +57,7 @@ pub async fn run_at(path: &Path) -> anyhow::Result<()> {
     let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let report: Report = serde_json::from_slice(&bytes)
         .with_context(|| format!("parse {} as JSON", path.display()))?;
+    validate_report(&report, path)?;
 
     let total = report.steps.len();
     let failed: Vec<&Step> = report
@@ -94,10 +97,52 @@ pub async fn run_at(path: &Path) -> anyhow::Result<()> {
     }
 }
 
+fn validate_report(report: &Report, path: &Path) -> anyhow::Result<()> {
+    if report.schema != EXPECTED_SCHEMA {
+        anyhow::bail!(
+            "ai-verify report {} has schema `{}`; expected `{}`",
+            path.display(),
+            report.schema,
+            EXPECTED_SCHEMA,
+        );
+    }
+    if report.steps.is_empty() {
+        anyhow::bail!(
+            "ai-verify report {} has no steps; run `just ai-verify` to refresh it",
+            path.display(),
+        );
+    }
+    if report.summary != "green" {
+        anyhow::bail!(
+            "ai-verify report {} summary is `{}`; expected `green`",
+            path.display(),
+            report.summary,
+        );
+    }
+    for required in REQUIRED_STEPS {
+        match report.steps.iter().find(|s| s.name == *required) {
+            Some(step) if is_required_pass(&step.status) => {}
+            Some(step) => anyhow::bail!(
+                "required ai-verify step `{required}` is `{}`; expected pass/ok/success",
+                step.status,
+            ),
+            None => anyhow::bail!("required ai-verify step `{required}` is missing"),
+        }
+    }
+    Ok(())
+}
+
 fn is_pass(status: &str) -> bool {
     matches!(
         status.to_ascii_lowercase().as_str(),
-        "pass" | "passed" | "ok" | "success" | "skip" | "skipped" | ""
+        "pass" | "passed" | "ok" | "success" | "skip" | "skipped"
+    )
+}
+
+fn is_required_pass(status: &str) -> bool {
+    matches!(
+        status.to_ascii_lowercase().as_str(),
+        "pass" | "passed" | "ok" | "success"
     )
 }
 
@@ -131,9 +176,12 @@ mod tests {
     #[tokio::test]
     async fn ok_when_all_steps_pass() {
         let t = TempJson::new(
-            r#"{"schema":"v1","summary":"green","steps":[
-                 {"name":"fmt","status":"pass"},
-                 {"name":"clippy","status":"ok"}
+            r#"{"schema":"wanlogger/ai-verify/v1","summary":"green","steps":[
+                                 {"name":"encoding-check","status":"pass"},
+                                 {"name":"fmt-check","status":"pass"},
+                                 {"name":"clippy","status":"ok"},
+                                 {"name":"test","status":"success"},
+                                 {"name":"rtm","status":"passed"}
                ]}"#,
         );
         run_at(&t.0).await.unwrap();
@@ -142,12 +190,53 @@ mod tests {
     #[tokio::test]
     async fn errors_when_any_step_fails() {
         let t = TempJson::new(
-            r#"{"schema":"v1","summary":"red","steps":[
-                 {"name":"clippy","status":"fail"}
+            r#"{"schema":"wanlogger/ai-verify/v1","summary":"1 failed","steps":[
+                 {"name":"encoding-check","status":"pass"},
+                 {"name":"fmt-check","status":"pass"},
+                 {"name":"clippy","status":"fail"},
+                 {"name":"test","status":"pass"},
+                 {"name":"rtm","status":"pass"}
                ]}"#,
         );
         let err = run_at(&t.0).await.unwrap_err();
         assert!(err.to_string().contains("ai-verify"));
+    }
+
+    #[tokio::test]
+    async fn empty_steps_are_rejected() {
+        let t =
+            TempJson::new(r#"{"schema":"wanlogger/ai-verify/v1","summary":"green","steps":[]}"#);
+        let err = run_at(&t.0).await.unwrap_err();
+        assert!(err.to_string().contains("no steps"));
+    }
+
+    #[tokio::test]
+    async fn missing_required_step_is_rejected() {
+        let t = TempJson::new(
+            r#"{"schema":"wanlogger/ai-verify/v1","summary":"green","steps":[
+                 {"name":"encoding-check","status":"pass"},
+                 {"name":"fmt-check","status":"pass"},
+                 {"name":"clippy","status":"pass"},
+                 {"name":"test","status":"pass"}
+               ]}"#,
+        );
+        let err = run_at(&t.0).await.unwrap_err();
+        assert!(err.to_string().contains("rtm"));
+    }
+
+    #[tokio::test]
+    async fn skipped_required_step_is_rejected() {
+        let t = TempJson::new(
+            r#"{"schema":"wanlogger/ai-verify/v1","summary":"green","steps":[
+                 {"name":"encoding-check","status":"pass"},
+                 {"name":"fmt-check","status":"pass"},
+                 {"name":"clippy","status":"skipped"},
+                 {"name":"test","status":"pass"},
+                 {"name":"rtm","status":"pass"}
+               ]}"#,
+        );
+        let err = run_at(&t.0).await.unwrap_err();
+        assert!(err.to_string().contains("clippy"));
     }
 
     #[tokio::test]

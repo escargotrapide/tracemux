@@ -57,16 +57,59 @@ if [[ ! -f "$REPORT" ]]; then
     add_problem "$REPORT missing -- run 'just ai-verify' first"
 else
     if command -v python3 >/dev/null 2>&1; then
-        FAILED=$(python3 -c "
-import json,sys
-ok={'pass','passed','ok','success','skip','skipped',''}
-r=json.load(open('$REPORT'))
-bad=[s.get('name','?') for s in r.get('steps',[]) if str(s.get('status','')).lower() not in ok]
-print(','.join(bad))
-")
-        if [[ -n "$FAILED" ]]; then
-            add_problem "ai-verify has failed step(s): $FAILED"
+        REPORT_PROBLEM=$(python3 - "$REPORT" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+required = ["encoding-check", "fmt-check", "clippy", "test", "rtm"]
+pass_required = {"pass", "passed", "ok", "success"}
+pass_any = pass_required | {"skip", "skipped"}
+problems = []
+
+try:
+    with open(path, encoding="utf-8") as f:
+        report = json.load(f)
+except Exception as exc:  # noqa: BLE001 - shell gate reports the message.
+    print(f"not valid JSON: {exc}")
+    sys.exit(0)
+
+if report.get("schema") != "wanlogger/ai-verify/v1":
+    problems.append("schema is not wanlogger/ai-verify/v1")
+if report.get("summary") != "green":
+    problems.append(f"summary is {report.get('summary')!r}, expected 'green'")
+
+steps = report.get("steps")
+if not isinstance(steps, list) or not steps:
+    problems.append("steps is empty")
+    steps = []
+
+by_name = {}
+for step in steps:
+    if not isinstance(step, dict):
+        problems.append("step entry is not an object")
+        continue
+    name = str(step.get("name", ""))
+    status = str(step.get("status", "")).lower()
+    by_name[name] = status
+    if status not in pass_any:
+        problems.append(f"step {name or '?'} has status {status or '<empty>'}")
+
+for name in required:
+    status = by_name.get(name)
+    if status is None:
+        problems.append(f"required step {name} missing")
+    elif status not in pass_required:
+        problems.append(f"required step {name} has status {status or '<empty>'}")
+
+print("; ".join(problems))
+PY
+)
+        if [[ -n "$REPORT_PROBLEM" ]]; then
+            add_problem "ai-verify report invalid: $REPORT_PROBLEM"
         fi
+    else
+        add_problem "python3 is required to validate $REPORT"
     fi
 fi
 

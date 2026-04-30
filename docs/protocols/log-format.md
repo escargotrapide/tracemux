@@ -14,12 +14,17 @@
 - `iface`   — `COM3`, `eth0`, `mosquitto-1`, …
 - timestamp is the local `ts_ingest` of the first record.
 
+The current server-side `SourceManager` uses
+`wanlogger_{kind}_{iface}_{unix_ns}` for newly-created source session
+directories. Consumers MUST treat the directory name as a display hint;
+the authoritative session id is `meta.toml.sid` and `index.jsonl.sid`.
+
 ## Files
 
 | File                  | Description                                         |
 | --------------------- | --------------------------------------------------- |
 | `meta.toml`           | source / framer / decoder / codec spec, host, tags, app version |
-| `raw.bin`             | raw bytes concatenated, **zstd-framed + WAL** (lossless) |
+| `raw.bin`             | raw bytes concatenated, lossless append-only payload store |
 | `index.jsonl`         | per-record envelope (see schema below)              |
 | `lines.jsonl`         | decoded text lines                                  |
 | `frames.jsonl`        | structured records with `schema_id`                 |
@@ -63,10 +68,14 @@
 
 ## WAL & group commit
 
-- `raw.bin` writes go through a write-ahead log. fsync is performed
-  every `commit_window_ms` (default 50 ms) or `commit_size_kib`
-  (default 256 KiB), whichever first.
-- Crash recovery replays the WAL on next session open.
+- The stable log subsystem includes WAL and group-commit modules for
+  crash-safe write paths.
+- The v0.1 `FileLogSink` used by the server runner writes
+  append-only plain `raw.bin` plus JSONL sidecars and flushes on
+  `commit()`/`close()`. This keeps compat fixtures simple while the
+  WAL-backed writer is integrated into live ingest.
+- WAL-backed live ingest MUST preserve the same logical `raw.bin`
+  offsets referenced by `index.jsonl`.
 
 ## Versioning
 

@@ -8,9 +8,10 @@
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use parking_lot::RwLock;
 use uuid::Uuid;
-use wanlogger_core::session::registry::Registry;
+use wanlogger_core::session::registry::{Registry, SessionState};
 
 /// Counters per ingest task.
 #[derive(Debug, Default, Clone)]
@@ -51,6 +52,26 @@ impl Ingest {
         }
     }
 
+    /// Register a live session and return its stable `sid`.
+    pub fn register_session(&self, state: SessionState) -> Uuid {
+        if self.registry.get(&state.sid).is_some() {
+            return state.sid;
+        }
+        self.registry.insert(state)
+    }
+
+    /// Publish one already-encoded wire frame to a session fan-out.
+    ///
+    /// This is the narrow v0.1 bridge from ingest tasks to WSS
+    /// subscribers: the source/logging path owns schema construction,
+    /// while the WebSocket path only forwards frozen wire bytes.
+    pub fn publish_wire(&self, sid: Uuid, bytes: Bytes) -> Option<usize> {
+        let byte_count = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        let delivered = self.registry.get(&sid)?.fanout.publish(bytes);
+        self.record_frame(sid, byte_count);
+        Some(delivered)
+    }
+
     /// Note that one frame was ingested for `sid`.
     pub fn record_frame(&self, sid: Uuid, bytes: u64) {
         let mut m = self.stats.write();
@@ -75,7 +96,6 @@ impl Ingest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wanlogger_core::session::registry::SessionState;
 
     #[test]
     fn records_frames_and_drops() {
@@ -94,5 +114,41 @@ mod tests {
     fn unknown_sid_returns_none() {
         let ig = Ingest::new();
         assert!(ig.stats(&Uuid::nil()).is_none());
+    }
+
+    #[tokio::test]
+    async fn publish_wire_reaches_session_fanout_and_records_stats() {
+        let ig = Ingest::new();
+        let sid = ig.register_session(SessionState::new("mock", "loopback"));
+        let session = ig.registry.get(&sid).unwrap();
+        let mut rx = session.fanout.subscribe();
+
+        assert_eq!(
+            ig.publish_wire(sid, Bytes::from_static(b"wire")).unwrap(),
+            1
+        );
+        assert_eq!(rx.recv().await.unwrap(), Bytes::from_static(b"wire"));
+
+        let stats = ig.stats(&sid).unwrap();
+        assert_eq!(stats.frames_in, 1);
+        assert_eq!(stats.bytes_logged, 4);
+    }
+
+    #[tokio::test]
+    async fn register_session_preserves_existing_fanout_for_same_sid() {
+        let ig = Ingest::new();
+        let sid = ig.register_session(SessionState::new("mock", "first"));
+        let session = ig.registry.get(&sid).unwrap();
+        let mut rx = session.fanout.subscribe();
+
+        let mut replacement = SessionState::new("mock", "restart");
+        replacement.sid = sid;
+        assert_eq!(ig.register_session(replacement), sid);
+
+        assert_eq!(
+            ig.publish_wire(sid, Bytes::from_static(b"again")).unwrap(),
+            1
+        );
+        assert_eq!(rx.recv().await.unwrap(), Bytes::from_static(b"again"));
     }
 }

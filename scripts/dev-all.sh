@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 # Start both the backend server and the web UI dev server together.
-# Usage: bash scripts/dev-all.sh [--port <n>] [--no-auth] [--url <wss://...>]
+# Usage: bash scripts/dev-all.sh [--bind <h:p>] [--require-auth] [--url <ws://...>]
 set -euo pipefail
 
 BIND="127.0.0.1:9000"
-NO_AUTH=""
+NO_AUTH="--no-auth"
 URL=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --bind)   BIND="$2"; shift 2 ;;
-        --no-auth) NO_AUTH="--no-auth"; shift ;;
-        --url)    URL="$2";  shift 2 ;;
+        --bind)         BIND="$2"; shift 2 ;;
+        --no-auth)      NO_AUTH="--no-auth"; shift ;;
+        --require-auth) NO_AUTH=""; shift ;;
+        --url)          URL="$2";  shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
 
 PORT="${BIND##*:}"
-[[ -z "$URL" ]] && URL="wss://localhost:${PORT}/ws"
+[[ -z "$URL" ]] && URL="ws://127.0.0.1:${PORT}/ws"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

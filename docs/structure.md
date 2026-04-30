@@ -24,7 +24,7 @@
 │   │       ├── config/   detect/
 │   │       ├── codec.rs  secret.rs   error_id.rs
 │   │       └── eventbus.rs   metrics.rs
-│   ├── server/                       # axum + rustls + WSS mux
+│   ├── server/                       # axum + rustls + WSS mux + source lifecycle
 │   ├── cli/                          # `wanlogger` binary
 │   └── replay/                       # session-dir replay engine
 ├── docs/
@@ -48,10 +48,23 @@
     └── workflows/{ci, label-critical}.yml
 ```
 
+Recently-filled executable slices:
+
+- `crates/server/src/runner.rs` — Source -> Framer -> Decoder ->
+  LogSink/UI fan-out vertical slice.
+- `crates/server/src/source_manager.rs` — start/stop/resume/restart/
+  remove/list lifecycle manager with optional session-dir persistence.
+- `crates/core/src/logsink/file.rs` — append-only `FileLogSink` for
+  `meta.toml`, `raw.bin`, `index.jsonl`, `lines.jsonl`, and
+  `frames.jsonl`.
+- `web/src/state/sourceSpec.ts` — URI-style source spec parser for the
+  source panel.
+- `web/src/state/sourcePresets.ts` — browser-local source preset/profile
+  storage (specs only; no log data).
+- `web/src/state/sourceFilters.ts` — source search/filter/sort helper.
+
 Where things are **not yet** filled in (deferred to next iterations):
 
 - `crates/fuzz/`        — cargo-fuzz targets.
 - `benches/` + `bench-baseline.json` — Criterion benches.
-- `docs/protocols/cli-output/v1/*.schema.json` — emitted by
-  `wanlogger json-schema`.
 - `docs/errors/E-*.md`  — one file per allocated id.

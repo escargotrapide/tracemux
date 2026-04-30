@@ -3,7 +3,7 @@
 # Usage: bash scripts/dev-web.sh [--url <wss://...>] [--token <bearer>]
 set -euo pipefail
 
-URL="wss://localhost:9000/ws"
+URL="ws://127.0.0.1:9000/ws"
 TOKEN=""
 
 while [[ $# -gt 0 ]]; do

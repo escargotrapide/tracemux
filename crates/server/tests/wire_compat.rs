@@ -14,7 +14,7 @@
 //! 4. decodes the on-disk fixture and asserts the envelope round-trips.
 //!
 //! If `WANLOGGER_WIRE_BLESS=1` is set, missing or stale fixtures are
-//! (re)written. **Never bless on CI** ? re-blessing is the same as
+//! (re)written. **Never bless on CI** -- re-blessing is the same as
 //! changing the wire schema and requires an ADR + subprotocol bump
 //! (see `docs/protocols/wire-protocol.md`).
 

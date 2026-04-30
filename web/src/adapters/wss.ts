@@ -69,14 +69,32 @@ export interface MetricsPayload {
 
 export interface CtlPayload {
   event:
+    | "sources"
+    | "started"
+    | "stopped"
+    | "resumed"
+    | "restarted"
+    | "removed"
     | "connected"
     | "disconnected"
     | "eof"
     | "error"
     | "ratelimited"
     | "auth_failed";
+  sid?: string;
+  sources?: SourceSyncPayload[];
   message?: string;
   error_id?: string;
+}
+
+export interface SourceSyncPayload {
+  sid: string;
+  name?: string;
+  kind?: string;
+  status?: "running" | "stopped" | "unknown";
+  channels?: number[];
+  bytes_in?: number;
+  last_ts_ms?: number;
 }
 
 export type ConnState =
@@ -96,6 +114,8 @@ export interface WireClientOptions {
 }
 
 const SUBPROTO = "wanlogger.v1";
+const DEFAULT_DEV_URL = "ws://127.0.0.1:9000/ws";
+const VITE_DEV_PORT = "5173";
 
 const packr = new Packr({ useRecords: false, mapsAsObjects: true });
 const unpackr = new Unpackr({ useRecords: false, mapsAsObjects: true });
@@ -238,14 +258,24 @@ export class WireClient {
   }
 }
 
-/** Resolve the WSS endpoint to use, honouring env overrides. */
+/** Resolve the WebSocket endpoint to use, honouring env overrides. */
 export function resolveWanloggerUrl(): string {
-  const fromEnv = import.meta.env.VITE_WANLOGGER_URL;
+  const fromEnv = import.meta.env.VITE_WANLOGGER_URL?.trim();
   if (fromEnv && fromEnv.length > 0) return fromEnv;
-  // Default: same host as page, /ws path, wss in production.
+
   if (typeof window !== "undefined") {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}/ws`;
+    const { protocol, hostname, host, port } = window.location;
+    const isViteDevHost =
+      port === VITE_DEV_PORT &&
+      (hostname === "127.0.0.1" || hostname === "localhost");
+    if (isViteDevHost) return DEFAULT_DEV_URL;
+
+    if (protocol === "http:" || protocol === "https:") {
+      const proto = protocol === "https:" ? "wss:" : "ws:";
+      return `${proto}//${host}/ws`;
+    }
   }
-  return "wss://127.0.0.1:7443/ws";
+
+  // Tauri/custom protocols do not have an HTTP origin to reuse.
+  return DEFAULT_DEV_URL;
 }

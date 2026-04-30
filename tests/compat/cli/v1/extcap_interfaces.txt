@@ -1,0 +1,2 @@
+extcap {version=0.1.0}{help=https://example.invalid/wanlogger}
+interface {value=wanlogger}{display=wanlogger universal logger}

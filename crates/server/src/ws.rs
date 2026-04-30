@@ -10,11 +10,13 @@
 //!   negotiation; see [`crate::auth`].
 //! * Connection cap via [`crate::ratelimit::ConnCounter`].
 //! * Per-frame size cap via [`crate::wire::MAX_FRAME_BYTES`].
-//! * Minimal frame loop: decode [`crate::wire::Envelope`], reply to
-//!   `ping` with `pong`, log everything else (handlers for `sub` /
-//!   `data` / `clientlog` / ... live in [`crate::ingest`] /
-//!   [`crate::clientlog`] and are wired in later phases).
+//! * Frame loop: decode [`crate::wire::Envelope`], reply to `ping`
+//!   with `pong`, dispatch `sub` / `unsub` to session fan-out
+//!   streams owned by [`crate::ingest`], and dispatch `ctl`
+//!   lifecycle actions to [`crate::source_manager`].
 
+use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -23,11 +25,17 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
+use futures::{SinkExt, StreamExt};
 use rmpv::Value;
-use std::net::SocketAddr;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use uuid::Uuid;
+use wanlogger_core::{source::ChannelSpec, ErrorId};
 
 use crate::auth::{extract_bearer, is_loopback_allowed, BearerVerifier};
+use crate::ingest::Ingest;
 use crate::ratelimit::ConnCounter;
+use crate::source_manager::{SourceManager, SourceStatus};
 use crate::wire::{decode, encode, Envelope, FrameType, MAX_FRAME_BYTES};
 
 /// Subprotocol token advertised by the server.
@@ -43,16 +51,46 @@ pub struct WsState {
     pub no_auth: bool,
     /// Connection cap.
     pub conns: Arc<ConnCounter>,
+    /// Ingest/session state used for WSS subscriptions.
+    pub ingest: Arc<Ingest>,
+    /// Source lifecycle manager used by `ctl` lifecycle actions.
+    pub source_manager: Arc<SourceManager>,
 }
 
 impl WsState {
     /// Build a state for the given verifier and policy.
     #[must_use]
     pub fn new(auth: BearerVerifier, no_auth: bool, conns: Arc<ConnCounter>) -> Self {
+        Self::with_ingest(auth, no_auth, conns, Arc::new(Ingest::new()))
+    }
+
+    /// Build a state with shared ingest/session state.
+    #[must_use]
+    pub fn with_ingest(
+        auth: BearerVerifier,
+        no_auth: bool,
+        conns: Arc<ConnCounter>,
+        ingest: Arc<Ingest>,
+    ) -> Self {
+        let source_manager = Arc::new(SourceManager::new(ingest));
+        Self::with_source_manager(auth, no_auth, conns, source_manager)
+    }
+
+    /// Build a state with a shared source lifecycle manager.
+    #[must_use]
+    pub fn with_source_manager(
+        auth: BearerVerifier,
+        no_auth: bool,
+        conns: Arc<ConnCounter>,
+        source_manager: Arc<SourceManager>,
+    ) -> Self {
+        let ingest = source_manager.ingest();
         Self {
             auth: Arc::new(auth),
             no_auth,
             conns,
+            ingest,
+            source_manager,
         }
     }
 }
@@ -129,16 +167,44 @@ async fn ws_handler(
         .max_message_size(MAX_FRAME_BYTES)
         .on_upgrade(move |socket| async move {
             let g = guard;
-            handle_socket(socket, peer).await;
+            handle_socket_with_source_manager(socket, peer, state.ingest, state.source_manager)
+                .await;
             drop(g);
         })
 }
 
 /// Per-connection frame loop. Public so integration tests in
 /// `tests/` can spin it up directly.
-pub async fn handle_socket(mut socket: WebSocket, peer: SocketAddr) {
+pub async fn handle_socket(socket: WebSocket, peer: SocketAddr) {
+    handle_socket_with_ingest(socket, peer, Arc::new(Ingest::new())).await;
+}
+
+/// Per-connection frame loop with shared ingest/session state.
+pub async fn handle_socket_with_ingest(socket: WebSocket, peer: SocketAddr, ingest: Arc<Ingest>) {
+    let source_manager = Arc::new(SourceManager::new(ingest.clone()));
+    handle_socket_with_source_manager(socket, peer, ingest, source_manager).await;
+}
+
+/// Per-connection frame loop with shared ingest/session/source manager state.
+pub async fn handle_socket_with_source_manager(
+    socket: WebSocket,
+    peer: SocketAddr,
+    ingest: Arc<Ingest>,
+    source_manager: Arc<SourceManager>,
+) {
     tracing::info!(%peer, "ws: connected");
-    while let Some(msg) = socket.recv().await {
+    let (mut sender, mut receiver) = socket.split();
+    let (out_tx, mut out_rx) = mpsc::channel::<Message>(64);
+    let writer = tokio::spawn(async move {
+        while let Some(msg) = out_rx.recv().await {
+            if sender.send(msg).await.is_err() {
+                break;
+            }
+        }
+    });
+    let mut subscriptions: HashMap<SubscriptionKey, JoinHandle<()>> = HashMap::new();
+
+    while let Some(msg) = receiver.next().await {
         let msg = match msg {
             Ok(m) => m,
             Err(e) => {
@@ -158,28 +224,568 @@ pub async fn handle_socket(mut socket: WebSocket, peer: SocketAddr) {
                     }
                 };
                 if let Some(reply) = handle_envelope(&env) {
-                    let bytes = match encode(&reply) {
-                        Ok(b) => b,
-                        Err(e) => {
-                            tracing::warn!(%peer, error = %e, "ws: encode reply failed");
-                            continue;
-                        }
-                    };
-                    if socket.send(Message::Binary(bytes)).await.is_err() {
+                    if !queue_envelope(&out_tx, &reply, peer).await {
                         break;
                     }
+                } else if !dispatch_envelope(
+                    &env,
+                    &ingest,
+                    &source_manager,
+                    &out_tx,
+                    &mut subscriptions,
+                    peer,
+                )
+                .await
+                {
+                    break;
                 }
             }
             Message::Close(_) => break,
             Message::Ping(p) => {
-                let _ = socket.send(Message::Pong(p)).await;
+                let _ = out_tx.send(Message::Pong(p)).await;
             }
             Message::Pong(_) | Message::Text(_) => {
                 // v0.1 carries no text frames; ignore.
             }
         }
     }
+
+    for (_, task) in subscriptions {
+        task.abort();
+    }
+    drop(out_tx);
+    let _ = writer.await;
     tracing::info!(%peer, "ws: closed");
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SubscriptionKey {
+    sid: String,
+    ch: Option<u32>,
+}
+
+impl SubscriptionKey {
+    fn from_env(env: &Envelope) -> Result<Self, Envelope> {
+        let Some(sid) = env.sid.clone() else {
+            return Err(ctl_error(env.seq, "subscription missing sid"));
+        };
+        Ok(Self { sid, ch: env.ch })
+    }
+}
+
+async fn dispatch_envelope(
+    env: &Envelope,
+    ingest: &Arc<Ingest>,
+    source_manager: &Arc<SourceManager>,
+    out_tx: &mpsc::Sender<Message>,
+    subscriptions: &mut HashMap<SubscriptionKey, JoinHandle<()>>,
+    peer: SocketAddr,
+) -> bool {
+    match env.kind {
+        FrameType::Sub => subscribe_session(env, ingest, out_tx, subscriptions, peer).await,
+        FrameType::Unsub => unsubscribe_session(env, out_tx, subscriptions, peer).await,
+        FrameType::Ctl => handle_ctl(env, source_manager, out_tx, peer).await,
+        _ => true,
+    }
+}
+
+async fn handle_ctl(
+    env: &Envelope,
+    source_manager: &Arc<SourceManager>,
+    out_tx: &mpsc::Sender<Message>,
+    peer: SocketAddr,
+) -> bool {
+    let Some(action) = map_str(&env.payload, "action") else {
+        let reply = ctl_error(env.seq, "ctl action is required");
+        return queue_envelope(out_tx, &reply, peer).await;
+    };
+    match action {
+        "list" => list_sources_ctl(env, source_manager, out_tx, peer).await,
+        "start" => start_source_ctl(env, source_manager, out_tx, peer).await,
+        "stop" => stop_source_ctl(env, source_manager, out_tx, peer).await,
+        "resume" => resume_source_ctl(env, source_manager, out_tx, peer).await,
+        "restart" => restart_source_ctl(env, source_manager, out_tx, peer).await,
+        "remove" => remove_source_ctl(env, source_manager, out_tx, peer).await,
+        _ => {
+            let reply = ctl_error(env.seq, format!("unsupported ctl action: {action}"));
+            queue_envelope(out_tx, &reply, peer).await
+        }
+    }
+}
+
+async fn list_sources_ctl(
+    env: &Envelope,
+    source_manager: &Arc<SourceManager>,
+    out_tx: &mpsc::Sender<Message>,
+    peer: SocketAddr,
+) -> bool {
+    let sources = source_manager.list_sources();
+    let payload = Value::Map(vec![
+        (
+            Value::String("event".into()),
+            Value::String("sources".into()),
+        ),
+        (
+            Value::String("message".into()),
+            Value::String("sources listed".into()),
+        ),
+        (
+            Value::String("sources".into()),
+            Value::Array(
+                sources
+                    .into_iter()
+                    .map(|source| {
+                        Value::Map(vec![
+                            (
+                                Value::String("sid".into()),
+                                Value::String(source.sid.to_string().into()),
+                            ),
+                            (
+                                Value::String("name".into()),
+                                Value::String(source.name.into()),
+                            ),
+                            (
+                                Value::String("kind".into()),
+                                Value::String(source.kind.into()),
+                            ),
+                            (
+                                Value::String("status".into()),
+                                Value::String(source_status_token(source.status).into()),
+                            ),
+                            (
+                                Value::String("channels".into()),
+                                Value::Array(
+                                    source
+                                        .channels
+                                        .into_iter()
+                                        .map(|ch| Value::from(u64::from(ch)))
+                                        .collect(),
+                                ),
+                            ),
+                            (
+                                Value::String("bytes_in".into()),
+                                Value::from(source.bytes_in),
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ]);
+    queue_envelope(
+        out_tx,
+        &Envelope::new(FrameType::Ctl, env.seq, payload),
+        peer,
+    )
+    .await
+}
+
+async fn start_source_ctl(
+    env: &Envelope,
+    source_manager: &Arc<SourceManager>,
+    out_tx: &mpsc::Sender<Message>,
+    peer: SocketAddr,
+) -> bool {
+    let Some(spec_value) = map_get(&env.payload, "spec") else {
+        let reply = ctl_error(env.seq, "start requires payload.spec");
+        return queue_envelope(out_tx, &reply, peer).await;
+    };
+    let spec = match channel_spec_from_value(spec_value) {
+        Ok(spec) => spec,
+        Err(message) => return queue_envelope(out_tx, &ctl_error(env.seq, message), peer).await,
+    };
+    match source_manager.start_spec(spec).await {
+        Ok(sid) => {
+            let reply = ctl_event(env.seq, "started", "source started", Some(sid));
+            queue_envelope(out_tx, &reply, peer).await
+        }
+        Err(err) => {
+            let reply = ctl_error_with_id(
+                env.seq,
+                format!("source start failed: {err}"),
+                ErrorId::E1101SourceOpen,
+            );
+            queue_envelope(out_tx, &reply, peer).await
+        }
+    }
+}
+
+async fn stop_source_ctl(
+    env: &Envelope,
+    source_manager: &Arc<SourceManager>,
+    out_tx: &mpsc::Sender<Message>,
+    peer: SocketAddr,
+) -> bool {
+    let sid = match parse_env_sid(env) {
+        Ok(sid) => sid,
+        Err(reply) => return queue_envelope(out_tx, &reply, peer).await,
+    };
+    if source_manager.stop(sid) {
+        let reply = ctl_event(env.seq, "stopped", "source stopped", Some(sid));
+        queue_envelope(out_tx, &reply, peer).await
+    } else {
+        let reply = ctl_error(env.seq, "source sid is not active");
+        queue_envelope(out_tx, &reply, peer).await
+    }
+}
+
+async fn resume_source_ctl(
+    env: &Envelope,
+    source_manager: &Arc<SourceManager>,
+    out_tx: &mpsc::Sender<Message>,
+    peer: SocketAddr,
+) -> bool {
+    let sid = match parse_env_sid(env) {
+        Ok(sid) => sid,
+        Err(reply) => return queue_envelope(out_tx, &reply, peer).await,
+    };
+    match source_manager.resume(sid).await {
+        Ok(sid) => {
+            let reply = ctl_event(env.seq, "resumed", "source resumed", Some(sid));
+            queue_envelope(out_tx, &reply, peer).await
+        }
+        Err(err) => {
+            let reply = ctl_error_with_id(
+                env.seq,
+                format!("source resume failed: {err}"),
+                lifecycle_error_id(&err),
+            );
+            queue_envelope(out_tx, &reply, peer).await
+        }
+    }
+}
+
+async fn restart_source_ctl(
+    env: &Envelope,
+    source_manager: &Arc<SourceManager>,
+    out_tx: &mpsc::Sender<Message>,
+    peer: SocketAddr,
+) -> bool {
+    let sid = match parse_env_sid(env) {
+        Ok(sid) => sid,
+        Err(reply) => return queue_envelope(out_tx, &reply, peer).await,
+    };
+    match source_manager.restart(sid).await {
+        Ok(sid) => {
+            let reply = ctl_event(env.seq, "restarted", "source restarted", Some(sid));
+            queue_envelope(out_tx, &reply, peer).await
+        }
+        Err(err) => {
+            let reply = ctl_error_with_id(
+                env.seq,
+                format!("source restart failed: {err}"),
+                lifecycle_error_id(&err),
+            );
+            queue_envelope(out_tx, &reply, peer).await
+        }
+    }
+}
+
+async fn remove_source_ctl(
+    env: &Envelope,
+    source_manager: &Arc<SourceManager>,
+    out_tx: &mpsc::Sender<Message>,
+    peer: SocketAddr,
+) -> bool {
+    let sid = match parse_env_sid(env) {
+        Ok(sid) => sid,
+        Err(reply) => return queue_envelope(out_tx, &reply, peer).await,
+    };
+    if source_manager.remove(sid) {
+        let reply = ctl_event(env.seq, "removed", "source removed", Some(sid));
+        queue_envelope(out_tx, &reply, peer).await
+    } else {
+        let reply = ctl_error(env.seq, "source sid is unknown");
+        queue_envelope(out_tx, &reply, peer).await
+    }
+}
+
+async fn subscribe_session(
+    env: &Envelope,
+    ingest: &Arc<Ingest>,
+    out_tx: &mpsc::Sender<Message>,
+    subscriptions: &mut HashMap<SubscriptionKey, JoinHandle<()>>,
+    peer: SocketAddr,
+) -> bool {
+    let key = match SubscriptionKey::from_env(env) {
+        Ok(k) => k,
+        Err(reply) => return queue_envelope(out_tx, &reply, peer).await,
+    };
+    if subscriptions.contains_key(&key) {
+        return true;
+    }
+    let sid = match Uuid::parse_str(&key.sid) {
+        Ok(sid) => sid,
+        Err(_) => {
+            let reply = ctl_error(env.seq, "subscription sid is not a UUID");
+            return queue_envelope(out_tx, &reply, peer).await;
+        }
+    };
+    let Some(session) = ingest.registry.get(&sid) else {
+        let reply = ctl_error(env.seq, "subscription sid is unknown");
+        return queue_envelope(out_tx, &reply, peer).await;
+    };
+
+    let mut rx = session.fanout.subscribe();
+    let tx = out_tx.clone();
+    let sid_for_log = key.sid.clone();
+    let ch_for_log = key.ch;
+    let task = tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(bytes) => {
+                    if tx.send(Message::Binary(bytes.to_vec())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::debug!(sid = %sid_for_log, ch = ?ch_for_log, lagged = n, "ws: subscriber lagged");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    subscriptions.insert(key, task);
+    true
+}
+
+async fn unsubscribe_session(
+    env: &Envelope,
+    out_tx: &mpsc::Sender<Message>,
+    subscriptions: &mut HashMap<SubscriptionKey, JoinHandle<()>>,
+    peer: SocketAddr,
+) -> bool {
+    let key = match SubscriptionKey::from_env(env) {
+        Ok(k) => k,
+        Err(reply) => return queue_envelope(out_tx, &reply, peer).await,
+    };
+    if let Some(task) = subscriptions.remove(&key) {
+        task.abort();
+    }
+    true
+}
+
+async fn queue_envelope(out_tx: &mpsc::Sender<Message>, env: &Envelope, peer: SocketAddr) -> bool {
+    let bytes = match encode(env) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(%peer, error = %e, "ws: encode reply failed");
+            return true;
+        }
+    };
+    out_tx.send(Message::Binary(bytes)).await.is_ok()
+}
+
+fn ctl_event(seq: u64, event: &'static str, message: &'static str, sid: Option<Uuid>) -> Envelope {
+    let mut payload = vec![
+        (Value::String("event".into()), Value::String(event.into())),
+        (
+            Value::String("message".into()),
+            Value::String(message.into()),
+        ),
+    ];
+    if let Some(sid) = sid {
+        payload.push((
+            Value::String("sid".into()),
+            Value::String(sid.to_string().into()),
+        ));
+    }
+    let mut env = Envelope::new(FrameType::Ctl, seq, Value::Map(payload));
+    if let Some(sid) = sid {
+        env = env.with_sid(sid.to_string());
+    }
+    env
+}
+
+fn ctl_error(seq: u64, message: impl Into<String>) -> Envelope {
+    ctl_error_with_id(seq, message, ErrorId::E2001WireMalformed)
+}
+
+fn ctl_error_with_id(seq: u64, message: impl Into<String>, error_id: ErrorId) -> Envelope {
+    Envelope::new(
+        FrameType::Ctl,
+        seq,
+        Value::Map(vec![
+            (Value::String("event".into()), Value::String("error".into())),
+            (
+                Value::String("message".into()),
+                Value::String(message.into().into()),
+            ),
+            (
+                Value::String("error_id".into()),
+                Value::String(error_id.code().into()),
+            ),
+        ]),
+    )
+}
+
+fn lifecycle_error_id(err: &anyhow::Error) -> ErrorId {
+    let message = err.to_string();
+    if message.contains("unknown")
+        || message.contains("already active")
+        || message.contains("not restartable")
+        || message.contains("not resumable")
+    {
+        ErrorId::E2001WireMalformed
+    } else {
+        ErrorId::E1101SourceOpen
+    }
+}
+
+const fn source_status_token(status: SourceStatus) -> &'static str {
+    match status {
+        SourceStatus::Running => "running",
+        SourceStatus::Stopped => "stopped",
+        SourceStatus::Unknown => "unknown",
+    }
+}
+
+fn parse_env_sid(env: &Envelope) -> Result<Uuid, Envelope> {
+    let Some(sid) = env.sid.as_deref() else {
+        return Err(ctl_error(env.seq, "ctl action missing sid"));
+    };
+    Uuid::parse_str(sid).map_err(|_| ctl_error(env.seq, "ctl sid is not a UUID"))
+}
+
+fn map_get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    let Value::Map(entries) = value else {
+        return None;
+    };
+    entries.iter().find_map(|(k, v)| {
+        if k.as_str() == Some(key) {
+            Some(v)
+        } else {
+            None
+        }
+    })
+}
+
+fn map_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    map_get(value, key).and_then(Value::as_str)
+}
+
+fn required_str(value: &Value, key: &str) -> Result<String, String> {
+    map_str(value, key)
+        .map(ToString::to_string)
+        .ok_or_else(|| format!("spec.{key} string is required"))
+}
+
+fn optional_bool(value: &Value, key: &str, default: bool) -> Result<bool, String> {
+    match map_get(value, key) {
+        Some(Value::Boolean(b)) => Ok(*b),
+        Some(_) => Err(format!("spec.{key} bool is required")),
+        None => Ok(default),
+    }
+}
+
+fn required_u32(value: &Value, key: &str) -> Result<u32, String> {
+    let Some(v) = map_get(value, key) else {
+        return Err(format!("spec.{key} integer is required"));
+    };
+    let Some(n) = v.as_u64() else {
+        return Err(format!("spec.{key} integer is required"));
+    };
+    u32::try_from(n).map_err(|_| format!("spec.{key} is out of range"))
+}
+
+fn required_u8(value: &Value, key: &str) -> Result<u8, String> {
+    let Some(v) = map_get(value, key) else {
+        return Err(format!("spec.{key} integer is required"));
+    };
+    let Some(n) = v.as_u64() else {
+        return Err(format!("spec.{key} integer is required"));
+    };
+    u8::try_from(n).map_err(|_| format!("spec.{key} is out of range"))
+}
+
+fn required_string_array(value: &Value, key: &str) -> Result<Vec<String>, String> {
+    let Some(Value::Array(items)) = map_get(value, key) else {
+        return Err(format!("spec.{key} string array is required"));
+    };
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(ToString::to_string)
+                .ok_or_else(|| format!("spec.{key} items must be strings"))
+        })
+        .collect()
+}
+
+fn channel_spec_from_value(value: &Value) -> Result<ChannelSpec, String> {
+    let kind = required_str(value, "kind")?;
+    match kind.as_str() {
+        "serial" => Ok(ChannelSpec::Serial {
+            port: required_str(value, "port")?,
+            baud: required_u32(value, "baud")?,
+            data_bits: required_u8(value, "data_bits")?,
+            parity: required_str(value, "parity")?,
+            stop_bits: required_u8(value, "stop_bits")?,
+            flow: required_str(value, "flow")?,
+        }),
+        "tcp" => Ok(ChannelSpec::Tcp {
+            addr: required_str(value, "addr")?,
+        }),
+        "udp" => Ok(ChannelSpec::Udp {
+            bind: required_str(value, "bind")?,
+        }),
+        "file" => Ok(ChannelSpec::File {
+            path: required_str(value, "path")?,
+            follow: optional_bool(value, "follow", false)?,
+        }),
+        "pipe" => Ok(ChannelSpec::Pipe {
+            path: required_str(value, "path")?,
+        }),
+        "process" => Ok(ChannelSpec::Process {
+            argv: required_string_array(value, "argv")?,
+        }),
+        "mock" => Ok(ChannelSpec::Mock {
+            tag: required_str(value, "tag")?,
+        }),
+        "replay" => Ok(ChannelSpec::Replay {
+            path: required_str(value, "path")?,
+        }),
+        "syslog" => Ok(ChannelSpec::Syslog {
+            bind: required_str(value, "bind")?,
+        }),
+        "mqtt" => Ok(ChannelSpec::Mqtt {
+            broker: required_str(value, "broker")?,
+            topic: required_str(value, "topic")?,
+        }),
+        "http-webhook" => Ok(ChannelSpec::HttpWebhook {
+            bind: required_str(value, "bind")?,
+            path: required_str(value, "path")?,
+        }),
+        "telnet" => Ok(ChannelSpec::Telnet {
+            addr: required_str(value, "addr")?,
+        }),
+        "ssh" => Ok(ChannelSpec::Ssh {
+            addr: required_str(value, "addr")?,
+            user: required_str(value, "user")?,
+        }),
+        "visa" => Ok(ChannelSpec::Visa {
+            resource: required_str(value, "resource")?,
+        }),
+        "remote" => Ok(ChannelSpec::Remote {
+            url: required_str(value, "url")?,
+        }),
+        "journald" => Ok(ChannelSpec::Journald {
+            unit: map_str(value, "unit").map(ToString::to_string),
+        }),
+        "win-event-log" => Ok(ChannelSpec::WinEventLog {
+            channel: required_str(value, "channel")?,
+        }),
+        "etw" => Ok(ChannelSpec::Etw {
+            provider: required_str(value, "provider")?,
+        }),
+        "j-link-rtt" => Ok(ChannelSpec::JLinkRtt {
+            channel: required_u8(value, "channel")?,
+        }),
+        "can-bus" => Ok(ChannelSpec::CanBus {
+            iface: required_str(value, "iface")?,
+        }),
+        _ => Err(format!("unsupported source kind: {kind}")),
+    }
 }
 
 /// Pure handler: given an inbound envelope, optionally produce a

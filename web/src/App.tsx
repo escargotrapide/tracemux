@@ -1,6 +1,6 @@
 // Top-level app shell. Hosts a Dockview grid with the built-in panels.
 
-import { onCleanup, onMount } from "solid-js";
+import { createEffect, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import {
   createDockview,
@@ -8,10 +8,10 @@ import {
   type DockviewPanelApi,
   type IContentRenderer,
 } from "dockview-core";
-import { connState, getClient } from "~/state";
+import { connState, getClient, terminalFocusRequest } from "~/state";
 import { t, locale, setLocale } from "~/i18n";
 import { SourcesPanel } from "~/panels/sources/SourcesPanel";
-import { MetricsPanel } from "~/panels/metrics/MetricsPanel";
+import { MetricsPanel } from "./panels/metrics/MetricsPanel";
 import { TerminalPanel } from "~/panels/terminal/TerminalPanel";
 import { TileGridPanel } from "~/panels/tiles/TileGridPanel";
 import { Toasts } from "~/panels/Toasts";
@@ -46,13 +46,25 @@ const components: Record<string, () => IContentRenderer> = {
   tiles: () => new SolidPanel(() => TileGridPanel()),
   terminal: () =>
     new SolidPanel((p) =>
-      TerminalPanel({ sid: p.sid ?? "default", ch: p.ch ?? 0 }),
+      TerminalPanel({ sid: p.sid ?? "", ch: p.ch ?? 0 }),
     ),
 };
 
 export function App() {
   let dockHost!: HTMLDivElement;
   let api: DockviewApi | null = null;
+
+  function focusTerminalPanel(): void {
+    const panel = api?.getPanel("terminal");
+    panel?.api.setActive();
+    panel?.focus();
+  }
+
+  createEffect(() => {
+    const request = terminalFocusRequest();
+    if (!request) return;
+    focusTerminalPanel();
+  });
 
   onMount(() => {
     // Eagerly start the WSS client.
@@ -83,7 +95,7 @@ export function App() {
       id: "terminal",
       component: "terminal",
       title: t("panel.terminal"),
-      params: { sid: "default", ch: 0 },
+      params: { sid: "", ch: 0 },
       position: { referencePanel: "sources", direction: "below" },
     });
     api.addPanel({

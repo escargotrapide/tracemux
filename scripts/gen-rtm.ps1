@@ -1,29 +1,134 @@
-# Generate docs/rtm.md from `// REQ: ...` comments in tests.
-# Windows equivalent of scripts/gen-rtm.sh. v0.1 stub.
+# Generate docs/rtm.md from `// REQ: ...` comments in test/source files.
+# Distinguishes implementation references from test evidence.
+# Fails when a referenced requirement id is not declared in docs/requirements.md.
 $ErrorActionPreference = 'Stop'
 
 $out = 'docs/rtm.md'
+$requirements = 'docs/requirements.md'
 $searchDirs = @('crates', 'tests', 'web', 'scripts') | Where-Object { Test-Path $_ }
+$sourceGlobs = @('*.rs', '*.ts', '*.tsx', '*.ps1', '*.sh')
+$reqPattern = '(?://|#)\s*REQ:\s*([A-Z]+-[A-Za-z0-9_-]+)'
 
-$ids = $searchDirs | ForEach-Object {
-    Get-ChildItem -Recurse -Path $_ -Include *.rs, *.ts, *.tsx, *.ps1, *.sh -File -ErrorAction SilentlyContinue
-} | ForEach-Object {
-    Select-String -Path $_.FullName -Pattern '(?://|#) REQ: ([A-Z]+-[A-Za-z0-9_-]+)' -AllMatches
-} | ForEach-Object {
-    $_.Matches | ForEach-Object { $_.Groups[1].Value }
-} | Sort-Object -Unique
+$definedOrder = [System.Collections.Generic.List[string]]::new()
+$defined = [System.Collections.Generic.HashSet[string]]::new()
+Select-String -Path $requirements -Pattern '^###\s+([A-Z]+-[A-Za-z0-9_-]+)\b' -AllMatches |
+    ForEach-Object {
+        foreach ($m in $_.Matches) {
+            $id = $m.Groups[1].Value
+            if ($defined.Add($id)) { $definedOrder.Add($id) }
+        }
+    }
+
+$implRefs = @{}
+$testRefs = @{}
+$referenced = [System.Collections.Generic.HashSet[string]]::new()
+$root = (Get-Location).Path
+
+function Add-ReqRef {
+    param(
+        [hashtable]$Table,
+        [string]$Id,
+        [string]$Location
+    )
+    if (-not $Table.ContainsKey($Id)) {
+        $Table[$Id] = [System.Collections.Generic.List[string]]::new()
+    }
+    $Table[$Id].Add($Location)
+}
+
+function Test-IsTestPath {
+    param([string]$RelPath)
+    $norm = $RelPath -replace '\\', '/'
+    return $norm.StartsWith('tests/') -or
+        $norm.Contains('/tests/') -or
+        $norm -match '\.(test|spec)\.tsx?$'
+}
+
+function Get-UniqueLocations {
+    param(
+        [hashtable]$Table,
+        [string]$Id
+    )
+    if (-not $Table.ContainsKey($Id)) { return '(none)' }
+    return ($Table[$Id] | Sort-Object -Unique) -join '<br>'
+}
+
+foreach ($dir in $searchDirs) {
+    Get-ChildItem -Recurse -Path $dir -Include $sourceGlobs -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\node_modules\\' -and $_.FullName -notmatch '\\dist\\' -and $_.FullName -notmatch '\\.vite\\' } |
+        ForEach-Object {
+            $file = $_
+            $rel = $file.FullName.Substring($root.Length).TrimStart('\', '/') -replace '\\', '/'
+            $isTestPath = Test-IsTestPath $rel
+            $isRust = $file.Extension -eq '.rs'
+            $braceDepth = 0
+            $pendingCfgTest = $false
+            $testDepth = $null
+            $lines = [System.IO.File]::ReadAllLines($file.FullName, [System.Text.UTF8Encoding]::new($false, $true))
+
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                $line = $lines[$i]
+                $lineNo = $i + 1
+                $inTestContext = $isTestPath -or ($null -ne $testDepth)
+                $matches = [regex]::Matches($line, $reqPattern)
+                foreach ($m in $matches) {
+                    $id = $m.Groups[1].Value
+                    $null = $referenced.Add($id)
+                    if ($inTestContext) {
+                        Add-ReqRef $testRefs $id "$rel`:$lineNo"
+                    } else {
+                        Add-ReqRef $implRefs $id "$rel`:$lineNo"
+                    }
+                }
+
+                if ($isRust) {
+                    $trimmed = $line.Trim()
+                    if ($line -match '#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]') {
+                        $pendingCfgTest = $true
+                    }
+                    if ($pendingCfgTest -and $line -match '\bmod\s+tests\b' -and $line.Contains('{')) {
+                        $testDepth = $braceDepth + 1
+                        $pendingCfgTest = $false
+                    }
+
+                    $braceDepth += ([regex]::Matches($line, '\{')).Count
+                    $braceDepth -= ([regex]::Matches($line, '\}')).Count
+                    if (($null -ne $testDepth) -and $braceDepth -lt $testDepth) {
+                        $testDepth = $null
+                    }
+                    if ($pendingCfgTest -and $trimmed.Length -gt 0 -and -not $trimmed.StartsWith('#[') -and $line -notmatch '\bmod\s+tests\b') {
+                        $pendingCfgTest = $false
+                    }
+                }
+            }
+        }
+}
+
+$unknown = @($referenced | Where-Object { -not $defined.Contains($_) } | Sort-Object)
+if ($unknown.Count -gt 0) {
+    Write-Error "Unknown requirement id(s) referenced: $($unknown -join ', ')"
+}
 
 $lines = [System.Collections.Generic.List[string]]::new()
 $lines.Add('# Requirements Traceability Matrix (RTM)')
 $lines.Add('')
-$lines.Add('_Generated by `scripts/gen-rtm.ps1` -- do not edit by hand._')
+$lines.Add('_Generated by `scripts/gen-rtm.*` -- do not edit by hand._')
 $lines.Add('')
-$lines.Add('| Requirement | Tests | Status |')
-$lines.Add('| ----------- | ----- | ------ |')
-foreach ($id in $ids) {
-    $lines.Add("| $id | (auto) | covered |")
+$lines.Add('| Requirement | Implementation references | Test evidence | Status |')
+$lines.Add('| ----------- | ------------------------- | ------------- | ------ |')
+foreach ($id in $definedOrder) {
+    $impl = Get-UniqueLocations $implRefs $id
+    $tests = Get-UniqueLocations $testRefs $id
+    $status = if ($testRefs.ContainsKey($id)) {
+        'covered'
+    } elseif ($implRefs.ContainsKey($id)) {
+        'implementation-only'
+    } else {
+        'unreferenced'
+    }
+    $lines.Add("| $id | $impl | $tests | $status |")
 }
 
 $fullOut = Join-Path (Get-Location) $out
-[System.IO.File]::WriteAllLines($fullOut, $lines, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText($fullOut, (($lines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
 Write-Host "Wrote $out"

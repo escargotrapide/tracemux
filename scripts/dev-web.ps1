@@ -1,11 +1,11 @@
 #!/usr/bin/env pwsh
 # Start the wanlogger SolidJS web UI dev server.
 # Usage: pwsh scripts/dev-web.ps1 [-Url <wss://...>] [-Token <bearer>]
-#   -Url <uri>     Backend WS URL (default: wss://localhost:9000/ws)
+#   -Url <uri>     Backend WS URL (default: ws://127.0.0.1:9000/ws)
 #   -Token <str>   Bearer token (optional)
 [CmdletBinding()]
 param(
-    [string] $Url   = "wss://localhost:9000/ws",
+    [string] $Url   = "ws://127.0.0.1:9000/ws",
     [string] $Token = ""
 )
 Set-StrictMode -Version Latest

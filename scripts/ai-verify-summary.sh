@@ -3,6 +3,8 @@
 # duration_ms, detail), and emit target/ai-verify.json. Detail is the
 # last 20 lines of stdout+stderr on failure; empty on success. Exit
 # code is the number of failed steps (0 = green).
+#
+# REQ: FR-AI-001
 set -uo pipefail
 
 REPORT_PATH="${REPORT_PATH:-target/ai-verify.json}"
@@ -26,8 +28,8 @@ declare -a CMDS=(
 )
 
 if [[ "$INCLUDE_OPTIONAL" == "1" ]]; then
-  NAMES+=("web-typecheck" "web-test")
-  CMDS+=("pnpm --filter ./web typecheck" "pnpm --filter ./web test")
+  NAMES+=("web-typecheck" "web-test" "web-build")
+  CMDS+=("pnpm --filter ./web typecheck" "pnpm --filter ./web test" "pnpm --filter ./web build")
 fi
 
 failed=0

@@ -48,6 +48,9 @@ struct ServeArgs {
     /// Bind address (default 127.0.0.1:0 for auto).
     #[arg(long, default_value = "127.0.0.1:0")]
     bind: String,
+    /// Root directory for server-created session-dirs.
+    #[arg(long, default_value = "wanlogger-sessions")]
+    session_root: std::path::PathBuf,
     /// Disable auth (gated to loopback).
     #[arg(long)]
     no_auth: bool,
@@ -175,7 +178,8 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Serve(args) => {
-            wanlogger_server::run(&args.bind, args.no_auth).await?;
+            wanlogger_server::run_with_session_root(&args.bind, args.no_auth, args.session_root)
+                .await?;
         }
         Cmd::Connect(args) => cmd::connect::run(&args.spec).await?,
         Cmd::Detect => cmd::detect::run()?,

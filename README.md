@@ -11,9 +11,12 @@ paths.
 
 ## Status
 
-**v0.1 — Phase 0 scaffolding complete.** Trait surfaces are frozen.
-Most implementations are stubs that compile but `todo!()` at runtime.
-See [`docs/structure.md`](docs/structure.md) for what's filled in.
+**v0.1 — executable vertical slice in progress.** Trait surfaces are
+frozen. The server can now start selected sources, route WSS
+subscriptions, persist source output to a session-dir, and drive the
+SolidJS source/terminal UI. Some source kinds and release-hardening
+features remain stubbed or experimental; see
+[`docs/structure.md`](docs/structure.md) for what is filled in.
 
 ## Highlights
 
@@ -50,6 +53,20 @@ just build           # build the workspace
 just test            # run tests
 just ai-verify       # full gate (fmt + clippy + test + audit + deny + …)
 ```
+
+For local UI development:
+
+```bash
+just dev-server      # loopback server at 127.0.0.1:9000, --no-auth
+just dev-web         # SolidJS UI pointing at the loopback server
+just dev-prepare     # build/copy the Tauri sidecar before desktop dev
+just dev-tauri       # Tauri shell with bundled loopback sidecar
+```
+
+The web UI can start sources from URI-style specs such as
+`mock://demo`, `file:///C:/logs/app.log?follow=1`, or
+`tcp://127.0.0.1:5555`. Source presets are browser-local and store only
+the source spec, never log data.
 
 ## License
 

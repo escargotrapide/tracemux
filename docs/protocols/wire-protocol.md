@@ -9,6 +9,9 @@
 - HTTP path: `/ws`. Subprotocol negotiation header:
   `Sec-WebSocket-Protocol: wanlogger.v1, bearer.<token>`.
   Server accepts iff token validates with `argon2id`.
+- Development loopback may use plain `ws://127.0.0.1:<port>/ws` with
+  `wanlogger serve --no-auth`; `--no-auth` is accepted only for
+  loopback peers.
 - Future: WebTransport (HTTP/3) using identical frame format.
 - `permessage-deflate` allowed only on text frames; binary frames
   carry MessagePack and are not re-compressed.
@@ -43,6 +46,18 @@ Every frame is a MessagePack map with the following fields:
 | `panel_priority`  | client→server | UI panel visibility / coalescing     |
 | `child` (reserved)| —             | reserved for sub-mux                 |
 
+## `sub` / `unsub` payload
+
+`sub` and `unsub` use envelope-level `sid` and optional `ch`. The
+payload is currently an empty map. `sid` MUST be a UUID string and MUST
+refer to a registered session. Unknown or malformed subscriptions return
+a `ctl` error with `error_id = "E-2001"`.
+
+```msgpack
+{ type: "sub", sid: "uuid", ch: 0, payload: {} }
+{ type: "unsub", sid: "uuid", ch: 0, payload: {} }
+```
+
 ## `data` payload
 
 ```msgpack
@@ -69,6 +84,69 @@ Every frame is a MessagePack map with the following fields:
   schema_id?:       string,
 }
 ```
+
+## `ctl` payload
+
+`ctl` is an extensible MessagePack map. Existing fields MUST be
+preserved by v1 clients; unknown fields are ignored.
+
+### Client actions
+
+Client-to-server lifecycle requests use `payload.action`:
+
+| Action    | Envelope fields | Payload fields | Effect |
+| --------- | --------------- | -------------- | ------ |
+| `list`    | none            | none           | Return a full source snapshot. |
+| `start`   | none            | `spec` map     | Start a source from a `ChannelSpec`-compatible map. |
+| `stop`    | `sid`           | none           | Abort a running source task but keep the session registered. |
+| `resume`  | `sid`           | none           | Resume a stopped/completed spec-backed source with the same `sid`. |
+| `restart` | `sid`           | none           | Abort if running and start the source again with the same `sid`. |
+| `remove`  | `sid`           | none           | Stop the task and remove the session from the registry. |
+
+`start.spec` is encoded as a map whose `kind` matches the source kind.
+Implemented server-side v0.1 kinds are `serial`, `tcp`, `udp`, `file`,
+`pipe`, `process`, `mock`, `replay`, `syslog`, `mqtt`, and
+`http-webhook`. Other `ChannelSpec` variants are reserved until their
+source implementation is wired into the server runner.
+
+Example:
+
+```msgpack
+{
+  action: "start",
+  spec: { kind: "file", path: "C:/logs/app.log", follow: true }
+}
+```
+
+### Server events
+
+Server-to-client lifecycle acknowledgements also use `ctl` payloads:
+
+| Event       | Fields | Meaning |
+| ----------- | ------ | ------- |
+| `sources`   | `sources` array | Full source table snapshot. |
+| `started`   | `sid`, `message` | Source task registered and started. |
+| `stopped`   | `sid`, `message` | Source task stopped. |
+| `resumed`   | `sid`, `message` | Source resumed with the same `sid`. |
+| `restarted` | `sid`, `message` | Source restarted with the same `sid`. |
+| `removed`   | `sid`, `message` | Source removed from the registry. |
+| `error`     | `message`, `error_id` | Lifecycle or wire error. |
+
+`sources` rows have this shape:
+
+```msgpack
+{
+  sid: "uuid",
+  name: "display name",
+  kind: "mock",
+  status: "running" | "stopped" | "unknown",
+  channels: [0],
+  bytes_in: 1234,
+}
+```
+
+Lifecycle wire/validation errors use `E-2001`; source-open failures use
+`E-1101`.
 
 ## Limits (DoS hardening)
 

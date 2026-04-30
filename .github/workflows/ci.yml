@@ -28,7 +28,7 @@ jobs:
               echo "::error file=$f::contains CR (use LF)"
               bad=1
             fi
-          done < <(git ls-files -z -- '*.rs' '*.md' '*.toml' '*.yml' '*.yaml' '*.sh' '*.ps1' '*.json' justfile)
+          done < <(git ls-files -z -- '*.rs' '*.ts' '*.tsx' '*.js' '*.jsx' '*.css' '*.html' '*.md' '*.toml' '*.yml' '*.yaml' '*.sh' '*.ps1' '*.json' '*.jsonl' '*.txt' justfile)
           exit "$bad"
 
   rust:
@@ -46,7 +46,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88.0
         with:
           components: rustfmt, clippy
           targets: ${{ matrix.target }}
@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: install cargo-audit
         run: cargo install cargo-audit --locked
@@ -72,19 +72,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+  web:
+    name: web typecheck / test / build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+      - name: install web dependencies
+        run: pnpm install --frozen-lockfile
+      - name: typecheck
+        run: pnpm --filter ./web typecheck
+      - name: unit tests
+        run: pnpm --filter ./web test
+      - name: production build
+        run: pnpm --filter ./web build
 
   compat:
     name: compat fixtures
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
-      - name: wire / log / cli compat tests
-        run: cargo test --workspace --test 'compat_*' --all-features
+      - name: wire compat fixtures
+        run: cargo test -p wanlogger-server --test wire_compat --all-features
+      - name: log compat fixtures
+        run: cargo test -p wanlogger-replay --test log_compat --all-features
+      - name: cli compat fixtures
+        run: cargo test -p wanlogger-cli --test cli_compat --all-features
 
   rtm:
     runs-on: ubuntu-latest

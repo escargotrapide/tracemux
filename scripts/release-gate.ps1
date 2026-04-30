@@ -65,12 +65,37 @@ if (-not (Test-Path $report)) {
 } else {
     try {
         $j = Get-Content -Raw $report | ConvertFrom-Json
-        $failed = @($j.steps | Where-Object {
-                $_.status -notin @('pass', 'passed', 'ok', 'success', 'skip', 'skipped', '')
+        $required = @('encoding-check', 'fmt-check', 'clippy', 'test', 'rtm')
+        $passRequired = @('pass', 'passed', 'ok', 'success')
+        $passAny = $passRequired + @('skip', 'skipped')
+        if ($j.schema -ne 'wanlogger/ai-verify/v1') {
+            Add-Problem "ai-verify report schema is '$($j.schema)' (expected wanlogger/ai-verify/v1)"
+        }
+        if ($j.summary -ne 'green') {
+            Add-Problem "ai-verify report summary is '$($j.summary)' (expected green)"
+        }
+        $steps = @($j.steps)
+        if ($steps.Count -eq 0) {
+            Add-Problem "ai-verify report has no steps"
+        }
+        $failed = @($steps | Where-Object {
+                $status = ([string]$_.status).ToLowerInvariant()
+                $status -notin $passAny
             })
         if ($failed.Count -gt 0) {
             $names = ($failed | ForEach-Object { $_.name }) -join ', '
             Add-Problem "ai-verify has $($failed.Count) failed step(s): $names"
+        }
+        foreach ($name in $required) {
+            $step = @($steps | Where-Object { $_.name -eq $name } | Select-Object -First 1)
+            if ($step.Count -eq 0) {
+                Add-Problem "ai-verify required step missing: $name"
+                continue
+            }
+            $status = ([string]$step[0].status).ToLowerInvariant()
+            if ($status -notin $passRequired) {
+                Add-Problem "ai-verify required step '$name' has status '$status'"
+            }
         }
     } catch {
         Add-Problem "$report is not valid JSON"

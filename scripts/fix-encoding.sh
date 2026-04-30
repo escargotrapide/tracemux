@@ -23,10 +23,16 @@ while IFS= read -r -d '' f; do
         fi
     fi
 done < <(find . \
-    \( -path './.git' -o -path './target' -o -path './node_modules' \) -prune \
+     \( -path './.git' -o -path '*/target' -o -path '*/node_modules' \
+         -o -path '*/dist' -o -path '*/.vite' \
+    \) -prune \
     -o -type f \
-    \( -name '*.rs' -o -name '*.md' -o -name '*.toml' -o -name '*.yml' \
-       -o -name '*.yaml' -o -name '*.sh' -o -name '*.ps1' -o -name 'justfile' \
+     \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' \
+         -o -name '*.jsx' -o -name '*.css' -o -name '*.html' \
+         -o -name '*.md' -o -name '*.toml' -o -name '*.yml' \
+         -o -name '*.yaml' -o -name '*.sh' -o -name '*.ps1' -o -name '*.json' \
+         -o -name '*.jsonl' \
+         -o -name '*.txt' -o -name 'justfile' \
        -o -name 'clippy.toml' -o -name 'rustfmt.toml' -o -name 'deny.toml' \
        -o -name 'cliff.toml' \
     \) -print0)

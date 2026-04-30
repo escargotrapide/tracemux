@@ -7,6 +7,8 @@
 # Steps are defined inline below so this script does not depend on
 # YAML/TOML parsing.  The Rust side (`wanlogger ai-verify`) only
 # reads the JSON.
+#
+# REQ: FR-AI-001
 [CmdletBinding()]
 param(
     [string]$ReportPath = 'target/ai-verify.json',
@@ -16,15 +18,26 @@ param(
 $ErrorActionPreference = 'Continue'
 
 $steps = @(
-    @{ name = 'encoding-check'; cmd = 'pwsh'; args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-encoding.ps1') }
-    @{ name = 'fmt-check';      cmd = 'cargo'; args = @('fmt', '--all', '--', '--check') }
-    @{ name = 'clippy';         cmd = 'cargo'; args = @('clippy', '--workspace', '--all-targets', '--all-features', '--', '-D', 'warnings') }
-    @{ name = 'test';           cmd = 'cargo'; args = @('test', '--workspace', '--all-features') }
-    @{ name = 'rtm';            cmd = 'pwsh'; args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/gen-rtm.ps1') }
+    @{ name = 'encoding-check'; cmd = 'pwsh'; words = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-encoding.ps1') }
+    @{ name = 'fmt-check';      cmd = 'cargo'; words = @('fmt', '--all', '--', '--check') }
+    @{ name = 'clippy';         cmd = 'cargo'; words = @('clippy', '--workspace', '--all-targets', '--all-features', '--', '-D', 'warnings') }
+    @{ name = 'test';           cmd = 'cargo'; words = @('test', '--workspace', '--all-features') }
+    @{ name = 'rtm';            cmd = 'pwsh'; words = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/gen-rtm.ps1') }
 )
 if ($IncludeOptional) {
-    $steps += @{ name = 'web-typecheck'; cmd = 'pnpm'; args = @('--filter', './web', 'typecheck') }
-    $steps += @{ name = 'web-test';      cmd = 'pnpm'; args = @('--filter', './web', 'test') }
+    $steps += @{ name = 'web-typecheck'; cmd = 'pnpm.cmd'; words = @('--filter', './web', 'typecheck') }
+    $steps += @{ name = 'web-test';      cmd = 'pnpm.cmd'; words = @('--filter', './web', 'test') }
+    $steps += @{ name = 'web-build';     cmd = 'pnpm.cmd'; words = @('--filter', './web', 'build') }
+}
+
+function Invoke-VerifyStep {
+    param(
+        [Parameter(Mandatory = $true)] [string]$CommandName,
+        [Parameter(Mandatory = $true)] [string[]]$Words,
+        [Parameter(Mandatory = $true)] [string]$StdOutPath,
+        [Parameter(Mandatory = $true)] [string]$StdErrPath
+    )
+    & $CommandName @Words 1> $StdOutPath 2> $StdErrPath
 }
 
 $results = @()
@@ -33,15 +46,12 @@ $failed = 0
 foreach ($s in $steps) {
     $name = $s.name
     $cmd  = $s.cmd
-    $args = $s.args
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $tmpOut = [System.IO.Path]::GetTempFileName()
     $tmpErr = [System.IO.Path]::GetTempFileName()
     try {
-        $proc = Start-Process -FilePath $cmd -ArgumentList $args `
-            -NoNewWindow -PassThru -Wait `
-            -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr
-        $code = $proc.ExitCode
+        Invoke-VerifyStep -CommandName $cmd -Words ([string[]]$s.words) -StdOutPath $tmpOut -StdErrPath $tmpErr
+        $code = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
     } catch {
         $code = 1
         $_.Exception.Message | Out-File -FilePath $tmpErr -Append -Encoding utf8

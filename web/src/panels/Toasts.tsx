@@ -24,7 +24,7 @@ export function Toasts() {
               onClick={() => dismissToast(t.id)}
               aria-label="dismiss"
             >
-              Å~
+              &times;
             </button>
           </div>
         )}

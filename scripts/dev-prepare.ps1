@@ -22,8 +22,8 @@ Write-Host "Building wanlogger-cli..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
 # 2. Copy sidecar binary
-$profile   = if ($Release) { "release" } else { "debug" }
-$srcBin    = Join-Path $root "target\$profile\wanlogger.exe"
+$cargoProfile = if ($Release) { "release" } else { "debug" }
+$srcBin    = Join-Path $root "target\$cargoProfile\wanlogger.exe"
 $binDir    = Join-Path $root "app-tauri\src-tauri\binaries"
 $targetBin = Join-Path $binDir "wanlogger-x86_64-pc-windows-msvc.exe"
 New-Item -ItemType Directory -Path $binDir -Force | Out-Null

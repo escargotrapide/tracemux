@@ -1,11 +1,56 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveWanloggerUrl } from "../../src/adapters/wss";
 
+function stubLocation(location: Partial<Location>): void {
+  vi.stubGlobal("window", {
+    location: {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      host: "127.0.0.1:5173",
+      port: "5173",
+      ...location,
+    },
+  });
+}
+
 describe("resolveWanloggerUrl", () => {
-  it("returns a fallback when no window or env", () => {
-    // Vitest runs in jsdom by default; just assert it returns a string.
-    const url = resolveWanloggerUrl();
-    expect(typeof url).toBe("string");
-    expect(url.length).toBeGreaterThan(0);
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("honors VITE_WANLOGGER_URL", () => {
+    vi.stubEnv("VITE_WANLOGGER_URL", "ws://example.test/ws");
+    expect(resolveWanloggerUrl()).toBe("ws://example.test/ws");
+  });
+
+  it("uses the loopback backend for the Vite dev server", () => {
+    stubLocation({
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      host: "127.0.0.1:5173",
+      port: "5173",
+    });
+    expect(resolveWanloggerUrl()).toBe("ws://127.0.0.1:9000/ws");
+  });
+
+  it("uses the page host for deployed HTTP origins", () => {
+    stubLocation({
+      protocol: "https:",
+      hostname: "logs.example.test",
+      host: "logs.example.test",
+      port: "",
+    });
+    expect(resolveWanloggerUrl()).toBe("wss://logs.example.test/ws");
+  });
+
+  it("uses the loopback backend for Tauri custom protocols", () => {
+    stubLocation({
+      protocol: "tauri:",
+      hostname: "localhost",
+      host: "localhost",
+      port: "",
+    });
+    expect(resolveWanloggerUrl()).toBe("ws://127.0.0.1:9000/ws");
   });
 });
