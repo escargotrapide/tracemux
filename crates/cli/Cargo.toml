@@ -37,6 +37,10 @@ serialport = { workspace = true }
 toml = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+rmpv = { workspace = true }
+tokio-tungstenite = "0.24"
 
 [dev-dependencies]
 tempfile = { workspace = true }

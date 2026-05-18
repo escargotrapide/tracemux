@@ -16,12 +16,14 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use rmpv::Value;
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 
 use wanlogger_core::session::registry::SessionState;
+use wanlogger_server::audit::AuditLog;
 use wanlogger_server::auth::BearerVerifier;
 use wanlogger_server::ingest::Ingest;
 use wanlogger_server::ratelimit::ConnCounter;
@@ -46,14 +48,26 @@ async fn spawn_server_with_manager(
     max_conns: u32,
     source_manager: Arc<SourceManager>,
 ) -> SocketAddr {
+    spawn_server_with_manager_and_audit(no_auth, max_conns, source_manager, None).await
+}
+
+async fn spawn_server_with_manager_and_audit(
+    no_auth: bool,
+    max_conns: u32,
+    source_manager: Arc<SourceManager>,
+    audit: Option<Arc<AuditLog>>,
+) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let state = WsState::with_source_manager(
+    let mut state = WsState::with_source_manager(
         BearerVerifier::new(),
         no_auth,
         Arc::new(ConnCounter::new(max_conns)),
         source_manager,
     );
+    if let Some(audit) = audit {
+        state = state.with_audit(audit);
+    }
     let app = ws::router(state);
     tokio::spawn(async move {
         axum::serve(
@@ -106,7 +120,18 @@ fn value_map(entries: Vec<(&str, Value)>) -> Value {
     )
 }
 
-// REQ: FR-WIRE-001, FR-WIRE-002
+fn write_env(seq: u64, sid: uuid::Uuid, body: &[u8]) -> Envelope {
+    Envelope::new(
+        FrameType::Write,
+        seq,
+        value_map(vec![("body", Value::Binary(body.to_vec()))]),
+    )
+    .with_sid(sid.to_string())
+    .with_ch(0)
+}
+
+// REQ: FR-WIRE-001
+// REQ: FR-WIRE-002
 #[tokio::test]
 async fn loopback_no_auth_ping_pong_round_trip() {
     let addr = spawn_server(true, 8).await;
@@ -446,7 +471,148 @@ async fn ctl_start_mock_source_returns_registered_sid() {
     assert!(manager.remove(sid));
 }
 
-// REQ: FR-WIRE-001, FR-LOG-001
+// REQ: FR-WIRE-001
+// REQ: FR-SINK-WIRE
+// REQ: FR-SINK-TCP
+#[tokio::test]
+async fn write_frame_reaches_tcp_sink_and_returns_ack() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let tcp_addr = listener.local_addr().unwrap();
+    let peer = tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        let mut buf = [0u8; 5];
+        sock.read_exact(&mut buf).await.unwrap();
+        buf
+    });
+
+    let manager = Arc::new(SourceManager::new(Arc::new(Ingest::new())));
+    let audit_dir =
+        std::env::temp_dir().join(format!("wanlogger-ws-audit-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&audit_dir).unwrap();
+    let audit = Arc::new(AuditLog::create(&audit_dir).unwrap());
+    let addr = spawn_server_with_manager_and_audit(true, 8, manager.clone(), Some(audit)).await;
+    let (mut socket, _) = tokio_tungstenite::connect_async(ws_request(addr))
+        .await
+        .expect("connect");
+
+    let start = Envelope::new(
+        FrameType::Ctl,
+        70,
+        value_map(vec![
+            ("action", value_str("start")),
+            (
+                "spec",
+                value_map(vec![
+                    ("kind", value_str("tcp")),
+                    ("addr", value_str(&tcp_addr.to_string())),
+                ]),
+            ),
+        ]),
+    );
+    socket
+        .send(Message::Binary(encode(&start).unwrap()))
+        .await
+        .unwrap();
+    let msg = socket
+        .next()
+        .await
+        .expect("started frame")
+        .expect("start ok");
+    let Message::Binary(bytes) = msg else {
+        panic!("expected binary started ctl, got {msg:?}");
+    };
+    let started = decode(&bytes).expect("decode started");
+    assert_eq!(payload_str(&started.payload, "event"), Some("started"));
+    let sid = payload_str(&started.payload, "sid")
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        .expect("started sid");
+
+    socket
+        .send(Message::Binary(
+            encode(&write_env(71, sid, b"hello")).unwrap(),
+        ))
+        .await
+        .unwrap();
+    let msg = socket.next().await.expect("write ack").expect("ack ok");
+    let Message::Binary(bytes) = msg else {
+        panic!("expected binary ack, got {msg:?}");
+    };
+    let ack = decode(&bytes).expect("decode ack");
+    assert_eq!(ack.kind, FrameType::Ctl);
+    assert_eq!(ack.seq, 71);
+    assert_eq!(payload_str(&ack.payload, "event"), Some("write_ack"));
+    assert_eq!(
+        value_get(&ack.payload, "bytes_written").and_then(Value::as_u64),
+        Some(5)
+    );
+
+    assert_eq!(peer.await.unwrap(), *b"hello");
+    let audit_rows = std::fs::read_to_string(audit_dir.join("audit.jsonl")).unwrap();
+    assert!(audit_rows.contains("\"kind\":\"write-back\""));
+    assert!(audit_rows.contains("\"result\":\"ok\""));
+    assert!(audit_rows.contains(&sid.to_string()));
+    assert!(manager.remove(sid));
+}
+
+// REQ: FR-WIRE-001
+// REQ: FR-SINK-WIRE
+#[tokio::test]
+async fn write_frame_to_unknown_sid_returns_ctl_error() {
+    let addr = spawn_server(true, 8).await;
+    let (mut socket, _) = tokio_tungstenite::connect_async(ws_request(addr))
+        .await
+        .expect("connect");
+    let sid = uuid::Uuid::new_v4();
+
+    socket
+        .send(Message::Binary(
+            encode(&write_env(72, sid, b"nope")).unwrap(),
+        ))
+        .await
+        .unwrap();
+
+    let msg = socket.next().await.expect("ctl frame").expect("ctl ok");
+    let Message::Binary(bytes) = msg else {
+        panic!("expected binary ctl, got {msg:?}");
+    };
+    let got = decode(&bytes).expect("decode ctl");
+    assert_eq!(got.kind, FrameType::Ctl);
+    assert_eq!(got.seq, 72);
+    assert_eq!(payload_str(&got.payload, "event"), Some("error"));
+    assert_eq!(payload_str(&got.payload, "error_id"), Some("E-2001"));
+}
+
+// REQ: FR-WIRE-001
+// REQ: FR-SINK-WIRE
+#[tokio::test]
+async fn malformed_write_payload_returns_ctl_error() {
+    let addr = spawn_server(true, 8).await;
+    let (mut socket, _) = tokio_tungstenite::connect_async(ws_request(addr))
+        .await
+        .expect("connect");
+    let sid = uuid::Uuid::new_v4();
+    let bad = Envelope::new(FrameType::Write, 73, value_map(vec![]))
+        .with_sid(sid.to_string())
+        .with_ch(0);
+
+    socket
+        .send(Message::Binary(encode(&bad).unwrap()))
+        .await
+        .unwrap();
+
+    let msg = socket.next().await.expect("ctl frame").expect("ctl ok");
+    let Message::Binary(bytes) = msg else {
+        panic!("expected binary ctl, got {msg:?}");
+    };
+    let got = decode(&bytes).expect("decode ctl");
+    assert_eq!(got.kind, FrameType::Ctl);
+    assert_eq!(got.seq, 73);
+    assert_eq!(payload_str(&got.payload, "event"), Some("error"));
+    assert_eq!(payload_str(&got.payload, "error_id"), Some("E-2001"));
+}
+
+// REQ: FR-WIRE-001
+// REQ: FR-LOG-001
 #[tokio::test]
 async fn ctl_start_file_source_persists_session_dir() {
     let root = std::env::temp_dir().join(format!("wanlogger-ws-persist-{}", uuid::Uuid::new_v4()));
@@ -520,7 +686,8 @@ async fn ctl_start_file_source_persists_session_dir() {
     assert!(manager.remove(sid));
 }
 
-// REQ: FR-WIRE-001, FR-LOG-001
+// REQ: FR-WIRE-001
+// REQ: FR-LOG-001
 #[tokio::test]
 async fn ctl_resume_completed_file_source_reuses_sid_and_session_dir() {
     let root = std::env::temp_dir().join(format!("wanlogger-ws-resume-{}", uuid::Uuid::new_v4()));

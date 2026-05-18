@@ -78,10 +78,13 @@ export interface CtlPayload {
     | "connected"
     | "disconnected"
     | "eof"
+    | "write_ack"
     | "error"
     | "ratelimited"
     | "auth_failed";
   sid?: string;
+  ch?: number;
+  bytes_written?: number;
   sources?: SourceSyncPayload[];
   message?: string;
   error_id?: string;
@@ -239,7 +242,9 @@ export class WireClient {
     }
     const seq = frame.seq ?? Number(this.seqOut++ & 0xffff_ffff_ffff_ffffn);
     const out: Frame<P> = { ...frame, seq } as Frame<P>;
-    const buf = packr.pack(out);
+    const packed = packr.pack(out) as Uint8Array;
+    const buf = new ArrayBuffer(packed.byteLength);
+    new Uint8Array(buf).set(packed);
     this.ws.send(buf);
   }
 

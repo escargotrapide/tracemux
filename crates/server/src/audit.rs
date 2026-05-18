@@ -63,6 +63,14 @@ pub struct AuditLog {
     inner: Mutex<BufWriter<File>>,
 }
 
+impl std::fmt::Debug for AuditLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditLog")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
 impl AuditLog {
     /// Open (or create) `dir/audit.jsonl` for appending.
     ///

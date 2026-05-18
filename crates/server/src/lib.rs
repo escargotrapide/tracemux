@@ -56,11 +56,15 @@ pub async fn run_with_session_root(
     let auth = auth::BearerVerifier::new();
     let conns = Arc::new(ratelimit::ConnCounter::new(ratelimit::MAX_CONNS));
     let ingest = Arc::new(ingest::Ingest::new());
+    let session_root = session_root.into();
+    std::fs::create_dir_all(&session_root)?;
+    let audit = Arc::new(audit::AuditLog::create(&session_root)?);
     let source_manager = Arc::new(source_manager::SourceManager::with_session_root(
         ingest,
         session_root,
     ));
-    let ws_state = ws::WsState::with_source_manager(auth, no_auth, conns, source_manager);
+    let ws_state =
+        ws::WsState::with_source_manager(auth, no_auth, conns, source_manager).with_audit(audit);
 
     let app = routes::build().merge(ws::router(ws_state));
     axum::serve(

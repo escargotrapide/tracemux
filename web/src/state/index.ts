@@ -296,6 +296,10 @@ function handleFrame(frame: Frame): void {
         message: p.message ?? evt,
         ...(p.error_id ? { errorId: p.error_id } : {}),
       });
+    } else if (evt === "write_ack") {
+      // Acknowledgements can arrive for every terminal keystroke, so keep
+      // them silent here. Explicit send-box feedback is handled locally by
+      // the Terminal panel.
     } else if (evt === "disconnected" || evt === "eof") {
       if (p.sid) upsertSourceStatus(p.sid, "stopped");
       pushToast({ level: "warn", message: p.message ?? evt });

@@ -5,25 +5,31 @@
 //! separate from the frozen core traits and wire schema.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use bytes::Bytes;
 use parking_lot::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use wanlogger_core::decoder::{passthrough::PassthroughDecoder, Decoder};
 use wanlogger_core::framer::{passthrough::PassthroughFramer, Framer};
 use wanlogger_core::logsink::{fanout::FanoutLogSink, file::FileLogSink, LogSink};
+use wanlogger_core::sink::Sink;
 use wanlogger_core::source::{
     file::FileSource, http_webhook::HttpWebhookSource, mock::MockSource, mqtt::MqttSource,
     pipe::PipeSource, process::ProcessSource, replay::ReplaySource, serial::SerialSource,
     syslog::SyslogSource, tcp::TcpSource, udp::UdpSource, ChannelSpec, Source,
 };
 use wanlogger_core::time::{system::SystemTimeSource, TimeSource};
+use wanlogger_core::{ErrorId, WanloggerError};
 
 use crate::ingest::Ingest;
 use crate::runner::{run_source_once_notify, RunnerStats};
+
+type SharedSink = Arc<tokio::sync::Mutex<Box<dyn Sink>>>;
 
 /// UI-facing source lifecycle status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,23 +67,39 @@ pub struct SourceManager {
     sources: Mutex<HashMap<Uuid, SourceEntry>>,
 }
 
-#[derive(Debug)]
 struct SourceEntry {
     spec: Option<ChannelSpec>,
     session_dir: Option<PathBuf>,
     handle: Option<JoinHandle<anyhow::Result<RunnerStats>>>,
+    sink: Option<SharedSink>,
+}
+
+impl fmt::Debug for SourceEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SourceEntry")
+            .field("spec", &self.spec)
+            .field("session_dir", &self.session_dir)
+            .field(
+                "running",
+                &self.handle.as_ref().is_some_and(|h| !h.is_finished()),
+            )
+            .field("sink", &self.sink.is_some())
+            .finish()
+    }
 }
 
 struct SourceRegistration {
     spec: Option<ChannelSpec>,
     session_dir: Option<PathBuf>,
+    sink: Option<Box<dyn Sink>>,
 }
 
 impl SourceRegistration {
-    const fn ephemeral() -> Self {
+    fn ephemeral() -> Self {
         Self {
             spec: None,
             session_dir: None,
+            sink: None,
         }
     }
 }
@@ -136,6 +158,7 @@ impl SourceManager {
                 .ok_or_else(|| anyhow::anyhow!("source sid is unknown"))?;
             if entry.handle.as_ref().is_some_and(JoinHandle::is_finished) {
                 entry.handle = None;
+                entry.sink = None;
             }
             if entry.handle.is_some() {
                 anyhow::bail!("source sid is already active");
@@ -167,6 +190,7 @@ impl SourceManager {
             if let Some(handle) = entry.handle.take() {
                 handle.abort();
             }
+            entry.sink = None;
             (spec, entry.session_dir.clone())
         };
         self.start_spec_with_sid(sid, spec, session_dir).await
@@ -181,31 +205,98 @@ impl SourceManager {
         let time = SystemTimeSource::new(Uuid::new_v4());
         let session_dir = self.session_dir_for(&spec, session_dir);
         match spec.clone() {
-            ChannelSpec::Serial {
-                port,
-                baud,
-                data_bits,
-                parity,
-                stop_bits,
-                flow,
-            } => {
-                self.start_default_pipeline(
-                    sid,
-                    spec,
-                    SerialSource::new(port, baud, data_bits, parity, stop_bits, flow),
-                    time,
-                    session_dir,
-                )
-                .await
+            ChannelSpec::Serial { .. } => {
+                self.start_serial_spec(sid, spec, time, session_dir).await
             }
-            ChannelSpec::Tcp { addr } => {
-                self.start_default_pipeline(sid, spec, TcpSource::new(addr), time, session_dir)
+            ChannelSpec::Tcp { .. } => self.start_tcp_spec(sid, spec, time, session_dir).await,
+            ChannelSpec::Udp { .. } => self.start_udp_spec(sid, spec, time, session_dir).await,
+            ChannelSpec::Process { .. } => {
+                self.start_process_spec(sid, spec, time, session_dir).await
+            }
+            _ => {
+                self.start_source_only_spec(sid, spec, time, session_dir)
                     .await
             }
-            ChannelSpec::Udp { bind } => {
-                self.start_default_pipeline(sid, spec, UdpSource::new(bind), time, session_dir)
-                    .await
-            }
+        }
+    }
+
+    async fn start_serial_spec(
+        &self,
+        sid: Uuid,
+        spec: ChannelSpec,
+        time: SystemTimeSource,
+        session_dir: Option<PathBuf>,
+    ) -> anyhow::Result<Uuid> {
+        let ChannelSpec::Serial {
+            port,
+            baud,
+            data_bits,
+            parity,
+            stop_bits,
+            flow,
+        } = spec.clone()
+        else {
+            unreachable!("start_serial_spec called with non-serial spec");
+        };
+        let (source, sink) =
+            SerialSource::open_duplex(port, baud, data_bits, parity, stop_bits, flow)?;
+        self.start_default_pipeline(sid, spec, source, time, session_dir, Some(Box::new(sink)))
+            .await
+    }
+
+    async fn start_tcp_spec(
+        &self,
+        sid: Uuid,
+        spec: ChannelSpec,
+        time: SystemTimeSource,
+        session_dir: Option<PathBuf>,
+    ) -> anyhow::Result<Uuid> {
+        let ChannelSpec::Tcp { addr } = spec.clone() else {
+            unreachable!("start_tcp_spec called with non-tcp spec");
+        };
+        let (source, sink) = TcpSource::connect_duplex(addr).await?;
+        self.start_default_pipeline(sid, spec, source, time, session_dir, Some(Box::new(sink)))
+            .await
+    }
+
+    async fn start_udp_spec(
+        &self,
+        sid: Uuid,
+        spec: ChannelSpec,
+        time: SystemTimeSource,
+        session_dir: Option<PathBuf>,
+    ) -> anyhow::Result<Uuid> {
+        let ChannelSpec::Udp { bind } = spec.clone() else {
+            unreachable!("start_udp_spec called with non-udp spec");
+        };
+        let (source, sink) = UdpSource::bind_duplex(bind).await?;
+        self.start_default_pipeline(sid, spec, source, time, session_dir, Some(Box::new(sink)))
+            .await
+    }
+
+    async fn start_process_spec(
+        &self,
+        sid: Uuid,
+        spec: ChannelSpec,
+        time: SystemTimeSource,
+        session_dir: Option<PathBuf>,
+    ) -> anyhow::Result<Uuid> {
+        let ChannelSpec::Process { argv } = spec.clone() else {
+            unreachable!("start_process_spec called with non-process spec");
+        };
+        let (source, sink) = ProcessSource::spawn_duplex(argv)?;
+        self.start_default_pipeline(sid, spec, source, time, session_dir, Some(Box::new(sink)))
+            .await
+    }
+
+    async fn start_source_only_spec(
+        &self,
+        sid: Uuid,
+        spec: ChannelSpec,
+        time: SystemTimeSource,
+        session_dir: Option<PathBuf>,
+    ) -> anyhow::Result<Uuid> {
+        match spec.clone() {
             ChannelSpec::File { path, follow } => {
                 self.start_default_pipeline(
                     sid,
@@ -213,28 +304,53 @@ impl SourceManager {
                     FileSource::new(path, follow),
                     time,
                     session_dir,
+                    None,
                 )
                 .await
             }
             ChannelSpec::Pipe { path } => {
-                self.start_default_pipeline(sid, spec, PipeSource::new(path), time, session_dir)
-                    .await
-            }
-            ChannelSpec::Process { argv } => {
-                self.start_default_pipeline(sid, spec, ProcessSource::new(argv), time, session_dir)
-                    .await
+                self.start_default_pipeline(
+                    sid,
+                    spec,
+                    PipeSource::new(path),
+                    time,
+                    session_dir,
+                    None,
+                )
+                .await
             }
             ChannelSpec::Mock { tag } => {
-                self.start_default_pipeline(sid, spec, MockSource::new(tag), time, session_dir)
-                    .await
+                self.start_default_pipeline(
+                    sid,
+                    spec,
+                    MockSource::new(tag),
+                    time,
+                    session_dir,
+                    None,
+                )
+                .await
             }
             ChannelSpec::Replay { path } => {
-                self.start_default_pipeline(sid, spec, ReplaySource::new(path), time, session_dir)
-                    .await
+                self.start_default_pipeline(
+                    sid,
+                    spec,
+                    ReplaySource::new(path),
+                    time,
+                    session_dir,
+                    None,
+                )
+                .await
             }
             ChannelSpec::Syslog { bind } => {
-                self.start_default_pipeline(sid, spec, SyslogSource::new(bind), time, session_dir)
-                    .await
+                self.start_default_pipeline(
+                    sid,
+                    spec,
+                    SyslogSource::new(bind),
+                    time,
+                    session_dir,
+                    None,
+                )
+                .await
             }
             ChannelSpec::Mqtt { broker, topic } => {
                 self.start_default_pipeline(
@@ -243,6 +359,7 @@ impl SourceManager {
                     MqttSource::new(broker, topic),
                     time,
                     session_dir,
+                    None,
                 )
                 .await
             }
@@ -253,6 +370,7 @@ impl SourceManager {
                     HttpWebhookSource::new(bind, path),
                     time,
                     session_dir,
+                    None,
                 )
                 .await
             }
@@ -269,6 +387,7 @@ impl SourceManager {
         source: S,
         time: SystemTimeSource,
         session_dir: Option<PathBuf>,
+        sink: Option<Box<dyn Sink>>,
     ) -> anyhow::Result<Uuid>
     where
         S: Source + Send + 'static,
@@ -284,6 +403,7 @@ impl SourceManager {
             SourceRegistration {
                 spec: Some(spec),
                 session_dir,
+                sink,
             },
         )
         .await
@@ -410,9 +530,54 @@ impl SourceManager {
                 spec: registration.spec,
                 session_dir: registration.session_dir,
                 handle: Some(handle),
+                sink: registration.sink.map(shared_sink),
             },
         );
         Ok(sid)
+    }
+
+    /// Write bytes back to the sink paired with a running source.
+    ///
+    /// `target` is currently used by UDP sinks (`host:port`). Other sinks
+    /// ignore it. The write path is serialised per session by an async mutex
+    /// so frame ordering follows the order in which the server handles write
+    /// frames.
+    pub async fn write(
+        &self,
+        sid: Uuid,
+        ch: u32,
+        body: Bytes,
+        target: Option<String>,
+    ) -> anyhow::Result<usize> {
+        let sink = {
+            let mut sources = self.sources.lock();
+            let Some(entry) = sources.get_mut(&sid) else {
+                return Err(write_error(
+                    ErrorId::E2001WireMalformed,
+                    "write sid is unknown",
+                ));
+            };
+            if entry.handle.as_ref().is_some_and(JoinHandle::is_finished) {
+                entry.handle = None;
+                entry.sink = None;
+            }
+            entry.sink.clone().ok_or_else(|| {
+                write_error(
+                    ErrorId::E2001WireMalformed,
+                    "source does not support write-back or is not running",
+                )
+            })?
+        };
+        let bytes = body.len();
+        let mut sink = sink.lock().await;
+        if let Some(target) = target {
+            sink.ctl("udp-next-target", Some(Bytes::from(target)))
+                .await?;
+        }
+        sink.write(body).await?;
+        sink.flush().await?;
+        tracing::info!(%sid, ch, bytes, "source-manager: write-back complete");
+        Ok(bytes)
     }
 
     /// Wait for a task to finish and remove it from the active task map.
@@ -426,6 +591,9 @@ impl SourceManager {
         let result = handle
             .await
             .unwrap_or_else(|err| Err(anyhow::anyhow!("source task join failed: {err}")));
+        if let Some(entry) = self.sources.lock().get_mut(&sid) {
+            entry.sink = None;
+        }
         if remove_entry {
             self.sources.lock().remove(&sid);
         }
@@ -440,6 +608,7 @@ impl SourceManager {
             let Some(entry) = sources.get_mut(&sid) else {
                 return false;
             };
+            entry.sink = None;
             entry.handle.take()
         };
         let Some(handle) = handle else {
@@ -515,10 +684,19 @@ impl SourceManager {
         self.sources.lock().retain(|_, entry| {
             if entry.handle.as_ref().is_some_and(JoinHandle::is_finished) {
                 entry.handle = None;
+                entry.sink = None;
             }
             entry.spec.is_some() || entry.handle.is_some()
         });
     }
+}
+
+fn shared_sink(sink: Box<dyn Sink>) -> SharedSink {
+    Arc::new(tokio::sync::Mutex::new(sink))
+}
+
+fn write_error(id: ErrorId, message: impl Into<String>) -> anyhow::Error {
+    WanloggerError::new(id, message).into()
 }
 
 /// Default server session root used by `wanlogger serve`.

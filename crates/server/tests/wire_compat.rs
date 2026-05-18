@@ -106,3 +106,17 @@ fn fixture_data_with_sid_ch() {
         .with_ch(0);
     check("data_bytes", &env);
 }
+
+// REQ: FR-WIRE-001
+// REQ: FR-SINK-WIRE
+#[test]
+fn fixture_write_bytes() {
+    let payload = Value::Map(vec![(
+        Value::String("body".into()),
+        Value::Binary(b"hello".to_vec()),
+    )]);
+    let env = Envelope::new(FrameType::Write, 7, payload)
+        .with_sid("00000000-0000-4000-8000-000000000001")
+        .with_ch(0);
+    check("write_bytes", &env);
+}

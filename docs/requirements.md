@@ -211,3 +211,43 @@ each bound to a distinct `(sid, ch)` from `sourcesStore`. Off-screen
 tiles report `panel_priority{visible:false}` via `IntersectionObserver`
 so the server may switch them to the slow coalescing bucket
 (NFR-PERF-001).
+
+### FR-SINK-WIRE  Wire write-back routing
+The server handles WSS `write` frames by validating `sid`, `ch`, and
+`payload.body`, routing bytes to the `Sink` paired with the running
+source session, and returning a `ctl` `write_ack` with the same `seq` on
+success. Unknown sessions, source-only sessions, stopped sessions, and
+malformed payloads return a `ctl` `error` with an `E-NNNN` code.
+
+### FR-SINK-TCP  TCP write-back sink
+TCP sessions started by the server expose a `TcpSink` paired with the
+same TCP connection as `TcpSource`. Writes preserve request order and
+flush through the TCP write half; closed connections report `E-1102`.
+
+### FR-SINK-UDP  UDP write-back sink
+UDP sessions started by the server expose a `UdpSink` paired with the
+same UDP socket as `UdpSource`. A write uses `payload.target` when
+provided, otherwise the most recent inbound peer. If no target can be
+resolved, the server returns a wire validation error.
+
+### FR-SINK-SERIAL  Serial write-back sink
+Serial sessions started with the `serial` feature expose a `SerialSink`
+paired with the same serial stream as `SerialSource`. Without the
+feature, serial write-back fails with `E-1101` and does not register a
+partially opened session.
+
+### FR-SINK-PROCESS  Process stdin write-back sink
+Process sessions started by the server expose a `ProcessSink` connected
+to the child process stdin while `ProcessSource` continues to capture
+stdout and stderr.
+
+### FR-CLI-003  Send subcommand
+`wanlogger send` connects to `wanlogger serve` using the
+`wanlogger.v1` WSS subprotocol, sends bytes from `--text`, `--file`,
+`--hex`, or stdin as a `write` frame, and optionally waits for
+`write_ack` or `error` before exiting.
+
+### FR-UI-013  Terminal send box
+The Terminal panel includes an explicit send input and button that
+encodes text as UTF-8 and sends it as a `write` frame to the selected
+`(sid, ch)`. The input is disabled when no source is selected.

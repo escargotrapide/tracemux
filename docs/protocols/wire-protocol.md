@@ -58,6 +58,50 @@ a `ctl` error with `error_id = "E-2001"`.
 { type: "unsub", sid: "uuid", ch: 0, payload: {} }
 ```
 
+## `write` payload
+
+`write` frames route client-provided bytes to the `Sink` paired with a
+running source session. The envelope-level `sid` MUST be a UUID string
+for a registered session. `ch` defaults to `0` when omitted. The
+payload MUST contain `body` as a MessagePack bin value.
+
+```msgpack
+{
+  type: "write",
+  sid: "uuid",
+  ch: 0,
+  seq: 7,
+  payload: {
+    body: bin,
+    target?: "host:port"  // UDP only; otherwise ignored
+  }
+}
+```
+
+Ordering is preserved per session by the server's per-sink write lock.
+Successful writes return a `ctl` acknowledgement with the same `seq`:
+
+```msgpack
+{
+  type: "ctl",
+  sid: "uuid",
+  ch: 0,
+  seq: 7,
+  payload: {
+    event: "write_ack",
+    sid: "uuid",
+    ch: 0,
+    bytes_written: 5,
+    message: "write completed"
+  }
+}
+```
+
+Malformed writes, unknown `sid` values, source-only sessions, or stopped
+sources return a `ctl` `error` event. Validation errors use `E-2001`;
+transport-closed write failures use `E-1102`; generic sink failures use
+`E-1001` unless a more specific core error is available.
+
 ## `data` payload
 
 ```msgpack
@@ -130,6 +174,7 @@ Server-to-client lifecycle acknowledgements also use `ctl` payloads:
 | `resumed`   | `sid`, `message` | Source resumed with the same `sid`. |
 | `restarted` | `sid`, `message` | Source restarted with the same `sid`. |
 | `removed`   | `sid`, `message` | Source removed from the registry. |
+| `write_ack` | `sid`, `ch`, `bytes_written`, `message` | Write-back completed. |
 | `error`     | `message`, `error_id` | Lifecycle or wire error. |
 
 `sources` rows have this shape:

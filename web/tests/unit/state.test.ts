@@ -110,6 +110,7 @@ describe("state frame handler", () => {
 
   it("sends terminal write frames", () => {
     // REQ: FR-UI-010
+    // REQ: FR-UI-013
     const send = vi.fn();
     __setClientForTest({ send });
     const body = new Uint8Array([0x41, 0x42]);

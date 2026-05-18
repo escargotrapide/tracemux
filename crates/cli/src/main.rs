@@ -1,6 +1,6 @@
 //! `wanlogger` — single binary CLI / server.
 //!
-//! Subcommands: `serve | connect | detect | log | profile | replay |
+//! Subcommands: `serve | connect | send | detect | log | profile | replay |
 //! extcap | import | export | ai-verify | json-schema`.
 
 use clap::{Parser, Subcommand};
@@ -23,6 +23,8 @@ enum Cmd {
     Serve(ServeArgs),
     /// Open a single channel and pipe to stdout.
     Connect(ConnectArgs),
+    /// Send bytes to a running server session via WSS write-back.
+    Send(SendArgs),
     /// Auto-detect available transports.
     Detect,
     /// Log a single channel to a session-dir.
@@ -60,6 +62,37 @@ struct ServeArgs {
 struct ConnectArgs {
     /// Channel spec, e.g. `serial://COM3?baud=115200`.
     spec: String,
+}
+
+#[derive(Debug, clap::Args)]
+struct SendArgs {
+    /// WebSocket endpoint for `wanlogger serve`.
+    #[arg(long, default_value = "ws://127.0.0.1:9000/ws")]
+    url: String,
+    /// Bearer token. Defaults to `WANLOGGER_TOKEN` when set.
+    #[arg(long, env = "WANLOGGER_TOKEN")]
+    token: Option<String>,
+    /// Target session id.
+    #[arg(long)]
+    sid: String,
+    /// Target channel.
+    #[arg(long, default_value_t = 0)]
+    ch: u32,
+    /// UTF-8 text to send. If omitted with `--file`/`--hex`, stdin is read.
+    #[arg(long)]
+    text: Option<String>,
+    /// File whose bytes should be sent.
+    #[arg(long)]
+    file: Option<std::path::PathBuf>,
+    /// Hex bytes to send, e.g. `48656c6c6f0a`.
+    #[arg(long)]
+    hex: Option<String>,
+    /// UDP destination `host:port` for UDP sessions.
+    #[arg(long)]
+    udp_target: Option<String>,
+    /// Wait for `ctl.write_ack` or `ctl.error` before exiting.
+    #[arg(long)]
+    wait_ack: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -182,6 +215,20 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Cmd::Connect(args) => cmd::connect::run(&args.spec).await?,
+        Cmd::Send(args) => {
+            cmd::send::run(cmd::send::Options {
+                url: args.url,
+                token: args.token,
+                sid: args.sid,
+                ch: args.ch,
+                text: args.text,
+                file: args.file,
+                hex: args.hex,
+                udp_target: args.udp_target,
+                wait_ack: args.wait_ack,
+            })
+            .await?;
+        }
         Cmd::Detect => cmd::detect::run()?,
         Cmd::Log(args) => cmd::log::run(&args.spec, args.prefix.as_deref()).await?,
         Cmd::Profile(args) => {

@@ -28,3 +28,9 @@ pub trait Sink: Send + Sync + 'static {
     /// Close the sink. Idempotent.
     async fn close(&mut self) -> Result<()>;
 }
+
+pub mod mock;
+pub mod process;
+pub mod serial;
+pub mod tcp;
+pub mod udp;

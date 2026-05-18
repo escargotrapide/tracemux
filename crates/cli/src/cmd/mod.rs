@@ -7,4 +7,5 @@ pub mod extcap;
 pub mod import;
 pub mod log;
 pub mod profile;
+pub mod send;
 pub mod spec;

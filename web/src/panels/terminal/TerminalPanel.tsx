@@ -5,6 +5,7 @@
 // REQ: FR-UI-002
 // REQ: FR-UI-010
 // REQ: FR-UI-011
+// REQ: FR-UI-013
 
 import {
   createEffect,
@@ -19,6 +20,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { t } from "~/i18n";
 import {
+  pushToast,
   selectTerminalChannel,
   sendWrite,
   sourcesStore,
@@ -45,6 +47,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
 
   const [sid, setSid] = createSignal(props.sid);
   const [ch, setCh] = createSignal(props.ch);
+  const [txText, setTxText] = createSignal("");
 
   const sidOptions = createMemo(() => Object.values(sourcesStore));
   const chOptions = createMemo(() => {
@@ -103,6 +106,22 @@ export function TerminalPanel(props: TerminalPanelProps) {
     const text = term?.getSelection() ?? "";
     if (!text) return;
     void navigator.clipboard?.writeText(text);
+  }
+
+  function sendTextInput(): void {
+    const text = txText();
+    if (!hasActiveSource() || text.length === 0) return;
+    const bytes = encoder.encode(text);
+    try {
+      sendWrite(sid(), ch(), bytes);
+      setTxText("");
+      pushToast({
+        level: "info",
+        message: `${t("terminal.sent")} (${bytes.byteLength} bytes)`,
+      });
+    } catch {
+      pushToast({ level: "error", message: t("terminal.send_error") });
+    }
   }
 
   function safeFit(): void {
@@ -217,7 +236,28 @@ export function TerminalPanel(props: TerminalPanelProps) {
         <span style={{ color: "var(--wl-fg-muted)", "align-self": "center" }}>
           {t("terminal.target")}: {hasActiveSource() ? `${sid()} / ch ${ch()}` : t("terminal.no_source")}
         </span>
-        <button type="button" onClick={clearTerminal} style={{ "margin-left": "auto" }}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            sendTextInput();
+          }}
+          style={{ display: "flex", gap: "4px", "margin-left": "auto" }}
+          aria-label={t("terminal.send_label")}
+        >
+          <input
+            type="text"
+            value={txText()}
+            onInput={(e) => setTxText(e.currentTarget.value)}
+            placeholder={t("terminal.send_placeholder")}
+            disabled={!hasActiveSource()}
+            style={{ width: "260px" }}
+            aria-label={t("terminal.send_label")}
+          />
+          <button type="submit" disabled={!hasActiveSource() || txText().length === 0}>
+            {t("terminal.send")}
+          </button>
+        </form>
+        <button type="button" onClick={clearTerminal}>
           {t("terminal.clear")}
         </button>
         <button type="button" onClick={copySelection}>

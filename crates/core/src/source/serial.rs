@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
+use crate::sink::serial::SerialSink;
 use crate::{ErrorId, Result, WanloggerError};
 
 // ---- tokio-serial enabled path ----------------------------------------
@@ -126,7 +127,26 @@ pub struct SerialSource {
     ctl_queue: std::collections::VecDeque<ControlEvt>,
     /// Active port handle (present after `open`, absent before / after `close`).
     #[cfg(feature = "serial")]
-    inner: Option<tokio_serial::SerialStream>,
+    inner: Option<SerialReader>,
+}
+
+#[cfg(feature = "serial")]
+#[derive(Debug)]
+enum SerialReader {
+    Stream(tokio_serial::SerialStream),
+    ReadHalf(tokio::io::ReadHalf<tokio_serial::SerialStream>),
+}
+
+#[cfg(feature = "serial")]
+impl SerialReader {
+    async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use tokio::io::AsyncReadExt as _;
+
+        match self {
+            Self::Stream(stream) => stream.read(buf).await,
+            Self::ReadHalf(reader) => reader.read(buf).await,
+        }
+    }
 }
 
 impl SerialSource {
@@ -152,6 +172,83 @@ impl SerialSource {
             inner: None,
         }
     }
+
+    /// Open a serial port and split it into a source/sink pair.
+    ///
+    /// The returned source is already open; a later [`Source::open`] call is
+    /// a no-op so it can be passed to the server runner.
+    #[cfg(feature = "serial")]
+    pub fn open_duplex(
+        port: impl Into<String>,
+        baud: u32,
+        data_bits: u8,
+        parity: impl Into<String>,
+        stop_bits: u8,
+        flow: impl Into<String>,
+    ) -> Result<(Self, SerialSink)> {
+        // REQ: FR-SINK-SERIAL
+        let mut source = Self::new(port, baud, data_bits, parity, stop_bits, flow);
+        let stream = source.open_stream()?;
+        let (reader, writer) = tokio::io::split(stream);
+        source.inner = Some(SerialReader::ReadHalf(reader));
+        source.ctl_queue.push_back(ControlEvt::Connected);
+        let sink = SerialSink::new(source.port.clone(), writer);
+        tracing::info!(port = %source.port, baud = source.baud, "serial: opened duplex");
+        Ok((source, sink))
+    }
+
+    /// Return a clear error for duplex serial when the feature is disabled.
+    #[cfg(not(feature = "serial"))]
+    pub fn open_duplex(
+        port: impl Into<String>,
+        baud: u32,
+        data_bits: u8,
+        parity: impl Into<String>,
+        stop_bits: u8,
+        flow: impl Into<String>,
+    ) -> Result<(Self, SerialSink)> {
+        // REQ: FR-SINK-SERIAL
+        let port = port.into();
+        let _ = (baud, data_bits, parity.into(), stop_bits, flow.into());
+        Err(WanloggerError::new(
+            ErrorId::E1101SourceOpen,
+            format!("serial source {port} requires the `serial` feature"),
+        ))
+    }
+
+    #[cfg(feature = "serial")]
+    fn open_stream(&self) -> Result<tokio_serial::SerialStream> {
+        let db = imp::data_bits(self.data_bits).map_err(|e| {
+            WanloggerError::new(
+                ErrorId::E1101SourceOpen,
+                format!("serial open {}: {e}", self.port),
+            )
+        })?;
+        let par = imp::parity(&self.parity).map_err(|e| {
+            WanloggerError::new(
+                ErrorId::E1101SourceOpen,
+                format!("serial open {}: {e}", self.port),
+            )
+        })?;
+        let sb = imp::stop_bits(self.stop_bits).map_err(|e| {
+            WanloggerError::new(
+                ErrorId::E1101SourceOpen,
+                format!("serial open {}: {e}", self.port),
+            )
+        })?;
+        let fc = imp::flow(&self.flow).map_err(|e| {
+            WanloggerError::new(
+                ErrorId::E1101SourceOpen,
+                format!("serial open {}: {e}", self.port),
+            )
+        })?;
+        imp::open_port(&self.port, self.baud, db, par, sb, fc).map_err(|e| {
+            WanloggerError::new(
+                ErrorId::E1101SourceOpen,
+                format!("serial open {}: {e}", self.port),
+            )
+        })
+    }
 }
 
 #[async_trait]
@@ -164,37 +261,11 @@ impl Source for SerialSource {
         // REQ: FR-SRC-SERIAL
         #[cfg(feature = "serial")]
         {
-            let db = imp::data_bits(self.data_bits).map_err(|e| {
-                WanloggerError::new(
-                    ErrorId::E1101SourceOpen,
-                    format!("serial open {}: {e}", self.port),
-                )
-            })?;
-            let par = imp::parity(&self.parity).map_err(|e| {
-                WanloggerError::new(
-                    ErrorId::E1101SourceOpen,
-                    format!("serial open {}: {e}", self.port),
-                )
-            })?;
-            let sb = imp::stop_bits(self.stop_bits).map_err(|e| {
-                WanloggerError::new(
-                    ErrorId::E1101SourceOpen,
-                    format!("serial open {}: {e}", self.port),
-                )
-            })?;
-            let fc = imp::flow(&self.flow).map_err(|e| {
-                WanloggerError::new(
-                    ErrorId::E1101SourceOpen,
-                    format!("serial open {}: {e}", self.port),
-                )
-            })?;
-            let stream = imp::open_port(&self.port, self.baud, db, par, sb, fc).map_err(|e| {
-                WanloggerError::new(
-                    ErrorId::E1101SourceOpen,
-                    format!("serial open {}: {e}", self.port),
-                )
-            })?;
-            self.inner = Some(stream);
+            if self.inner.is_some() {
+                return Ok(());
+            }
+            let stream = self.open_stream()?;
+            self.inner = Some(SerialReader::Stream(stream));
             self.ctl_queue.push_back(ControlEvt::Connected);
             tracing::info!(port = %self.port, baud = self.baud, "serial: opened");
             Ok(())
@@ -214,7 +285,6 @@ impl Source for SerialSource {
     async fn recv(&mut self) -> Result<Option<Frame>> {
         #[cfg(feature = "serial")]
         {
-            use tokio::io::AsyncReadExt as _;
             let Some(port) = self.inner.as_mut() else {
                 return Ok(None);
             };
@@ -297,6 +367,14 @@ mod tests {
         assert_eq!(meta.iface, "COM_TEST");
         assert_eq!(meta.tags["baud"], "115200");
         assert_eq!(meta.tags["parity"], "none");
+    }
+
+    #[cfg(not(feature = "serial"))]
+    #[test]
+    fn duplex_without_serial_feature_returns_e1101() {
+        // REQ: FR-SINK-SERIAL
+        let result = SerialSource::open_duplex("COM_TEST", 115_200, 8, "none", 1, "none");
+        assert!(matches!(result, Err(err) if err.id == ErrorId::E1101SourceOpen));
     }
 
     #[cfg(feature = "serial")]

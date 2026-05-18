@@ -27,11 +27,14 @@ use axum::routing::get;
 use axum::Router;
 use futures::{SinkExt, StreamExt};
 use rmpv::Value;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
-use wanlogger_core::{source::ChannelSpec, ErrorId};
+use wanlogger_core::{source::ChannelSpec, ErrorId, WanloggerError};
 
+use crate::audit::{AuditEvent, AuditKind, AuditLog, AuditResult};
 use crate::auth::{extract_bearer, is_loopback_allowed, BearerVerifier};
 use crate::ingest::Ingest;
 use crate::ratelimit::ConnCounter;
@@ -55,6 +58,8 @@ pub struct WsState {
     pub ingest: Arc<Ingest>,
     /// Source lifecycle manager used by `ctl` lifecycle actions.
     pub source_manager: Arc<SourceManager>,
+    /// Optional append-only audit log for write-back requests.
+    pub audit: Option<Arc<AuditLog>>,
 }
 
 impl WsState {
@@ -91,7 +96,15 @@ impl WsState {
             conns,
             ingest,
             source_manager,
+            audit: None,
         }
+    }
+
+    /// Attach an audit log to this WSS state.
+    #[must_use]
+    pub fn with_audit(mut self, audit: Arc<AuditLog>) -> Self {
+        self.audit = Some(audit);
+        self
     }
 }
 
@@ -167,8 +180,14 @@ async fn ws_handler(
         .max_message_size(MAX_FRAME_BYTES)
         .on_upgrade(move |socket| async move {
             let g = guard;
-            handle_socket_with_source_manager(socket, peer, state.ingest, state.source_manager)
-                .await;
+            handle_socket_with_source_manager_and_audit(
+                socket,
+                peer,
+                state.ingest,
+                state.source_manager,
+                state.audit,
+            )
+            .await;
             drop(g);
         })
 }
@@ -191,6 +210,16 @@ pub async fn handle_socket_with_source_manager(
     peer: SocketAddr,
     ingest: Arc<Ingest>,
     source_manager: Arc<SourceManager>,
+) {
+    handle_socket_with_source_manager_and_audit(socket, peer, ingest, source_manager, None).await;
+}
+
+async fn handle_socket_with_source_manager_and_audit(
+    socket: WebSocket,
+    peer: SocketAddr,
+    ingest: Arc<Ingest>,
+    source_manager: Arc<SourceManager>,
+    audit: Option<Arc<AuditLog>>,
 ) {
     tracing::info!(%peer, "ws: connected");
     let (mut sender, mut receiver) = socket.split();
@@ -231,6 +260,7 @@ pub async fn handle_socket_with_source_manager(
                     &env,
                     &ingest,
                     &source_manager,
+                    audit.as_ref(),
                     &out_tx,
                     &mut subscriptions,
                     peer,
@@ -277,6 +307,7 @@ async fn dispatch_envelope(
     env: &Envelope,
     ingest: &Arc<Ingest>,
     source_manager: &Arc<SourceManager>,
+    audit: Option<&Arc<AuditLog>>,
     out_tx: &mpsc::Sender<Message>,
     subscriptions: &mut HashMap<SubscriptionKey, JoinHandle<()>>,
     peer: SocketAddr,
@@ -285,7 +316,77 @@ async fn dispatch_envelope(
         FrameType::Sub => subscribe_session(env, ingest, out_tx, subscriptions, peer).await,
         FrameType::Unsub => unsubscribe_session(env, out_tx, subscriptions, peer).await,
         FrameType::Ctl => handle_ctl(env, source_manager, out_tx, peer).await,
+        FrameType::Write => handle_write(env, source_manager, audit, out_tx, peer).await,
         _ => true,
+    }
+}
+
+async fn handle_write(
+    env: &Envelope,
+    source_manager: &Arc<SourceManager>,
+    audit: Option<&Arc<AuditLog>>,
+    out_tx: &mpsc::Sender<Message>,
+    peer: SocketAddr,
+) -> bool {
+    // REQ: FR-SINK-WIRE
+    let sid = match parse_write_sid(env) {
+        Ok(sid) => sid,
+        Err(reply) => {
+            audit_write(
+                audit,
+                peer,
+                env.sid.clone().unwrap_or_else(|| "<missing>".to_string()),
+                AuditResult::Denied,
+                serde_json::json!({ "seq": env.seq, "reason": "invalid sid" }),
+            );
+            return queue_envelope(out_tx, &reply, peer).await;
+        }
+    };
+    let ch = env.ch.unwrap_or(0);
+    let body = match map_get(&env.payload, "body") {
+        Some(Value::Binary(body)) => bytes::Bytes::copy_from_slice(body),
+        _ => {
+            audit_write(
+                audit,
+                peer,
+                format!("{sid}/ch{ch}"),
+                AuditResult::Denied,
+                serde_json::json!({ "seq": env.seq, "reason": "missing body" }),
+            );
+            let reply = ctl_error(env.seq, "write payload.body bin is required");
+            return queue_envelope(out_tx, &reply, peer).await;
+        }
+    };
+    let target = map_str(&env.payload, "target").map(ToString::to_string);
+    match source_manager.write(sid, ch, body, target).await {
+        Ok(bytes_written) => {
+            tracing::info!(%peer, %sid, ch, bytes_written, "ws: write-back accepted");
+            audit_write(
+                audit,
+                peer,
+                format!("{sid}/ch{ch}"),
+                AuditResult::Ok,
+                serde_json::json!({ "seq": env.seq, "bytes_written": bytes_written }),
+            );
+            let reply = write_ack(env.seq, sid, ch, bytes_written);
+            queue_envelope(out_tx, &reply, peer).await
+        }
+        Err(err) => {
+            tracing::warn!(%peer, %sid, ch, error = %err, "ws: write-back failed");
+            audit_write(
+                audit,
+                peer,
+                format!("{sid}/ch{ch}"),
+                AuditResult::Error,
+                serde_json::json!({ "seq": env.seq, "error": err.to_string() }),
+            );
+            let reply = ctl_error_with_id(
+                env.seq,
+                format!("write failed: {err}"),
+                anyhow_error_id(&err),
+            );
+            queue_envelope(out_tx, &reply, peer).await
+        }
     }
 }
 
@@ -619,6 +720,68 @@ fn ctl_error_with_id(seq: u64, message: impl Into<String>, error_id: ErrorId) ->
     )
 }
 
+fn write_ack(seq: u64, sid: Uuid, ch: u32, bytes_written: usize) -> Envelope {
+    Envelope::new(
+        FrameType::Ctl,
+        seq,
+        Value::Map(vec![
+            (
+                Value::String("event".into()),
+                Value::String("write_ack".into()),
+            ),
+            (
+                Value::String("message".into()),
+                Value::String("write completed".into()),
+            ),
+            (
+                Value::String("sid".into()),
+                Value::String(sid.to_string().into()),
+            ),
+            (Value::String("ch".into()), Value::from(ch)),
+            (
+                Value::String("bytes_written".into()),
+                Value::from(u64::try_from(bytes_written).unwrap_or(u64::MAX)),
+            ),
+        ]),
+    )
+    .with_sid(sid.to_string())
+    .with_ch(ch)
+}
+
+fn anyhow_error_id(err: &anyhow::Error) -> ErrorId {
+    err.downcast_ref::<WanloggerError>()
+        .map_or(ErrorId::E1001PipelineGeneric, |err| err.id)
+}
+
+fn audit_write(
+    audit: Option<&Arc<AuditLog>>,
+    peer: SocketAddr,
+    target: String,
+    result: AuditResult,
+    detail: serde_json::Value,
+) {
+    let Some(audit) = audit else {
+        return;
+    };
+    let event = AuditEvent {
+        ts: audit_ts(),
+        actor: peer.to_string(),
+        kind: AuditKind::WriteBack,
+        target,
+        result,
+        detail,
+    };
+    if let Err(err) = audit.append(&event) {
+        tracing::warn!(error = %err, "ws: failed to append write-back audit event");
+    }
+}
+
+fn audit_ts() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| wanlogger_core::time::unix_ns_now().to_string())
+}
+
 fn lifecycle_error_id(err: &anyhow::Error) -> ErrorId {
     let message = err.to_string();
     if message.contains("unknown")
@@ -645,6 +808,13 @@ fn parse_env_sid(env: &Envelope) -> Result<Uuid, Envelope> {
         return Err(ctl_error(env.seq, "ctl action missing sid"));
     };
     Uuid::parse_str(sid).map_err(|_| ctl_error(env.seq, "ctl sid is not a UUID"))
+}
+
+fn parse_write_sid(env: &Envelope) -> Result<Uuid, Envelope> {
+    let Some(sid) = env.sid.as_deref() else {
+        return Err(ctl_error(env.seq, "write missing sid"));
+    };
+    Uuid::parse_str(sid).map_err(|_| ctl_error(env.seq, "write sid is not a UUID"))
 }
 
 fn map_get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {

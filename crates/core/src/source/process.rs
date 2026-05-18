@@ -14,9 +14,10 @@ use std::process::Stdio;
 use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::io::AsyncReadExt;
-use tokio::process::{Child, ChildStderr, ChildStdout, Command};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
+use crate::sink::process::ProcessSink;
 use crate::{ErrorId, Result, WanloggerError};
 
 const READ_CHUNK: usize = 8 * 1024;
@@ -49,20 +50,41 @@ impl ProcessSource {
             eof: false,
         }
     }
-}
 
-#[async_trait]
-impl Source for ProcessSource {
-    async fn open(&mut self) -> Result<()> {
+    /// Spawn a child with piped stdin and split it into source/sink halves.
+    ///
+    /// The returned source is already open; a later [`Source::open`] call is
+    /// a no-op so the source can be passed to the server runner.
+    pub fn spawn_duplex(argv: Vec<String>) -> Result<(Self, ProcessSink)> {
+        let mut source = Self::new(argv);
+        let stdin = source.spawn(true)?;
+        let stdin = stdin.ok_or_else(|| {
+            WanloggerError::new(
+                ErrorId::E1101SourceOpen,
+                "process source: child stdin was not piped",
+            )
+        })?;
+        let iface = source.argv.join(" ");
+        Ok((source, ProcessSink::new(iface, stdin)))
+    }
+
+    fn spawn(&mut self, pipe_stdin: bool) -> Result<Option<ChildStdin>> {
         if self.argv.is_empty() {
             return Err(WanloggerError::new(
                 ErrorId::E1101SourceOpen,
                 "process source: argv is empty",
             ));
         }
+        if self.child.is_some() {
+            return Ok(None);
+        }
         let mut cmd = Command::new(&self.argv[0]);
         cmd.args(&self.argv[1..]);
-        cmd.stdin(Stdio::null());
+        cmd.stdin(if pipe_stdin {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         let mut child = cmd.spawn().map_err(|e| {
@@ -72,10 +94,19 @@ impl Source for ProcessSource {
             )
             .with_source(e)
         })?;
+        let stdin = child.stdin.take();
         self.stdout = child.stdout.take();
         self.stderr = child.stderr.take();
         self.child = Some(child);
         self.pending_ctl.push_back(ControlEvt::Connected);
+        Ok(stdin)
+    }
+}
+
+#[async_trait]
+impl Source for ProcessSource {
+    async fn open(&mut self) -> Result<()> {
+        self.spawn(false)?;
         Ok(())
     }
 
@@ -165,12 +196,21 @@ fn read_err(stream: &str, e: std::io::Error) -> WanloggerError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sink::Sink;
 
     fn echo_argv(text: &str) -> Vec<String> {
         if cfg!(windows) {
             vec!["cmd".into(), "/C".into(), format!("echo {text}")]
         } else {
             vec!["sh".into(), "-c".into(), format!("printf '{text}'")]
+        }
+    }
+
+    fn cat_argv() -> Vec<String> {
+        if cfg!(windows) {
+            vec!["cmd".into(), "/C".into(), "more".into()]
+        } else {
+            vec!["cat".into()]
         }
     }
 
@@ -196,5 +236,27 @@ mod tests {
         let mut src = ProcessSource::new(Vec::new());
         let err = src.open().await.unwrap_err();
         assert_eq!(err.id, ErrorId::E1101SourceOpen);
+    }
+
+    // REQ: FR-SINK-PROCESS
+    #[tokio::test]
+    async fn duplex_sink_writes_to_child_stdin() {
+        let (mut src, mut sink) = ProcessSource::spawn_duplex(cat_argv()).unwrap();
+        sink.write(Bytes::from_static(b"hello\n")).await.unwrap();
+        sink.close().await.unwrap();
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), src.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        match frame {
+            Frame::Bytes(bytes) | Frame::Other { data: bytes, .. } => {
+                let text = String::from_utf8_lossy(&bytes);
+                assert!(text.contains("hello"), "process output was {text:?}");
+            }
+            other => panic!("unexpected frame: {other:?}"),
+        }
+        src.close().await.unwrap();
     }
 }

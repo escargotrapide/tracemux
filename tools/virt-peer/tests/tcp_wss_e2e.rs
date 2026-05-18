@@ -55,7 +55,8 @@ impl Drop for ChildGuard {
     }
 }
 
-// REQ: FR-WIRE-001, FR-LOG-001
+// REQ: FR-WIRE-001
+// REQ: FR-LOG-001
 #[tokio::test]
 async fn virt_peer_tcp_flows_through_wss_and_session_dir() -> Result<()> {
     let root = tempfile::tempdir().context("creating E2E tempdir")?;
