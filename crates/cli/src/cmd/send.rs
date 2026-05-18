@@ -10,6 +10,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
+use wanlogger_core::codec::encode_text;
 use wanlogger_server::wire::{decode, encode, Envelope, FrameType};
 
 const SUBPROTOCOL: &str = "wanlogger.v1";
@@ -27,6 +28,8 @@ pub struct Options {
     pub ch: u32,
     /// Text payload.
     pub text: Option<String>,
+    /// Encoding label used for text payloads.
+    pub encoding: String,
     /// File payload.
     pub file: Option<std::path::PathBuf>,
     /// Hex payload.
@@ -93,7 +96,14 @@ async fn read_payload(options: &Options) -> Result<Vec<u8>> {
         bail!("choose at most one of --text, --file, or --hex");
     }
     if let Some(text) = &options.text {
-        return Ok(text.as_bytes().to_vec());
+        let (bytes, had_errors) = encode_text(text, &options.encoding);
+        if had_errors {
+            bail!(
+                "--text contains characters not representable in encoding `{}`",
+                options.encoding
+            );
+        }
+        return Ok(bytes);
     }
     if let Some(path) = &options.file {
         return tokio::fs::read(path)
@@ -177,6 +187,21 @@ fn payload_str<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
 
+    fn options_with_text(text: &str, encoding: &str) -> Options {
+        Options {
+            url: "ws://127.0.0.1:9000/ws".to_string(),
+            token: None,
+            sid: Uuid::nil().to_string(),
+            ch: 0,
+            text: Some(text.to_string()),
+            encoding: encoding.to_string(),
+            file: None,
+            hex: None,
+            udp_target: None,
+            wait_ack: false,
+        }
+    }
+
     #[test]
     fn hex_decodes_with_whitespace() {
         // REQ: FR-CLI-003
@@ -186,5 +211,14 @@ mod tests {
     #[test]
     fn hex_rejects_odd_length() {
         assert!(decode_hex("abc").is_err());
+    }
+
+    #[tokio::test]
+    async fn text_payload_uses_selected_encoding() {
+        // REQ: FR-CLI-004
+        let body = read_payload(&options_with_text("\u{3042}", "shift_jis"))
+            .await
+            .unwrap();
+        assert_eq!(body, vec![0x82, 0xA0]);
     }
 }

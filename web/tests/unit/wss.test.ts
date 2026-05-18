@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveWanloggerUrl } from "../../src/adapters/wss";
+import { resolveWanloggerHttpUrl, resolveWanloggerUrl } from "../../src/adapters/wss";
 
 function stubLocation(location: Partial<Location>): void {
   vi.stubGlobal("window", {
@@ -32,6 +32,9 @@ describe("resolveWanloggerUrl", () => {
       port: "5173",
     });
     expect(resolveWanloggerUrl()).toBe("ws://127.0.0.1:9000/ws");
+    expect(resolveWanloggerHttpUrl("/api/detect")).toBe(
+      "http://127.0.0.1:9000/api/detect",
+    );
   });
 
   it("uses the page host for deployed HTTP origins", () => {
@@ -42,6 +45,9 @@ describe("resolveWanloggerUrl", () => {
       port: "",
     });
     expect(resolveWanloggerUrl()).toBe("wss://logs.example.test/ws");
+    expect(resolveWanloggerHttpUrl("/api/version")).toBe(
+      "https://logs.example.test/api/version",
+    );
   });
 
   it("uses the loopback backend for Tauri custom protocols", () => {

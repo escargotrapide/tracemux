@@ -4,7 +4,13 @@
 // REQ: FR-UI-008
 
 import { createSignal, For, Show } from "solid-js";
-import { openTerminalChannel, sourcesStore, sendCtl, pushToast } from "~/state";
+import {
+  openNewTerminalChannel,
+  openTerminalChannel,
+  sourcesStore,
+  sendCtl,
+  pushToast,
+} from "~/state";
 import {
   BUILTIN_SOURCE_PRESETS,
   deleteUserSourcePreset,
@@ -16,6 +22,7 @@ import {
   type SourceSortKey,
   type SourceStatusFilter,
 } from "~/state/sourceFilters";
+import { detectSources, serialSpecForPort } from "~/state/sourceDiscovery";
 import { parseSourceSpec } from "~/state/sourceSpec";
 import { t } from "~/i18n";
 
@@ -41,6 +48,12 @@ function onOpenTerminal(sid: string, channels: number[]): void {
   pushToast({ level: "info", message: t("sources.open_terminal.requested") });
 }
 
+function onOpenNewTerminal(sid: string, channels: number[]): void {
+  const ch = channels[0] ?? 0;
+  openNewTerminalChannel(sid, ch);
+  pushToast({ level: "info", message: t("sources.open_terminal.new_requested") });
+}
+
 export function SourcesPanel() {
   const [specInput, setSpecInput] = createSignal("mock://demo");
   const [presetName, setPresetName] = createSignal("");
@@ -49,6 +62,10 @@ export function SourcesPanel() {
   const [statusFilter, setStatusFilter] = createSignal<SourceStatusFilter>("all");
   const [sortKey, setSortKey] = createSignal<SourceSortKey>("name");
   const [selectedSid, setSelectedSid] = createSignal<string | null>(null);
+  const [serialCandidates, setSerialCandidates] = createSignal<string[]>([]);
+  const [selectedSerialPorts, setSelectedSerialPorts] = createSignal<string[]>([]);
+  const [serialDetecting, setSerialDetecting] = createSignal(false);
+  const [serialBaud, setSerialBaud] = createSignal(115_200);
   const rows = () =>
     filterAndSortSources(
       Object.values(sourcesStore),
@@ -92,6 +109,63 @@ export function SourcesPanel() {
     const next = deleteUserSourcePreset(presetName());
     setUserPresets(next);
     pushToast({ level: "info", message: t("sources.preset.deleted") });
+  }
+
+  async function onDetectSerial(): Promise<void> {
+    setSerialDetecting(true);
+    try {
+      const report = await detectSources();
+      setSerialCandidates(report.serial_candidates);
+      setSelectedSerialPorts(report.serial_candidates);
+      pushToast({
+        level: report.serial_candidates.length > 0 ? "info" : "warn",
+        message:
+          report.serial_candidates.length > 0
+            ? t("sources.serial.detected")
+            : t("sources.serial.none"),
+      });
+    } catch (err) {
+      pushToast({
+        level: "error",
+        message: (err as Error).message ?? t("sources.serial.detect_failed"),
+      });
+    } finally {
+      setSerialDetecting(false);
+    }
+  }
+
+  function toggleSerialPort(port: string, checked: boolean): void {
+    setSelectedSerialPorts((prev) => {
+      if (checked) return [...new Set([...prev, port])].sort();
+      return prev.filter((item) => item !== port);
+    });
+  }
+
+  function onOpenSelectedSerial(): void {
+    const ports = selectedSerialPorts();
+    if (ports.length === 0) {
+      pushToast({ level: "warn", message: t("sources.serial.select_required") });
+      return;
+    }
+    let requested = 0;
+    for (const port of ports) {
+      try {
+        const spec = parseSourceSpec(serialSpecForPort(port, { baud: serialBaud() }));
+        sendCtl(undefined, "start", spec);
+        requested += 1;
+      } catch (err) {
+        pushToast({
+          level: "error",
+          message: `${port}: ${(err as Error).message ?? t("sources.start.invalid")}`,
+        });
+      }
+    }
+    if (requested > 0) {
+      pushToast({
+        level: "info",
+        message: `${t("sources.serial.open_requested")} (${requested})`,
+      });
+    }
   }
 
   return (
@@ -165,6 +239,50 @@ export function SourcesPanel() {
           {t("sources.preset.delete")}
         </button>
         <span style={{ color: "var(--wl-fg-muted)" }}>{t("sources.preset.help")}</span>
+      </div>
+      <div class="wl-serial-detect">
+        <div class="wl-serial-detect-actions">
+          <button
+            type="button"
+            onClick={() => void onDetectSerial()}
+            disabled={serialDetecting()}
+          >
+            {serialDetecting() ? t("sources.serial.detecting") : t("sources.serial.detect")}
+          </button>
+          <label>
+            {t("sources.serial.baud")} {" "}
+            <input
+              type="number"
+              min="1"
+              value={serialBaud()}
+              onInput={(ev) => setSerialBaud(Number(ev.currentTarget.value))}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={onOpenSelectedSerial}
+            disabled={selectedSerialPorts().length === 0}
+          >
+            {t("sources.serial.open_selected")}
+          </button>
+          <span style={{ color: "var(--wl-fg-muted)" }}>{t("sources.serial.help")}</span>
+        </div>
+        <Show when={serialCandidates().length > 0}>
+          <div class="wl-serial-candidates" aria-label={t("sources.serial.candidates")}>
+            <For each={serialCandidates()}>
+              {(port) => (
+                <label class="wl-serial-candidate">
+                  <input
+                    type="checkbox"
+                    checked={selectedSerialPorts().includes(port)}
+                    onChange={(ev) => toggleSerialPort(port, ev.currentTarget.checked)}
+                  />
+                  <code>{port}</code>
+                </label>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
       <div
         style={{
@@ -265,6 +383,13 @@ export function SourcesPanel() {
                       title={t("sources.action.open_terminal")}
                     >
                       {t("sources.action.open_terminal")}
+                    </button>{" "}
+                    <button
+                      type="button"
+                      onClick={() => onOpenNewTerminal(s.sid, s.channels)}
+                      title={t("sources.action.open_new_terminal")}
+                    >
+                      {t("sources.action.open_new_terminal")}
                     </button>{" "}
                     <button
                       type="button"

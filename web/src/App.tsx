@@ -8,17 +8,24 @@ import {
   type DockviewPanelApi,
   type IContentRenderer,
 } from "dockview-core";
-import { connState, getClient, terminalFocusRequest } from "~/state";
+import {
+  connState,
+  getClient,
+  terminalFocusRequest,
+  terminalOpenRequest,
+} from "~/state";
 import { t, locale, setLocale } from "~/i18n";
 import { SourcesPanel } from "~/panels/sources/SourcesPanel";
 import { MetricsPanel } from "./panels/metrics/MetricsPanel";
 import { TerminalPanel } from "~/panels/terminal/TerminalPanel";
 import { TileGridPanel } from "~/panels/tiles/TileGridPanel";
+import { SettingsPanel } from "~/panels/settings/SettingsPanel";
 import { Toasts } from "~/panels/Toasts";
 
 interface PanelParams {
   sid?: string;
   ch?: number;
+  followSelection?: boolean;
 }
 
 class SolidPanel implements IContentRenderer {
@@ -44,15 +51,21 @@ const components: Record<string, () => IContentRenderer> = {
   sources: () => new SolidPanel(() => SourcesPanel()),
   metrics: () => new SolidPanel(() => MetricsPanel()),
   tiles: () => new SolidPanel(() => TileGridPanel()),
+  settings: () => new SolidPanel(() => SettingsPanel()),
   terminal: () =>
     new SolidPanel((p) =>
-      TerminalPanel({ sid: p.sid ?? "", ch: p.ch ?? 0 }),
+      TerminalPanel({
+        sid: p.sid ?? "",
+        ch: p.ch ?? 0,
+        followSelection: p.followSelection ?? true,
+      }),
     ),
 };
 
 export function App() {
   let dockHost!: HTMLDivElement;
   let api: DockviewApi | null = null;
+  let terminalSeq = 2;
 
   function focusTerminalPanel(): void {
     const panel = api?.getPanel("terminal");
@@ -60,10 +73,31 @@ export function App() {
     panel?.focus();
   }
 
+  function addTerminalPanel(sid = "", ch = 0): void {
+    if (!api) return;
+    const id = `terminal-${terminalSeq}`;
+    const panel = api.addPanel({
+      id,
+      component: "terminal",
+      title: `${t("panel.terminal")} ${terminalSeq}`,
+      params: { sid, ch, followSelection: false },
+      position: { referencePanel: "terminal", direction: "right" },
+    });
+    terminalSeq += 1;
+    panel.api.setActive();
+    panel.focus();
+  }
+
   createEffect(() => {
     const request = terminalFocusRequest();
     if (!request) return;
     focusTerminalPanel();
+  });
+
+  createEffect(() => {
+    const request = terminalOpenRequest();
+    if (!request) return;
+    addTerminalPanel(request.sid, request.ch);
   });
 
   onMount(() => {
@@ -104,6 +138,12 @@ export function App() {
       title: t("panel.tiles"),
       position: { referencePanel: "terminal", direction: "right" },
     });
+    api.addPanel({
+      id: "settings",
+      component: "settings",
+      title: t("panel.settings"),
+      position: { referencePanel: "metrics", direction: "below" },
+    });
   });
 
   onCleanup(() => {
@@ -126,6 +166,13 @@ export function App() {
           {t("app.subtitle")}
         </span>
         <span style={{ "margin-left": "auto" }}>
+          <button
+            type="button"
+            onClick={() => addTerminalPanel()}
+            title={t("terminal.new")}
+          >
+            {t("terminal.new_short")}
+          </button>{" "}
           <button
             type="button"
             onClick={() => setLocale(locale() === "ja" ? "en" : "ja")}

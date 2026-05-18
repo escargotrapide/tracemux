@@ -78,6 +78,16 @@ pub fn decode(bytes: &[u8], label: &str) -> (String, bool) {
     (cow.into_owned(), had_errors)
 }
 
+/// Encode `text` using the named encoding, replacing characters that
+/// cannot be represented by the target encoding. Returns encoded bytes
+/// and a flag indicating whether replacements were required.
+#[must_use]
+pub fn encode_text(text: &str, label: &str) -> (Vec<u8>, bool) {
+    let enc = encoding_for_label(label);
+    let (cow, _, had_errors) = enc.encode(text);
+    (cow.into_owned(), had_errors)
+}
+
 /// Iterate over lines in `buf` according to `eol`. The terminator is
 /// stripped from each yielded slice. Trailing data without a terminator
 /// is yielded as the last slice.
@@ -176,6 +186,14 @@ mod tests {
         // "あ" in Shift_JIS = 0x82 0xA0
         let (s, err) = decode(&[0x82, 0xA0], "shift_jis");
         assert_eq!(s, "あ");
+        assert!(!err);
+    }
+
+    #[test]
+    fn encode_shift_jis() {
+        // "あ" in Shift_JIS = 0x82 0xA0
+        let (bytes, err) = encode_text("あ", "shift_jis");
+        assert_eq!(bytes, vec![0x82, 0xA0]);
         assert!(!err);
     }
 

@@ -8,10 +8,12 @@ import {
   uiPerfState,
   terminalChannel,
   terminalFocusRequest,
+  terminalOpenRequest,
   sourcesStore,
   toastsStore,
   pushToast,
   dismissToast,
+  openNewTerminalChannel,
   openTerminalChannel,
   selectTerminalChannel,
   requestSourceList,
@@ -250,6 +252,18 @@ describe("state frame handler", () => {
 
     expect(terminalChannel()).toEqual({ sid: "sid-focus", ch: 4 });
     expect(terminalFocusRequest()).toEqual({ id: 1, sid: "sid-focus", ch: 4 });
+  });
+
+  it("requests a new terminal panel for a channel", () => {
+    // REQ: FR-UI-015
+    openNewTerminalChannel("sid-new-terminal", 2);
+
+    expect(terminalOpenRequest()).toEqual({
+      id: 1,
+      sid: "sid-new-terminal",
+      ch: 2,
+    });
+    expect(terminalChannel()).toBeNull();
   });
 
   it("captures the latest metrics frame", () => {

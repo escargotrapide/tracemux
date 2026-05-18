@@ -247,7 +247,31 @@ stdout and stderr.
 `--hex`, or stdin as a `write` frame, and optionally waits for
 `write_ack` or `error` before exiting.
 
+### FR-CLI-004  Send text encoding
+`wanlogger send --text` accepts an `--encoding` option and encodes the
+text payload with the selected character encoding before sending the
+wire `write` frame. File, hex, and stdin payloads remain raw bytes.
+
 ### FR-UI-013  Terminal send box
 The Terminal panel includes an explicit send input and button that
 encodes text as UTF-8 and sends it as a `write` frame to the selected
 `(sid, ch)`. The input is disabled when no source is selected.
+
+### FR-UI-014  Display settings
+The web UI exposes display settings for terminal scrollback, tile
+scrollback, tile sizing, timestamp/log-type/source metadata prefixes,
+and display timezone. These settings are persisted as UI preferences
+and applied without storing log data in the browser.
+
+### FR-UI-015  Multiple terminal panels
+The web UI can open additional independent Terminal panels. Existing
+"open terminal" actions continue to focus and retarget the primary
+Terminal panel, while "new terminal" actions create a separate panel
+bound to the selected `(sid, ch)` without forcing other terminals to
+switch channels.
+
+### FR-UI-016  Serial detection and confirmed bulk open
+The web UI can request host transport discovery from the server, show
+serial/COM candidates to the user, and start only the checked ports
+after explicit confirmation. Bulk opening reuses the existing source
+`start` control action for each selected serial source.

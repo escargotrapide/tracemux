@@ -284,3 +284,17 @@ export function resolveWanloggerUrl(): string {
   // Tauri/custom protocols do not have an HTTP origin to reuse.
   return DEFAULT_DEV_URL;
 }
+
+/** Resolve a server HTTP API URL matching the configured WSS endpoint. */
+export function resolveWanloggerHttpUrl(path: string): string {
+  try {
+    const url = new URL(resolveWanloggerUrl());
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    url.pathname = path.startsWith("/") ? path : `/${path}`;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return path;
+  }
+}

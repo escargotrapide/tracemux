@@ -27,15 +27,36 @@ import {
   terminalChannel,
   useChannel,
 } from "~/state";
+import { displaySettings, formatTimestampNs } from "~/state/displaySettings";
 import { observeVisibility } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
 
 export interface TerminalPanelProps {
   sid: string;
   ch: number;
+  followSelection?: boolean;
 }
 
 const encoder = new TextEncoder();
+
+function sourceDisplayName(p: Pick<DataPayload, "sid" | "source">): string {
+  return p.source ?? sourcesStore[p.sid]?.name ?? p.sid.slice(0, 8);
+}
+
+function metadataPrefix(p: DataPayload): string {
+  const parts: string[] = [];
+  if (displaySettings.showTimestamp) {
+    parts.push(formatTimestampNs(p.ts_origin));
+  }
+  if (displaySettings.showKind) {
+    const tags = p.tags && p.tags.length > 0 ? `:${p.tags.join("|")}` : "";
+    parts.push(`${p.kind}${tags}`);
+  }
+  if (displaySettings.showSource) {
+    parts.push(sourceDisplayName(p));
+  }
+  return parts.length > 0 ? `[${parts.join(" ")}] ` : "";
+}
 
 export function TerminalPanel(props: TerminalPanelProps) {
   let host!: HTMLDivElement;
@@ -55,16 +76,24 @@ export function TerminalPanel(props: TerminalPanelProps) {
     return s ? s.channels : [ch()];
   });
   const hasActiveSource = createMemo(() => Boolean(sourcesStore[sid()]));
+  const targetLabel = createMemo(() => {
+    if (!hasActiveSource()) return t("terminal.no_source");
+    const source = sourcesStore[sid()];
+    const name = source?.name ?? sid().slice(0, 8);
+    return `${name} / ch ${ch()} (${sid().slice(0, 8)})`;
+  });
 
   function rebind(): void {
     unsub?.();
     unsub = null;
     if (!hasActiveSource()) return;
     unsub = useChannel(sid(), ch(), (p: DataPayload) => {
+      const prefix = metadataPrefix(p);
       if (p.body instanceof Uint8Array) {
+        if (prefix) term?.write(prefix);
         term?.write(p.body);
       } else if (typeof p.body === "object" && p.body) {
-        term?.writeln(JSON.stringify(p.body));
+        term?.writeln(`${prefix}${JSON.stringify(p.body)}`);
       }
     });
   }
@@ -86,6 +115,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
   }
 
   createEffect(() => {
+    if (props.followSelection === false) return;
     const selected = terminalChannel();
     if (!selected) return;
     bind(selected.sid, selected.ch);
@@ -95,7 +125,12 @@ export function TerminalPanel(props: TerminalPanelProps) {
     if (hasActiveSource()) return;
     const first = sidOptions()[0];
     if (!first) return;
-    selectTerminalChannel(first.sid, first.channels[0] ?? 0);
+    const firstCh = first.channels[0] ?? 0;
+    if (props.followSelection === false) {
+      bind(first.sid, firstCh);
+    } else {
+      selectTerminalChannel(first.sid, firstCh);
+    }
   });
 
   function clearTerminal(): void {
@@ -140,7 +175,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
       fontFamily:
         '"Cascadia Mono","Consolas","Hiragino Sans","Noto Sans Mono CJK JP",monospace',
       fontSize: 13,
-      scrollback: 10_000,
+      scrollback: displaySettings.terminalScrollback,
       theme: { background: "#0e1116", foreground: "#c9d1d9" },
     });
     fit = new FitAddon();
@@ -167,13 +202,18 @@ export function TerminalPanel(props: TerminalPanelProps) {
     resizeObs = new ResizeObserver(() => requestAnimationFrame(safeFit));
     resizeObs.observe(host);
 
-    const selected = terminalChannel();
+    const selected = props.followSelection === false ? null : terminalChannel();
     if (selected) {
       setSid(selected.sid);
       setCh(selected.ch);
     }
     rebind();
     reobserve();
+  });
+
+  createEffect(() => {
+    const scrollback = displaySettings.terminalScrollback;
+    if (term) term.options.scrollback = scrollback;
   });
 
   onCleanup(() => {
@@ -234,7 +274,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
           </For>
         </select>
         <span style={{ color: "var(--wl-fg-muted)", "align-self": "center" }}>
-          {t("terminal.target")}: {hasActiveSource() ? `${sid()} / ch ${ch()}` : t("terminal.no_source")}
+          {t("terminal.target")}: {targetLabel()}
         </span>
         <form
           onSubmit={(e) => {

@@ -81,6 +81,9 @@ struct SendArgs {
     /// UTF-8 text to send. If omitted with `--file`/`--hex`, stdin is read.
     #[arg(long)]
     text: Option<String>,
+    /// Encoding for `--text` payloads (e.g. utf-8, shift_jis, cp932).
+    #[arg(long, default_value = "utf-8")]
+    encoding: String,
     /// File whose bytes should be sent.
     #[arg(long)]
     file: Option<std::path::PathBuf>,
@@ -222,6 +225,7 @@ async fn main() -> anyhow::Result<()> {
                 sid: args.sid,
                 ch: args.ch,
                 text: args.text,
+                encoding: args.encoding,
                 file: args.file,
                 hex: args.hex,
                 udp_target: args.udp_target,

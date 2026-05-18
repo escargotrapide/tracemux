@@ -87,6 +87,66 @@ button:hover {
   background: var(--wl-error);
 }
 
+.wl-settings-panel {
+  height: 100%;
+  overflow: auto;
+  padding: 12px;
+  box-sizing: border-box;
+}
+.wl-settings-section {
+  border: 1px solid var(--wl-border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+  background: var(--wl-bg-elev);
+}
+.wl-settings-section h2 {
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+.wl-settings-row,
+.wl-settings-check {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+}
+.wl-settings-row input,
+.wl-settings-row select {
+  min-width: 160px;
+}
+
+.wl-serial-detect {
+  border: 1px solid var(--wl-border);
+  border-radius: 8px;
+  background: rgba(22, 27, 34, 0.55);
+  padding: 8px;
+  margin-bottom: 12px;
+}
+.wl-serial-detect-actions,
+.wl-serial-candidates {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wl-serial-detect-actions input {
+  width: 92px;
+}
+.wl-serial-candidates {
+  margin-top: 8px;
+}
+.wl-serial-candidate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--wl-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--wl-bg);
+}
+
 .wl-toasts {
   position: fixed;
   right: 12px;
@@ -119,23 +179,45 @@ button:hover {
   padding: 0 4px;
 }
 
+.wl-tile-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.wl-tile-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--wl-border);
+  background: var(--wl-bg-elev);
+  color: var(--wl-fg-muted);
+}
+.wl-tile-toolbar input {
+  width: 72px;
+}
 .wl-tile-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: repeat(4, 1fr);
+  align-content: start;
   gap: 4px;
   width: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   padding: 4px;
   box-sizing: border-box;
+  overscroll-behavior: contain;
 }
 .wl-tile {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--wl-border);
   background: var(--wl-bg);
-  min-height: 0;
-  min-width: 0;
+  min-height: 80px;
+  min-width: 120px;
+  resize: both;
+  overflow: hidden;
 }
 .wl-tile-header {
   font-size: 10px;
@@ -149,4 +231,7 @@ button:hover {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+.wl-tile-body .xterm-viewport {
+  overflow-y: auto !important;
 }

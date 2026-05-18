@@ -33,6 +33,10 @@ export interface TerminalFocusRequest extends ChannelKey {
   id: number;
 }
 
+export interface TerminalOpenRequest extends ChannelKey {
+  id: number;
+}
+
 export interface UiPerfSnapshot {
   framesTotal: number;
   dataFrames: number;
@@ -56,6 +60,8 @@ const [metrics, setMetrics] = createSignal<MetricsPayload | null>(null);
 const [terminalChannelState, setTerminalChannelState] = createSignal<ChannelKey | null>(null);
 const [terminalFocusRequestState, setTerminalFocusRequestState] =
   createSignal<TerminalFocusRequest | null>(null);
+const [terminalOpenRequestState, setTerminalOpenRequestState] =
+  createSignal<TerminalOpenRequest | null>(null);
 let terminalFocusSeq = 1;
 
 const uiPerfCounters: UiPerfSnapshot = {
@@ -372,6 +378,11 @@ export function openTerminalChannel(sid: string, ch: number): void {
   setTerminalFocusRequestState({ id: terminalFocusSeq++, sid, ch });
 }
 
+/** Request a new independent terminal panel for a channel. */
+export function openNewTerminalChannel(sid: string, ch: number): void {
+  setTerminalOpenRequestState({ id: terminalFocusSeq++, sid, ch });
+}
+
 /** Send a control frame (e.g. start/stop a source). */
 export function sendCtl(
   sid: string | undefined,
@@ -404,6 +415,7 @@ export const metricsState = metrics;
 export const uiPerfState = uiPerf;
 export const terminalChannel = terminalChannelState;
 export const terminalFocusRequest = terminalFocusRequestState;
+export const terminalOpenRequest = terminalOpenRequestState;
 
 /**
  * Test-only entry point: feed a frame through the same handler the
@@ -425,6 +437,7 @@ export function __setClientForTest(next: Pick<WireClient, "send"> | null): void 
   channelListeners.clear();
   setTerminalChannelState(null);
   setTerminalFocusRequestState(null);
+  setTerminalOpenRequestState(null);
   terminalFocusSeq = 1;
 }
 

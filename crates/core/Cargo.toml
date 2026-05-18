@@ -14,7 +14,7 @@ workspace = true
 [features]
 default = []
 metrics = []
-serial = ["dep:tokio-serial"]
+serial = ["dep:tokio-serial", "dep:serialport"]
 visa-vxi11 = []
 visa-nivisa = []
 
@@ -40,8 +40,8 @@ zstd = { workspace = true }
 crc32fast = { workspace = true }
 keyring = { workspace = true }
 tokio-serial = { workspace = true, optional = true }
+serialport = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
-serialport = { workspace = true }
 tempfile = { workspace = true }
