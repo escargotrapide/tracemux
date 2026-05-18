@@ -258,6 +258,12 @@ classification rules and store matching log-type tags in persisted
 session-dir metadata. Matching is performed on decoded text and does
 not alter the original raw bytes.
 
+### FR-CLI-006  Serve text encoding
+`wanlogger serve` accepts a default `--encoding` option for server-side
+decoded text records. Captured raw bytes remain lossless; only decoded
+`lines.jsonl` / `frames.jsonl` text and downstream classification use
+the selected encoding.
+
 ### FR-UI-013  Terminal send box
 The Terminal panel includes an explicit send input and button that
 encodes text as UTF-8 and sends it as a `write` frame to the selected

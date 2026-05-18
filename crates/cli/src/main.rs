@@ -56,6 +56,9 @@ struct ServeArgs {
     /// Disable auth (gated to loopback).
     #[arg(long)]
     no_auth: bool,
+    /// Default text encoding for server-side decoded records.
+    #[arg(long, default_value = "utf-8")]
+    encoding: String,
     /// Add a server-side substring classifier as `contains=tag`.
     #[arg(long = "classify", value_name = "CONTAINS=TAG")]
     classify: Vec<String>,
@@ -224,11 +227,12 @@ async fn main() -> anyhow::Result<()> {
     match cli.cmd {
         Cmd::Serve(args) => {
             let classifier = cmd::log::classifier_from_specs(&args.classify)?;
-            wanlogger_server::run_with_session_root_and_classifier(
+            wanlogger_server::run_with_session_root_classifier_and_encoding(
                 &args.bind,
                 args.no_auth,
                 args.session_root,
                 classifier,
+                args.encoding,
             )
             .await?;
         }

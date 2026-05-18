@@ -15,7 +15,7 @@ use parking_lot::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use wanlogger_core::classify::{ClassifyingDecoder, LogClassifier};
-use wanlogger_core::decoder::{passthrough::PassthroughDecoder, Decoder};
+use wanlogger_core::decoder::{utf8_text::Utf8TextDecoder, Decoder};
 use wanlogger_core::framer::{passthrough::PassthroughFramer, Framer};
 use wanlogger_core::logsink::{fanout::FanoutLogSink, file::FileLogSink, LogSink};
 use wanlogger_core::sink::Sink;
@@ -66,6 +66,7 @@ pub struct SourceManager {
     ingest: Arc<Ingest>,
     session_root: Option<PathBuf>,
     classifier: RwLock<LogClassifier>,
+    encoding: RwLock<String>,
     sources: Mutex<HashMap<Uuid, SourceEntry>>,
 }
 
@@ -114,6 +115,7 @@ impl SourceManager {
             ingest,
             session_root: None,
             classifier: RwLock::new(LogClassifier::new()),
+            encoding: RwLock::new("utf-8".to_string()),
             sources: Mutex::new(HashMap::new()),
         }
     }
@@ -125,6 +127,7 @@ impl SourceManager {
             ingest,
             session_root: Some(session_root.into()),
             classifier: RwLock::new(LogClassifier::new()),
+            encoding: RwLock::new("utf-8".to_string()),
             sources: Mutex::new(HashMap::new()),
         }
     }
@@ -140,6 +143,24 @@ impl SourceManager {
             ingest,
             session_root: Some(session_root.into()),
             classifier: RwLock::new(classifier),
+            encoding: RwLock::new("utf-8".to_string()),
+            sources: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Construct with a root directory, classifier, and text encoding.
+    #[must_use]
+    pub fn with_session_root_classifier_and_encoding(
+        ingest: Arc<Ingest>,
+        session_root: impl Into<PathBuf>,
+        classifier: LogClassifier,
+        encoding: impl Into<String>,
+    ) -> Self {
+        Self {
+            ingest,
+            session_root: Some(session_root.into()),
+            classifier: RwLock::new(classifier),
+            encoding: RwLock::new(encoding.into()),
             sources: Mutex::new(HashMap::new()),
         }
     }
@@ -153,6 +174,17 @@ impl SourceManager {
     #[must_use]
     pub fn classifier(&self) -> LogClassifier {
         self.classifier.read().clone()
+    }
+
+    /// Replace the text encoding used for subsequently started sources.
+    pub fn set_encoding(&self, encoding: impl Into<String>) {
+        *self.encoding.write() = encoding.into();
+    }
+
+    /// Snapshot the text encoding used for newly started sources.
+    #[must_use]
+    pub fn encoding(&self) -> String {
+        self.encoding.read().clone()
     }
 
     /// Shared ingest state used by this manager.
@@ -422,12 +454,14 @@ impl SourceManager {
     where
         S: Source + Send + 'static,
     {
-        let logsink = Self::log_sink_for(sid, &spec, session_dir.as_deref())?;
+        let encoding = self.encoding();
+        let decoder_label = format!("utf8-text:{encoding}");
+        let logsink = Self::log_sink_for(sid, &spec, session_dir.as_deref(), &decoder_label)?;
         self.start_source_with_sid(
             sid,
             source,
             PassthroughFramer,
-            ClassifyingDecoder::new(PassthroughDecoder::new(), self.classifier()),
+            ClassifyingDecoder::new(Utf8TextDecoder::new(encoding), self.classifier()),
             logsink,
             time,
             SourceRegistration {
@@ -451,6 +485,7 @@ impl SourceManager {
         sid: Uuid,
         spec: &ChannelSpec,
         session_dir: Option<&Path>,
+        decoder_label: &str,
     ) -> anyhow::Result<FanoutLogSink> {
         let Some(dir) = session_dir else {
             return Ok(FanoutLogSink::new(Vec::new()));
@@ -461,7 +496,7 @@ impl SourceManager {
             sid,
             Some(source),
             local_host_label(),
-            "passthrough",
+            decoder_label,
         )?;
         Ok(FanoutLogSink::new(vec![Box::new(sink)]))
     }
@@ -940,10 +975,51 @@ mod tests {
         let lines = std::fs::read_to_string(dir.join("lines.jsonl")).unwrap();
         assert!(lines.contains("persist"));
         let frames = std::fs::read_to_string(dir.join("frames.jsonl")).unwrap();
-        assert!(frames.contains("passthrough"));
+        assert!(frames.contains("utf8-text:utf-8"));
         assert!(std::fs::read_to_string(dir.join("meta.toml"))
             .unwrap()
             .contains(&sid.to_string()));
+
+        assert!(manager.remove(sid));
+        assert!(ingest.registry.get(&sid).is_none());
+    }
+
+    #[tokio::test]
+    async fn start_spec_uses_configured_text_encoding() {
+        // REQ: FR-CLI-006
+        let root = tempdir();
+        let input = root.join("input.log");
+        std::fs::write(&input, [0x82, 0xA0]).unwrap();
+        let sessions = root.join("sessions");
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::with_session_root_classifier_and_encoding(
+            ingest.clone(),
+            &sessions,
+            LogClassifier::new(),
+            "shift_jis",
+        );
+
+        let sid = manager
+            .start_spec(ChannelSpec::File {
+                path: input.to_string_lossy().to_string(),
+                follow: false,
+            })
+            .await
+            .unwrap();
+        manager.wait(sid).await.unwrap().unwrap();
+
+        let session_dirs: Vec<_> = std::fs::read_dir(&sessions)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_dir())
+            .collect();
+        assert_eq!(session_dirs.len(), 1);
+        let lines = std::fs::read_to_string(session_dirs[0].join("lines.jsonl")).unwrap();
+        let line_row: serde_json::Value = serde_json::from_str(lines.trim()).unwrap();
+        assert_eq!(line_row["text"], "\u{3042}");
+
+        let frames = std::fs::read_to_string(session_dirs[0].join("frames.jsonl")).unwrap();
+        assert!(frames.contains("utf8-text:shift_jis"));
 
         assert!(manager.remove(sid));
         assert!(ingest.registry.get(&sid).is_none());
