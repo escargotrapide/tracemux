@@ -12,6 +12,7 @@
 
 #![warn(missing_docs)]
 
+pub mod classify;
 pub mod codec;
 pub mod config;
 pub mod decoder;

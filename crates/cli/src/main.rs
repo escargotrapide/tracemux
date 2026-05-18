@@ -105,6 +105,12 @@ struct LogArgs {
     /// Output prefix (defaults to `wanlogger`).
     #[arg(long)]
     prefix: Option<String>,
+    /// Decode encoding used for `--classify` matching.
+    #[arg(long, default_value = "utf-8")]
+    encoding: String,
+    /// Add a substring classifier as `contains=tag`.
+    #[arg(long = "classify", value_name = "CONTAINS=TAG")]
+    classify: Vec<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -234,7 +240,15 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Cmd::Detect => cmd::detect::run()?,
-        Cmd::Log(args) => cmd::log::run(&args.spec, args.prefix.as_deref()).await?,
+        Cmd::Log(args) => {
+            cmd::log::run(cmd::log::Options {
+                spec: args.spec,
+                prefix: args.prefix,
+                encoding: args.encoding,
+                classify: args.classify,
+            })
+            .await?;
+        }
         Cmd::Profile(args) => {
             let dir = args.dir.unwrap_or_else(cmd::profile::default_dir);
             let action = match args.action {

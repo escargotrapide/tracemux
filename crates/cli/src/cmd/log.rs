@@ -14,11 +14,13 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
+use wanlogger_core::classify::{ClassificationRule, LogClassifier};
+use wanlogger_core::codec::decode;
 use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
 use wanlogger_core::log::raw::RawWriter;
 use wanlogger_core::source::{ChannelSpec, ControlEvt, Frame};
@@ -34,13 +36,27 @@ struct MetaToml {
     started: String,
 }
 
+/// Options for the `log` subcommand.
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Channel spec URI.
+    pub spec: String,
+    /// Output prefix.
+    pub prefix: Option<String>,
+    /// Encoding label used for classification matching.
+    pub encoding: String,
+    /// Classifier rules in `contains=tag` form.
+    pub classify: Vec<String>,
+}
+
 /// Run the `log` subcommand.
 ///
 /// # Errors
 /// Returns an `anyhow::Error` for spec / I/O / source failure.
-pub async fn run(spec_str: &str, prefix: Option<&str>) -> Result<()> {
-    let s = spec::parse(spec_str).context("parsing channel spec")?;
-    let prefix = prefix.unwrap_or("wanlogger");
+pub async fn run(options: Options) -> Result<()> {
+    let s = spec::parse(&options.spec).context("parsing channel spec")?;
+    let prefix = options.prefix.as_deref().unwrap_or("wanlogger");
+    let classifier = classifier_from_specs(&options.classify)?;
     let now = OffsetDateTime::now_utc();
     let stamp = format!(
         "{:04}{:02}{:02}-{:02}{:02}{:02}",
@@ -89,6 +105,10 @@ pub async fn run(spec_str: &str, prefix: Option<&str>) -> Result<()> {
                 let ts = synth_dual_ts();
                 let mut e = IndexEntry::from_envelope(&ts, sid, Dir::In, kind, off, len);
                 e.source = Some(format!("{}:{}", spec::kind_tag(&s), spec::iface_tag(&s)));
+                if !classifier.is_empty() {
+                    let (text, _) = decode(&data, &options.encoding);
+                    e.tags = classifier.tags_for_text(&text);
+                }
                 index.append(&e).context("index append")?;
                 count += 1;
                 if count % 256 == 0 {
@@ -126,6 +146,22 @@ pub async fn run(spec_str: &str, prefix: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+fn classifier_from_specs(specs: &[String]) -> Result<LogClassifier> {
+    let mut rules = Vec::new();
+    for spec in specs {
+        let Some((contains, tag)) = spec.split_once('=') else {
+            bail!("--classify must use CONTAINS=TAG syntax: {spec}");
+        };
+        let contains = contains.trim();
+        let tag = tag.trim();
+        if contains.is_empty() || tag.is_empty() {
+            bail!("--classify requires non-empty CONTAINS and TAG: {spec}");
+        }
+        rules.push(ClassificationRule::contains(contains, tag));
+    }
+    Ok(LogClassifier::from_rules(rules))
+}
+
 fn frame_payload(f: &Frame) -> (Vec<u8>, Kind) {
     match f {
         Frame::Bytes(b) => (b.to_vec(), Kind::Bytes),
@@ -154,5 +190,29 @@ fn synth_dual_ts() -> DualTimestamp {
         clock_quality: ClockQuality::BestEffort,
         drift_ppm: 0.0,
         clock_source: ClockSource::System,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifier_specs_parse() {
+        // REQ: FR-CLI-005
+        let specs = vec!["ERROR=fault".to_string(), "WARN=warning".to_string()];
+        let classifier = classifier_from_specs(&specs).unwrap();
+
+        assert_eq!(
+            classifier.tags_for_text("warn and error"),
+            vec!["fault", "warning"]
+        );
+    }
+
+    #[test]
+    fn classifier_specs_reject_invalid_input() {
+        assert!(classifier_from_specs(&["missing-equals".to_string()]).is_err());
+        assert!(classifier_from_specs(&["=tag".to_string()]).is_err());
+        assert!(classifier_from_specs(&["needle=".to_string()]).is_err());
     }
 }
