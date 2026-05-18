@@ -11,9 +11,10 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use bytes::Bytes;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+use wanlogger_core::classify::{ClassifyingDecoder, LogClassifier};
 use wanlogger_core::decoder::{passthrough::PassthroughDecoder, Decoder};
 use wanlogger_core::framer::{passthrough::PassthroughFramer, Framer};
 use wanlogger_core::logsink::{fanout::FanoutLogSink, file::FileLogSink, LogSink};
@@ -64,6 +65,7 @@ pub struct SourceSnapshot {
 pub struct SourceManager {
     ingest: Arc<Ingest>,
     session_root: Option<PathBuf>,
+    classifier: RwLock<LogClassifier>,
     sources: Mutex<HashMap<Uuid, SourceEntry>>,
 }
 
@@ -111,6 +113,7 @@ impl SourceManager {
         Self {
             ingest,
             session_root: None,
+            classifier: RwLock::new(LogClassifier::new()),
             sources: Mutex::new(HashMap::new()),
         }
     }
@@ -121,8 +124,35 @@ impl SourceManager {
         Self {
             ingest,
             session_root: Some(session_root.into()),
+            classifier: RwLock::new(LogClassifier::new()),
             sources: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Construct with a root directory and server-side classifier.
+    #[must_use]
+    pub fn with_session_root_and_classifier(
+        ingest: Arc<Ingest>,
+        session_root: impl Into<PathBuf>,
+        classifier: LogClassifier,
+    ) -> Self {
+        Self {
+            ingest,
+            session_root: Some(session_root.into()),
+            classifier: RwLock::new(classifier),
+            sources: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Replace the classifier used for subsequently started sources.
+    pub fn set_classifier(&self, classifier: LogClassifier) {
+        *self.classifier.write() = classifier;
+    }
+
+    /// Snapshot the classifier used for newly started sources.
+    #[must_use]
+    pub fn classifier(&self) -> LogClassifier {
+        self.classifier.read().clone()
     }
 
     /// Shared ingest state used by this manager.
@@ -397,7 +427,7 @@ impl SourceManager {
             sid,
             source,
             PassthroughFramer,
-            PassthroughDecoder::new(),
+            ClassifyingDecoder::new(PassthroughDecoder::new(), self.classifier()),
             logsink,
             time,
             SourceRegistration {
@@ -786,6 +816,7 @@ fn local_host_label() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use wanlogger_core::classify::{ClassificationRule, LogClassifier};
     use wanlogger_core::decoder::passthrough::PassthroughDecoder;
     use wanlogger_core::framer::line::{Eol, LineFramer};
     use wanlogger_core::logsink::fanout::FanoutLogSink;
@@ -913,6 +944,47 @@ mod tests {
         assert!(std::fs::read_to_string(dir.join("meta.toml"))
             .unwrap()
             .contains(&sid.to_string()));
+
+        assert!(manager.remove(sid));
+        assert!(ingest.registry.get(&sid).is_none());
+    }
+
+    #[tokio::test]
+    async fn start_spec_persists_classification_tags() {
+        // REQ: FR-CLI-005
+        let root = tempdir();
+        let input = root.join("input.log");
+        std::fs::write(&input, b"ERROR motor stop\n").unwrap();
+        let sessions = root.join("sessions");
+        let ingest = Arc::new(Ingest::new());
+        let classifier =
+            LogClassifier::from_rules(vec![ClassificationRule::contains("ERROR", "fault")]);
+        let manager =
+            SourceManager::with_session_root_and_classifier(ingest.clone(), &sessions, classifier);
+
+        let sid = manager
+            .start_spec(ChannelSpec::File {
+                path: input.to_string_lossy().to_string(),
+                follow: false,
+            })
+            .await
+            .unwrap();
+        manager.wait(sid).await.unwrap().unwrap();
+
+        let session_dirs: Vec<_> = std::fs::read_dir(&sessions)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_dir())
+            .collect();
+        assert_eq!(session_dirs.len(), 1);
+
+        let lines = std::fs::read_to_string(session_dirs[0].join("lines.jsonl")).unwrap();
+        let line_row: serde_json::Value = serde_json::from_str(lines.trim()).unwrap();
+        assert_eq!(line_row["tags"], serde_json::json!(["fault"]));
+
+        let frames = std::fs::read_to_string(session_dirs[0].join("frames.jsonl")).unwrap();
+        let frame_row: serde_json::Value = serde_json::from_str(frames.trim()).unwrap();
+        assert_eq!(frame_row["record"]["tags"], serde_json::json!(["fault"]));
 
         assert!(manager.remove(sid));
         assert!(ingest.registry.get(&sid).is_none());

@@ -253,10 +253,10 @@ text payload with the selected character encoding before sending the
 wire `write` frame. File, hex, and stdin payloads remain raw bytes.
 
 ### FR-CLI-005  Log classification tags
-`wanlogger log` accepts one or more substring classification rules and
-stores matching log-type tags in the persisted session-dir metadata
-for each captured raw entry. Matching is performed on decoded text
-using the selected encoding and does not alter the original raw bytes.
+`wanlogger log` and `wanlogger serve` accept one or more substring
+classification rules and store matching log-type tags in persisted
+session-dir metadata. Matching is performed on decoded text and does
+not alter the original raw bytes.
 
 ### FR-UI-013  Terminal send box
 The Terminal panel includes an explicit send input and button that

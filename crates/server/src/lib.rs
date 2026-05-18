@@ -42,6 +42,22 @@ pub async fn run_with_session_root(
     no_auth: bool,
     session_root: impl Into<std::path::PathBuf>,
 ) -> anyhow::Result<()> {
+    run_with_session_root_and_classifier(
+        bind,
+        no_auth,
+        session_root,
+        wanlogger_core::classify::LogClassifier::new(),
+    )
+    .await
+}
+
+/// Run the server, persisting started sources and applying classification rules.
+pub async fn run_with_session_root_and_classifier(
+    bind: &str,
+    no_auth: bool,
+    session_root: impl Into<std::path::PathBuf>,
+    classifier: wanlogger_core::classify::LogClassifier,
+) -> anyhow::Result<()> {
     use std::sync::Arc;
     use tokio::net::TcpListener;
 
@@ -59,10 +75,13 @@ pub async fn run_with_session_root(
     let session_root = session_root.into();
     std::fs::create_dir_all(&session_root)?;
     let audit = Arc::new(audit::AuditLog::create(&session_root)?);
-    let source_manager = Arc::new(source_manager::SourceManager::with_session_root(
-        ingest,
-        session_root,
-    ));
+    let source_manager = Arc::new(
+        source_manager::SourceManager::with_session_root_and_classifier(
+            ingest,
+            session_root,
+            classifier,
+        ),
+    );
     let ws_state =
         ws::WsState::with_source_manager(auth, no_auth, conns, source_manager).with_audit(audit);
 

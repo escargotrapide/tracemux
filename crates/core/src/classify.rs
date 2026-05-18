@@ -8,7 +8,11 @@
 
 use std::collections::BTreeSet;
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+
+use crate::decoder::Decoder;
+use crate::Result;
 
 /// One substring-based classification rule.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,9 +109,63 @@ impl LogClassifier {
     }
 }
 
+/// Decoder decorator that adds classification tags to decoded records.
+#[derive(Debug, Clone)]
+pub struct ClassifyingDecoder<D> {
+    inner: D,
+    classifier: LogClassifier,
+}
+
+impl<D> ClassifyingDecoder<D> {
+    /// Wrap an existing decoder with a classifier.
+    #[must_use]
+    pub fn new(inner: D, classifier: LogClassifier) -> Self {
+        Self { inner, classifier }
+    }
+
+    /// Borrow the wrapped decoder.
+    #[must_use]
+    pub const fn inner(&self) -> &D {
+        &self.inner
+    }
+
+    /// Borrow the classifier used by this wrapper.
+    #[must_use]
+    pub const fn classifier(&self) -> &LogClassifier {
+        &self.classifier
+    }
+}
+
+impl<D> Decoder for ClassifyingDecoder<D>
+where
+    D: Decoder,
+{
+    fn decode(&mut self, frame: Bytes) -> Result<Option<crate::decoder::Record>> {
+        let Some(mut record) = self.inner.decode(frame)? else {
+            return Ok(None);
+        };
+        if let Some(text) = record.text.as_deref() {
+            let mut seen = record.tags.iter().cloned().collect::<BTreeSet<_>>();
+            for tag in self.classifier.tags_for_text(text) {
+                if seen.insert(tag.clone()) {
+                    record.tags.push(tag);
+                }
+            }
+        }
+        Ok(Some(record))
+    }
+
+    fn kind(&self) -> &'static str {
+        "classifying"
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use super::*;
+    use crate::decoder::passthrough::PassthroughDecoder;
 
     #[test]
     fn matches_substrings_case_insensitively() {
@@ -141,5 +199,20 @@ mod tests {
         ]);
 
         assert!(classifier.tags_for_text("x").is_empty());
+    }
+
+    #[test]
+    fn classifying_decoder_adds_tags_to_records() {
+        // REQ: FR-CLI-005
+        let classifier =
+            LogClassifier::from_rules(vec![ClassificationRule::contains("ERROR", "fault")]);
+        let mut decoder = ClassifyingDecoder::new(PassthroughDecoder::new(), classifier);
+
+        let record = decoder
+            .decode(Bytes::from_static(b"error: overcurrent"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.tags, vec!["fault"]);
     }
 }

@@ -146,7 +146,7 @@ pub async fn run(options: Options) -> Result<()> {
     Ok(())
 }
 
-fn classifier_from_specs(specs: &[String]) -> Result<LogClassifier> {
+pub(crate) fn classifier_from_specs(specs: &[String]) -> Result<LogClassifier> {
     let mut rules = Vec::new();
     for spec in specs {
         let Some((contains, tag)) = spec.split_once('=') else {
