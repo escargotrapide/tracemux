@@ -5,6 +5,7 @@ $strict = [System.Text.UTF8Encoding]::new($false, $true)
 $bad = @()
 $paths = Get-ChildItem -Recurse -File -Path . `
     -Include *.rs,*.ts,*.tsx,*.js,*.jsx,*.css,*.html,*.md,*.toml,*.yml,*.yaml,*.sh,*.ps1,*.json,*.jsonl,*.txt,justfile,clippy.toml,rustfmt.toml,deny.toml,cliff.toml,.gitattributes,.editorconfig,.gitignore `
+    -ErrorAction SilentlyContinue `
     | Where-Object { $_.FullName -notmatch '\\target\\' -and $_.FullName -notmatch '\\.git\\' -and $_.FullName -notmatch '\\node_modules\\' -and $_.FullName -notmatch '\\dist\\' -and $_.FullName -notmatch '\\.vite\\' }
 foreach ($f in $paths) {
     $bytes = [System.IO.File]::ReadAllBytes($f.FullName)

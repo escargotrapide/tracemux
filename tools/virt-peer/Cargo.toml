@@ -1,0 +1,36 @@
+[package]
+name = "wanlogger-virt-peer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Virtual counterparty device for wanlogger development and tests"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "wanlogger-virt-peer"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serialport = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
+futures = { workspace = true }
+rmpv = { workspace = true }
+tempfile = { workspace = true }
+tokio-tungstenite = "0.24"
+uuid = { workspace = true }
+wanlogger-server = { path = "../../crates/server" }

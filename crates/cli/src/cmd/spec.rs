@@ -74,20 +74,32 @@ pub fn parse(spec: &str) -> Result<ChannelSpec> {
 /// Open a [`Source`] for the given spec.
 ///
 /// **Implementation note:** v0.1 supports `file`, `tcp`, `udp`,
-/// `process`, `mock` out of the box; `serial` is feature-gated and
-/// surfaces an error here when the `serial` feature is disabled.
+/// `serial`, `process`, `mock` out of the box. Serial I/O requires the
+/// `serial` Cargo feature; without it the stub source returns `E-1101`
+/// from `Source::open` with a clear feature-gating message.
 ///
 /// # Errors
 /// Returns an `anyhow::Error` if the kind is not yet implemented in
 /// this build.
 pub fn open(spec: &ChannelSpec) -> Result<Box<dyn Source>> {
     use wanlogger_core::source::{
-        file::FileSource, mock::MockSource, process::ProcessSource, tcp::TcpSource, udp::UdpSource,
+        file::FileSource, mock::MockSource, process::ProcessSource, serial::SerialSource,
+        tcp::TcpSource, udp::UdpSource,
     };
     Ok(match spec.clone() {
         ChannelSpec::File { path, follow } => Box::new(FileSource::new(path, follow)),
         ChannelSpec::Tcp { addr } => Box::new(TcpSource::new(addr)),
         ChannelSpec::Udp { bind } => Box::new(UdpSource::new(bind)),
+        ChannelSpec::Serial {
+            port,
+            baud,
+            data_bits,
+            parity,
+            stop_bits,
+            flow,
+        } => Box::new(SerialSource::new(
+            port, baud, data_bits, parity, stop_bits, flow,
+        )),
         ChannelSpec::Process { argv } => Box::new(ProcessSource::new(argv)),
         ChannelSpec::Mock { tag } => Box::new(MockSource::new(tag)),
         other => bail!("source kind not yet implemented in CLI: {other:?}"),
@@ -303,6 +315,21 @@ mod tests {
             }
             other => panic!("wrong: {other:?}"),
         }
+    }
+
+    #[test]
+    fn open_serial_constructs_source_metadata() {
+        let s = parse("serial://COM3?baud=9600&data=7&parity=even&stop=2&flow=hardware").unwrap();
+        let source = open(&s).unwrap();
+        let meta = source.metadata();
+
+        assert_eq!(meta.kind, "serial");
+        assert_eq!(meta.iface, "COM3");
+        assert_eq!(meta.tags["baud"], "9600");
+        assert_eq!(meta.tags["data_bits"], "7");
+        assert_eq!(meta.tags["parity"], "even");
+        assert_eq!(meta.tags["stop_bits"], "2");
+        assert_eq!(meta.tags["flow"], "hardware");
     }
 
     #[test]

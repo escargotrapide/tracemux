@@ -2722,6 +2722,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "serialport",
  "tempfile",
  "time",
  "tokio",
@@ -2803,6 +2804,28 @@ dependencies = [
  "tracing",
  "uuid",
  "wanlogger-core",
+]
+
+[[package]]
+name = "wanlogger-virt-peer"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "futures",
+ "rmpv",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tempfile",
+ "time",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wanlogger-server",
 ]
 
 [[package]]

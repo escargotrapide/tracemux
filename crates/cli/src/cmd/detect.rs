@@ -1,8 +1,8 @@
 //! `wanlogger detect` ? list available transports.
 //!
-//! v0.1 lists statically known transport kinds and probes the local
-//! filesystem for serial-port nodes (Linux/macOS). Full enumeration
-//! lives in `wanlogger_core::detect` and is feature-gated.
+//! v0.1 lists statically known transport kinds and probes the host for
+//! serial-port candidates. On Windows this uses the serial-port backend
+//! so virtual COM pairs appear when their driver exposes them normally.
 
 use anyhow::Result;
 use serde::Serialize;
@@ -30,11 +30,11 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-/// Best-effort scan for serial-style device nodes on Unix-likes.
-/// Windows is left empty here; the full enumeration ships in
-/// `wanlogger_core::detect::serial`.
+/// Best-effort scan for serial-style device nodes.
 fn scan_serial_candidates() -> Vec<String> {
-    let mut out = Vec::new();
+    let out: Vec<String> = serialport::available_ports()
+        .map(|ports| ports.into_iter().map(|port| port.port_name).collect())
+        .unwrap_or_default();
     #[cfg(unix)]
     {
         if let Ok(rd) = std::fs::read_dir("/dev") {
@@ -52,6 +52,24 @@ fn scan_serial_candidates() -> Vec<String> {
             }
         }
     }
-    out.sort();
-    out
+    sorted_unique(out)
+}
+
+fn sorted_unique(mut candidates: Vec<String>) -> Vec<String> {
+    candidates.sort();
+    candidates.dedup();
+    candidates
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serial_candidates_are_sorted_and_unique() {
+        assert_eq!(
+            sorted_unique(vec!["COM7".into(), "COM3".into(), "COM7".into()]),
+            vec!["COM3", "COM7"]
+        );
+    }
 }

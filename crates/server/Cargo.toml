@@ -14,6 +14,7 @@ workspace = true
 [features]
 default = []
 metrics = ["wanlogger-core/metrics"]
+serial = ["wanlogger-core/serial"]
 
 [dependencies]
 wanlogger-core = { path = "../core" }

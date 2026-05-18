@@ -11,7 +11,7 @@ paths.
 
 ## Status
 
-**v0.1 ? executable vertical slice in progress.** Trait surfaces are
+**v0.1 ‚Äî executable vertical slice in progress.** Trait surfaces are
 frozen. The server can now start selected sources, route WSS
 subscriptions, persist source output to a session-dir, and drive the
 SolidJS source/terminal UI. Some source kinds and release-hardening
@@ -20,14 +20,14 @@ features remain stubbed or experimental; see
 
 ## Highlights
 
-- **Four-layer pipeline**: `Source Å® Framer Å® Decoder Å® LogSink/UI`
+- **Four-layer pipeline**: `Source ‚Üí Framer ‚Üí Decoder ‚Üí LogSink/UI`
   plus orthogonal `Sink`, `Importer`, `Exporter`, `TimeseriesSink`,
   `TimeSource`. All trait surfaces are frozen at v0.1.
 - **Server is the source of truth.** Browser, Tauri shell, and CLI all
   speak the same WSS wire protocol (`wanlogger.v1`, MessagePack).
 - **Dual timestamps** on every record (`ts_origin` + `ts_ingest` plus
   `mono_ns`, `boot_id`, `node_id`, `clock_offset_ms`,
-  `clock_quality`) ? multi-PC log alignment is a first-class concern.
+  `clock_quality`) ‚Äî multi-PC log alignment is a first-class concern.
 - **Secure-by-default**: rustls + `argon2id` bearer tokens + TOFU
   fingerprint pin + OS keyring secrets + `unsafe_code = "deny"`.
 - **AI-maintainable**: `AGENTS.md`, `.github/skills/<task>/SKILL.md`,
@@ -37,12 +37,12 @@ features remain stubbed or experimental; see
 
 ## Read this first
 
-1. **[AGENTS.md](AGENTS.md)** ? canonical map (build, layout,
+1. **[AGENTS.md](AGENTS.md)** ‚Äî canonical map (build, layout,
    critical paths, pitfalls).
-2. **[docs/architecture.md](docs/architecture.md)** ? pipeline diagram.
-3. **[docs/adr/0001-foundations.md](docs/adr/0001-foundations.md)** ?
+2. **[docs/architecture.md](docs/architecture.md)** ‚Äî pipeline diagram.
+3. **[docs/adr/0001-foundations.md](docs/adr/0001-foundations.md)** ‚Äî
    the foundational decisions.
-4. **[SECURITY.md](SECURITY.md)** ? threat model and defaults.
+4. **[SECURITY.md](SECURITY.md)** ‚Äî threat model and defaults.
 
 ## Quickstart (once toolchains are installed)
 
@@ -51,7 +51,7 @@ features remain stubbed or experimental; see
 cargo install just
 just build           # build the workspace
 just test            # run tests
-just ai-verify       # full gate (fmt + clippy + test + audit + deny + Åc)
+just ai-verify       # full gate (fmt + clippy + test + audit + deny + ‚Ä¶)
 ```
 
 For local UI development:
@@ -67,6 +67,11 @@ The web UI can start sources from URI-style specs such as
 `mock://demo`, `file:///C:/logs/app.log?follow=1`, or
 `tcp://127.0.0.1:5555`. Source presets are browser-local and store only
 the source spec, never log data.
+
+For hardware-free source testing, use the virtual counterparty tool documented
+in [`docs/dev/virtual-peer.md`](docs/dev/virtual-peer.md). Its TCP mode is the
+driver-free E2E path; its serial mode works with an existing COM port or a
+virtual COM pair.
 
 ## License
 
