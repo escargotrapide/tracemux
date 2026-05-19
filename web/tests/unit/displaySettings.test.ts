@@ -28,6 +28,8 @@ describe("display settings", () => {
       normalizeDisplaySettings({
         terminalScrollback: -1,
         tileScrollback: "250",
+        terminalMaxRecords: 9,
+        tileMaxRecords: 999_999,
         tileMinWidth: 999_999,
         tileMinHeight: 10,
         showTimestamp: true,
@@ -39,6 +41,8 @@ describe("display settings", () => {
       ...DEFAULT_DISPLAY_SETTINGS,
       terminalScrollback: 100,
       tileScrollback: 250,
+      terminalMaxRecords: 100,
+      tileMaxRecords: 100_000,
       tileMinWidth: 1200,
       tileMinHeight: 80,
       showTimestamp: true,

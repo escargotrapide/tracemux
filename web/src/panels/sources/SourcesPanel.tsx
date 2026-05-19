@@ -23,6 +23,7 @@ import {
   type SourceStatusFilter,
 } from "~/state/sourceFilters";
 import { detectSources, serialSpecForPort } from "~/state/sourceDiscovery";
+import { sourceAliases, updateSourceAlias } from "~/state/sourceAliases";
 import { sourceNotes, updateSourceNote } from "~/state/sourceNotes";
 import { parseSourceSpec } from "~/state/sourceSpec";
 import { t } from "~/i18n";
@@ -454,6 +455,20 @@ export function SourcesPanel() {
               <dd><code>{source().sid}</code></dd>
               <dt>{t("sources.detail.name")}</dt>
               <dd>{source().name}</dd>
+              <dt>{t("sources.detail.alias")}</dt>
+              <dd>
+                <input
+                  type="text"
+                  aria-label={t("sources.detail.alias")}
+                  value={sourceAliases[source().sid]?.label ?? ""}
+                  onInput={(ev) => updateSourceAlias(source().sid, ev.currentTarget.value)}
+                  placeholder={t("sources.detail.alias_placeholder")}
+                  style={{ width: "100%" }}
+                />
+                <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+                  {t("sources.detail.alias_help")}
+                </div>
+              </dd>
               <dt>{t("sources.detail.kind")}</dt>
               <dd>{source().kind}</dd>
               <dt>{t("sources.detail.status")}</dt>

@@ -27,7 +27,17 @@ import {
   terminalChannel,
   useChannel,
 } from "~/state";
-import { displaySettings, formatTimestampNs } from "~/state/displaySettings";
+import { getChannelFrames } from "~/state/channelBuffers";
+import { displaySettings } from "~/state/displaySettings";
+import {
+  DEFAULT_DISPLAY_FILTER,
+  labelForSid,
+  payloadMatchesFilter,
+  renderPayload,
+  sourceDisplayName,
+  type DisplayFilter,
+} from "~/state/displayFrames";
+import { sourceAliases } from "~/state/sourceAliases";
 import { observeVisibility } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
 
@@ -38,25 +48,7 @@ export interface TerminalPanelProps {
 }
 
 const encoder = new TextEncoder();
-
-function sourceDisplayName(p: Pick<DataPayload, "sid" | "source">): string {
-  return p.source ?? sourcesStore[p.sid]?.name ?? p.sid.slice(0, 8);
-}
-
-function metadataPrefix(p: DataPayload): string {
-  const parts: string[] = [];
-  if (displaySettings.showTimestamp) {
-    parts.push(formatTimestampNs(p.ts_origin));
-  }
-  if (displaySettings.showKind) {
-    const tags = p.tags && p.tags.length > 0 ? `:${p.tags.join("|")}` : "";
-    parts.push(`${p.kind}${tags}`);
-  }
-  if (displaySettings.showSource) {
-    parts.push(sourceDisplayName(p));
-  }
-  return parts.length > 0 ? `[${parts.join(" ")}] ` : "";
-}
+const DATA_KINDS: DataPayload["kind"][] = ["bytes", "datagram", "frame", "record"];
 
 export function TerminalPanel(props: TerminalPanelProps) {
   let host!: HTMLDivElement;
@@ -65,10 +57,16 @@ export function TerminalPanel(props: TerminalPanelProps) {
   let unsub: (() => void) | null = null;
   let unobserve: (() => void) | null = null;
   let resizeObs: ResizeObserver | null = null;
+  let renderedRecords = 0;
 
   const [sid, setSid] = createSignal(props.sid);
   const [ch, setCh] = createSignal(props.ch);
   const [txText, setTxText] = createSignal("");
+  const [filterKind, setFilterKind] = createSignal<DisplayFilter["kind"]>(
+    DEFAULT_DISPLAY_FILTER.kind,
+  );
+  const [filterTag, setFilterTag] = createSignal(DEFAULT_DISPLAY_FILTER.tagQuery);
+  const [filterSource, setFilterSource] = createSignal(DEFAULT_DISPLAY_FILTER.sourceQuery);
 
   const sidOptions = createMemo(() => Object.values(sourcesStore));
   const chOptions = createMemo(() => {
@@ -78,23 +76,60 @@ export function TerminalPanel(props: TerminalPanelProps) {
   const hasActiveSource = createMemo(() => Boolean(sourcesStore[sid()]));
   const targetLabel = createMemo(() => {
     if (!hasActiveSource()) return t("terminal.no_source");
-    const source = sourcesStore[sid()];
-    const name = source?.name ?? sid().slice(0, 8);
-    return `${name} / ch ${ch()} (${sid().slice(0, 8)})`;
+    return `${labelForSid(sid(), sourcesStore, sourceAliases)} / ch ${ch()}`;
   });
+  const activeFilter = createMemo<DisplayFilter>(() => ({
+    kind: filterKind(),
+    tagQuery: filterTag(),
+    sourceQuery: filterSource(),
+  }));
+
+  function isAtBottom(): boolean {
+    const active = term?.buffer.active;
+    if (!active) return true;
+    return active.viewportY >= active.baseY - 1;
+  }
+
+  function writeRendered(text: string, newline: boolean): void {
+    const follow = isAtBottom();
+    const done = () => {
+      if (follow) term?.scrollToBottom();
+    };
+    if (newline) {
+      term?.writeln(text, done);
+    } else {
+      term?.write(text, done);
+    }
+  }
+
+  function renderFrame(p: DataPayload, enforceLimit = true): void {
+    const sourceLabel = sourceDisplayName(p, sourcesStore, sourceAliases);
+    if (!payloadMatchesFilter(p, activeFilter(), sourceLabel)) return;
+    const rendered = renderPayload(p, displaySettings, sourceLabel);
+    renderedRecords += 1;
+    if (enforceLimit && renderedRecords > displaySettings.terminalMaxRecords) {
+      redrawFromBuffer();
+      return;
+    }
+    writeRendered(rendered.text, rendered.newline);
+  }
+
+  function redrawFromBuffer(): void {
+    if (!term || !hasActiveSource()) return;
+    renderedRecords = 0;
+    term.clear();
+    for (const frame of getChannelFrames(sid(), ch(), displaySettings.terminalMaxRecords)) {
+      renderFrame(frame, false);
+    }
+    term.scrollToBottom();
+  }
 
   function rebind(): void {
     unsub?.();
     unsub = null;
     if (!hasActiveSource()) return;
     unsub = useChannel(sid(), ch(), (p: DataPayload) => {
-      const prefix = metadataPrefix(p);
-      if (p.body instanceof Uint8Array) {
-        if (prefix) term?.write(prefix);
-        term?.write(p.body);
-      } else if (typeof p.body === "object" && p.body) {
-        term?.writeln(`${prefix}${JSON.stringify(p.body)}`);
-      }
+      renderFrame(p);
     });
   }
 
@@ -112,6 +147,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
     setCh(nextCh);
     rebind();
     reobserve();
+    redrawFromBuffer();
   }
 
   createEffect(() => {
@@ -134,6 +170,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
   });
 
   function clearTerminal(): void {
+    renderedRecords = 0;
     term?.clear();
   }
 
@@ -216,6 +253,18 @@ export function TerminalPanel(props: TerminalPanelProps) {
     if (term) term.options.scrollback = scrollback;
   });
 
+  createEffect(() => {
+    filterKind();
+    filterTag();
+    filterSource();
+    displaySettings.showTimestamp;
+    displaySettings.showKind;
+    displaySettings.showSource;
+    displaySettings.timezone;
+    displaySettings.terminalMaxRecords;
+    redrawFromBuffer();
+  });
+
   onCleanup(() => {
     unobserve?.();
     unsub?.();
@@ -252,7 +301,11 @@ export function TerminalPanel(props: TerminalPanelProps) {
             const opts = sourcesStore[nextSid]?.channels ?? [];
             const first = opts[0];
             const nextCh = first !== undefined && !opts.includes(ch()) ? first : ch();
-            selectTerminalChannel(nextSid, nextCh);
+            if (props.followSelection === false) {
+              bind(nextSid, nextCh);
+            } else {
+              selectTerminalChannel(nextSid, nextCh);
+            }
           }}
           aria-label="sid"
         >
@@ -264,7 +317,12 @@ export function TerminalPanel(props: TerminalPanelProps) {
         <select
           value={ch()}
           onChange={(e) => {
-            selectTerminalChannel(sid(), Number(e.currentTarget.value));
+            const nextCh = Number(e.currentTarget.value);
+            if (props.followSelection === false) {
+              bind(sid(), nextCh);
+            } else {
+              selectTerminalChannel(sid(), nextCh);
+            }
           }}
           aria-label="ch"
           disabled={!hasActiveSource()}
@@ -273,7 +331,36 @@ export function TerminalPanel(props: TerminalPanelProps) {
             {(c) => <option value={c}>ch {c}</option>}
           </For>
         </select>
-        <span style={{ color: "var(--wl-fg-muted)", "align-self": "center" }}>
+        <label>
+          {t("terminal.filter_kind")} {" "}
+          <select
+            value={filterKind()}
+            onChange={(e) => setFilterKind(e.currentTarget.value as DisplayFilter["kind"])}
+            aria-label={t("terminal.filter_kind")}
+          >
+            <option value="all">{t("terminal.filter_all")}</option>
+            <For each={DATA_KINDS}>
+              {(kind) => <option value={kind}>{kind}</option>}
+            </For>
+          </select>
+        </label>
+        <input
+          type="search"
+          value={filterTag()}
+          onInput={(e) => setFilterTag(e.currentTarget.value)}
+          placeholder={t("terminal.filter_tag_placeholder")}
+          aria-label={t("terminal.filter_tag")}
+          style={{ width: "120px" }}
+        />
+        <input
+          type="search"
+          value={filterSource()}
+          onInput={(e) => setFilterSource(e.currentTarget.value)}
+          placeholder={t("terminal.filter_source_placeholder")}
+          aria-label={t("terminal.filter_source")}
+          style={{ width: "120px" }}
+        />
+        <span title={sid()} style={{ color: "var(--wl-fg-muted)", "align-self": "center" }}>
           {t("terminal.target")}: {targetLabel()}
         </span>
         <form

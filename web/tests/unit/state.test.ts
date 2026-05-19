@@ -21,6 +21,7 @@ import {
   sendWrite,
   useChannel,
 } from "../../src/state";
+import { getChannelFrames } from "../../src/state/channelBuffers";
 
 describe("state frame handler", () => {
   afterEach(() => {
@@ -55,6 +56,7 @@ describe("state frame handler", () => {
     expect(sourcesStore.s1.bytesIn).toBe(3);
     expect(sourcesStore.s1.status).toBe("running");
     expect(sourcesStore.s1.channels).toEqual([0]);
+    expect(getChannelFrames("s1", 0).length).toBeGreaterThanOrEqual(1);
     const after = __flushUiPerfForTest();
     expect(after.framesTotal).toBe(before.framesTotal + 1);
     expect(after.dataFrames).toBe(before.dataFrames + 1);

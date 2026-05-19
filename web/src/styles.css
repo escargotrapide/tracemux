@@ -217,7 +217,7 @@ button:hover {
   min-height: 80px;
   min-width: 120px;
   resize: both;
-  overflow: hidden;
+  overflow: auto;
 }
 .wl-tile-header {
   font-size: 10px;
@@ -230,8 +230,13 @@ button:hover {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
+  position: relative;
+}
+.wl-tile-body .xterm {
+  height: 100%;
 }
 .wl-tile-body .xterm-viewport {
   overflow-y: auto !important;
+  pointer-events: auto;
 }

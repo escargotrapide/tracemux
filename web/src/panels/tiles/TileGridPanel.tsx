@@ -9,11 +9,17 @@ import { createEffect, createMemo, For, onCleanup, onMount } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { sourcesStore, useChannel } from "~/state";
+import { getChannelFrames } from "~/state/channelBuffers";
 import {
   displaySettings,
-  formatTimestampNs,
   updateDisplaySettings,
 } from "~/state/displaySettings";
+import {
+  labelForSid,
+  renderPayload,
+  sourceDisplayName,
+} from "~/state/displayFrames";
+import { sourceAliases } from "~/state/sourceAliases";
 import { observeVisibility, TILE_COUNT } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
 import { t } from "~/i18n";
@@ -41,8 +47,9 @@ function Tile(props: TileBinding) {
   let unsub: (() => void) | null = null;
   let unobserve: (() => void) | null = null;
   let resizeObs: ResizeObserver | null = null;
+  let renderedRecords = 0;
 
-  const label = createMemo(() => sourcesStore[props.sid]?.name ?? props.sid.slice(0, 8));
+  const label = createMemo(() => labelForSid(props.sid, sourcesStore, sourceAliases));
 
   function safeFit(): void {
     try {
@@ -53,19 +60,43 @@ function Tile(props: TileBinding) {
     }
   }
 
-  function metadataPrefix(p: DataPayload): string {
-    const parts: string[] = [];
-    if (displaySettings.showTimestamp) {
-      parts.push(formatTimestampNs(p.ts_origin));
+  function isAtBottom(): boolean {
+    const active = term?.buffer.active;
+    if (!active) return true;
+    return active.viewportY >= active.baseY - 1;
+  }
+
+  function writeRendered(text: string, newline: boolean): void {
+    const follow = isAtBottom();
+    const done = () => {
+      if (follow) term?.scrollToBottom();
+    };
+    if (newline) {
+      term?.writeln(text, done);
+    } else {
+      term?.write(text, done);
     }
-    if (displaySettings.showKind) {
-      const tags = p.tags && p.tags.length > 0 ? `:${p.tags.join("|")}` : "";
-      parts.push(`${p.kind}${tags}`);
+  }
+
+  function renderFrame(p: DataPayload, enforceLimit = true): void {
+    const sourceLabel = sourceDisplayName(p, sourcesStore, sourceAliases);
+    const rendered = renderPayload(p, displaySettings, sourceLabel);
+    renderedRecords += 1;
+    if (enforceLimit && renderedRecords > displaySettings.tileMaxRecords) {
+      redrawFromBuffer();
+      return;
     }
-    if (displaySettings.showSource) {
-      parts.push(p.source ?? label());
+    writeRendered(rendered.text, rendered.newline);
+  }
+
+  function redrawFromBuffer(): void {
+    if (!term) return;
+    renderedRecords = 0;
+    term.clear();
+    for (const frame of getChannelFrames(props.sid, props.ch, displaySettings.tileMaxRecords)) {
+      renderFrame(frame, false);
     }
-    return parts.length > 0 ? `[${parts.join(" ")}] ` : "";
+    term.scrollToBottom();
   }
 
   onMount(() => {
@@ -81,14 +112,9 @@ function Tile(props: TileBinding) {
     term.open(host);
     requestAnimationFrame(safeFit);
     unsub = useChannel(props.sid, props.ch, (p: DataPayload) => {
-      const prefix = metadataPrefix(p);
-      if (p.body instanceof Uint8Array) {
-        if (prefix) term?.write(prefix);
-        term?.write(p.body);
-      } else if (typeof p.body === "object" && p.body) {
-        term?.writeln(`${prefix}${JSON.stringify(p.body)}`);
-      }
+      renderFrame(p);
     });
+    redrawFromBuffer();
     unobserve = observeVisibility(host, { sid: props.sid, ch: props.ch });
     resizeObs = new ResizeObserver(() => requestAnimationFrame(safeFit));
     resizeObs.observe(host);
@@ -97,6 +123,12 @@ function Tile(props: TileBinding) {
   createEffect(() => {
     const scrollback = displaySettings.tileScrollback;
     if (term) term.options.scrollback = scrollback;
+    displaySettings.showTimestamp;
+    displaySettings.showKind;
+    displaySettings.showSource;
+    displaySettings.timezone;
+    displaySettings.tileMaxRecords;
+    redrawFromBuffer();
     requestAnimationFrame(safeFit);
   });
 

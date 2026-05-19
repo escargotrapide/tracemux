@@ -8,7 +8,24 @@
 // REQ: FR-UI-008
 // REQ: FR-UI-009
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+async function waitForInject(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { __wanloggerInject?: unknown })
+        .__wanloggerInject === "function",
+  );
+}
+
+async function injectFrame(page: Page, frame: unknown): Promise<void> {
+  await page.evaluate((payload) => {
+    const fn = (
+      window as unknown as { __wanloggerInject: (f: unknown) => void }
+    ).__wanloggerInject;
+    fn(payload);
+  }, frame);
+}
 
 test("loads shell and shows top-bar title", async ({ page }) => {
   await page.goto("/");
@@ -27,16 +44,8 @@ test("language toggle switches between ja and en", async ({ page }) => {
 
 test("injected ctl error frame surfaces a toast", async ({ page }) => {
   await page.goto("/");
-  await page.waitForFunction(
-    () =>
-      typeof (window as unknown as { __wanloggerInject?: unknown })
-        .__wanloggerInject === "function",
-  );
-  await page.evaluate(() => {
-    const fn = (
-      window as unknown as { __wanloggerInject: (f: unknown) => void }
-    ).__wanloggerInject;
-    fn({
+  await waitForInject(page);
+  await injectFrame(page, {
       type: "ctl",
       seq: 1,
       payload: {
@@ -44,7 +53,6 @@ test("injected ctl error frame surfaces a toast", async ({ page }) => {
         message: "bad token in e2e",
         error_id: "E-2001",
       },
-    });
   });
   await expect(page.getByText("bad token in e2e")).toBeVisible();
   await expect(page.getByText("E-2001")).toBeVisible();
@@ -52,16 +60,8 @@ test("injected ctl error frame surfaces a toast", async ({ page }) => {
 
 test("injected data frame populates the sources panel", async ({ page }) => {
   await page.goto("/");
-  await page.waitForFunction(
-    () =>
-      typeof (window as unknown as { __wanloggerInject?: unknown })
-        .__wanloggerInject === "function",
-  );
-  await page.evaluate(() => {
-    const fn = (
-      window as unknown as { __wanloggerInject: (f: unknown) => void }
-    ).__wanloggerInject;
-    fn({
+  await waitForInject(page);
+  await injectFrame(page, {
       type: "data",
       seq: 1,
       payload: {
@@ -81,7 +81,84 @@ test("injected data frame populates the sources panel", async ({ page }) => {
         body: new Uint8Array([72, 73]),
         source: "uart-e2e",
       },
-    });
   });
   await expect(page.getByRole("cell", { name: "uart-e2e" })).toBeVisible();
+});
+
+test("source alias updates terminal and tile labels", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "alias-source",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73]),
+      source: "serial:COM7",
+    },
+  });
+
+  await expect(page.getByText(/serial:COM7 \/ ch 0/).first()).toBeVisible();
+  await page.getByRole("button", { name: /Details|�ڍ�/ }).first().click();
+  await page.getByLabel(/Display alias|�\�����G�C���A�X/).fill("Motor UART");
+
+  await expect(page.getByText(/Motor UART \/ ch 0/).first()).toBeVisible();
+  await expect(page.locator(".wl-tile-header").filter({ hasText: "Motor UART" })).toBeVisible();
+});
+
+test("tile xterm viewport remains mouse-scrollable", async ({ page }) => {
+  // REQ: FR-UI-012
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "tile-scroll-source",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73, 10]),
+      source: "serial:COM8",
+    },
+  });
+
+  const viewport = page.locator(".wl-tile-body .xterm-viewport").first();
+  await expect(viewport).toBeVisible();
+
+  const styles = await viewport.evaluate((node) => {
+    const viewportStyle = window.getComputedStyle(node);
+    const bodyStyle = window.getComputedStyle(node.closest(".wl-tile-body") as Element);
+    return {
+      viewportOverflowY: viewportStyle.overflowY,
+      pointerEvents: viewportStyle.pointerEvents,
+      bodyOverflowY: bodyStyle.overflowY,
+    };
+  });
+
+  expect(styles.viewportOverflowY).not.toBe("hidden");
+  expect(styles.bodyOverflowY).not.toBe("hidden");
+  expect(styles.pointerEvents).not.toBe("none");
 });

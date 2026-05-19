@@ -151,6 +151,9 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEMP_JSON_SEQ: AtomicU64 = AtomicU64::new(0);
 
     struct TempJson(PathBuf);
     impl TempJson {
@@ -161,7 +164,8 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
                 .unwrap_or(0);
-            p.push(format!("wanlogger-aiverify-{pid}-{nonce}.json"));
+            let seq = TEMP_JSON_SEQ.fetch_add(1, Ordering::Relaxed);
+            p.push(format!("wanlogger-aiverify-{pid}-{nonce}-{seq}.json"));
             let mut f = std::fs::File::create(&p).unwrap();
             f.write_all(contents.as_bytes()).unwrap();
             Self(p)

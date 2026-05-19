@@ -4,14 +4,26 @@
 //
 // REQ: FR-UI-014
 
+import { createSignal, For } from "solid-js";
 import { t } from "~/i18n";
 import { displaySettings, updateDisplaySettings } from "~/state/displaySettings";
+import {
+  logTypeNotes,
+  normalizeLogTypeKey,
+  updateLogTypeNote,
+} from "~/state/logTypeNotes";
 
 function numberValue(value: string): number {
   return Number(value);
 }
 
 export function SettingsPanel() {
+  const [logTypeKey, setLogTypeKey] = createSignal("bytes");
+  const selectedLogTypeNote = () => {
+    const key = normalizeLogTypeKey(logTypeKey());
+    return key ? logTypeNotes[key]?.text ?? "" : "";
+  };
+
   return (
     <div class="wl-settings-panel">
       <section class="wl-settings-section">
@@ -27,6 +39,16 @@ export function SettingsPanel() {
           />
         </label>
         <label class="wl-settings-row">
+          <span>{t("settings.terminal_max_records")}</span>
+          <input
+            type="number"
+            min="100"
+            max="1000000"
+            value={displaySettings.terminalMaxRecords}
+            onInput={(ev) => updateDisplaySettings({ terminalMaxRecords: numberValue(ev.currentTarget.value) })}
+          />
+        </label>
+        <label class="wl-settings-row">
           <span>{t("settings.tile_scrollback")}</span>
           <input
             type="number"
@@ -34,6 +56,16 @@ export function SettingsPanel() {
             max="100000"
             value={displaySettings.tileScrollback}
             onInput={(ev) => updateDisplaySettings({ tileScrollback: numberValue(ev.currentTarget.value) })}
+          />
+        </label>
+        <label class="wl-settings-row">
+          <span>{t("settings.tile_max_records")}</span>
+          <input
+            type="number"
+            min="50"
+            max="100000"
+            value={displaySettings.tileMaxRecords}
+            onInput={(ev) => updateDisplaySettings({ tileMaxRecords: numberValue(ev.currentTarget.value) })}
           />
         </label>
         <label class="wl-settings-row">
@@ -100,6 +132,37 @@ export function SettingsPanel() {
             onInput={(ev) => updateDisplaySettings({ tileMinHeight: numberValue(ev.currentTarget.value) })}
           />
         </label>
+      </section>
+
+      <section class="wl-settings-section">
+        <h2>{t("settings.log_type_notes.title")}</h2>
+        <label class="wl-settings-row">
+          <span>{t("settings.log_type_notes.key")}</span>
+          <input
+            type="text"
+            value={logTypeKey()}
+            list="wl-log-type-note-keys"
+            onInput={(ev) => setLogTypeKey(ev.currentTarget.value)}
+            placeholder={t("settings.log_type_notes.key_placeholder")}
+          />
+        </label>
+        <datalist id="wl-log-type-note-keys">
+          <For each={Object.keys(logTypeNotes).sort()}>
+            {(key) => <option value={key} />}
+          </For>
+        </datalist>
+        <textarea
+          value={selectedLogTypeNote()}
+          onInput={(ev) => {
+            const key = normalizeLogTypeKey(logTypeKey());
+            if (key) updateLogTypeNote(key, ev.currentTarget.value);
+          }}
+          placeholder={t("settings.log_type_notes.placeholder")}
+          style={{ width: "100%", "min-height": "86px", resize: "vertical" }}
+        />
+        <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px", "margin-top": "4px" }}>
+          {t("settings.log_type_notes.help")}
+        </div>
       </section>
     </div>
   );

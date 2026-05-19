@@ -13,6 +13,11 @@ import {
   type MetricsPayload,
   type SourceSyncPayload,
 } from "~/adapters/wss";
+import {
+  appendChannelFrame,
+  clearChannelFrames,
+} from "~/state/channelBuffers";
+import { displaySettings } from "~/state/displaySettings";
 
 export interface SourceInfo {
   sid: string;
@@ -171,6 +176,7 @@ function upsertSourceStatus(
 }
 
 function removeSource(sid: string): void {
+  clearChannelFrames(sid);
   setSources(sid, undefined as unknown as SourceInfo);
 }
 
@@ -245,6 +251,10 @@ function handleFrame(frame: Frame): void {
       p.dataFrames += 1;
     });
     const p = frame.payload as DataPayload;
+    appendChannelFrame(
+      p,
+      Math.max(displaySettings.terminalMaxRecords, displaySettings.tileMaxRecords),
+    );
     const key = keyOf(p.sid, p.ch);
     const ls = channelListeners.get(key);
     if (ls) {
@@ -435,6 +445,7 @@ export function __setConnStateForTest(state: ConnState): void {
 export function __setClientForTest(next: Pick<WireClient, "send"> | null): void {
   client = next as WireClient | null;
   channelListeners.clear();
+  clearChannelFrames();
   setTerminalChannelState(null);
   setTerminalFocusRequestState(null);
   setTerminalOpenRequestState(null);

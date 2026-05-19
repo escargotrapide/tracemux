@@ -5,6 +5,8 @@ export const DISPLAY_SETTINGS_STORAGE_KEY = "wanlogger.displaySettings.v1";
 export interface DisplaySettings {
   terminalScrollback: number;
   tileScrollback: number;
+  terminalMaxRecords: number;
+  tileMaxRecords: number;
   tileMinWidth: number;
   tileMinHeight: number;
   showTimestamp: boolean;
@@ -16,6 +18,8 @@ export interface DisplaySettings {
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   terminalScrollback: 10_000,
   tileScrollback: 500,
+  terminalMaxRecords: 5_000,
+  tileMaxRecords: 500,
   tileMinWidth: 240,
   tileMinHeight: 160,
   showTimestamp: false,
@@ -57,6 +61,18 @@ export function normalizeDisplaySettings(value: unknown): DisplaySettings {
     tileScrollback: clampInt(
       input.tileScrollback,
       DEFAULT_DISPLAY_SETTINGS.tileScrollback,
+      50,
+      100_000,
+    ),
+    terminalMaxRecords: clampInt(
+      input.terminalMaxRecords,
+      DEFAULT_DISPLAY_SETTINGS.terminalMaxRecords,
+      100,
+      1_000_000,
+    ),
+    tileMaxRecords: clampInt(
+      input.tileMaxRecords,
+      DEFAULT_DISPLAY_SETTINGS.tileMaxRecords,
       50,
       100_000,
     ),
