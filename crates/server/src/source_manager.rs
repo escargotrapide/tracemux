@@ -257,6 +257,15 @@ impl SourceManager {
         self.session_root.as_deref()
     }
 
+    /// Resolve the session-dir persisted for a known source id.
+    #[must_use]
+    pub fn session_dir_for_sid(&self, sid: Uuid) -> Option<PathBuf> {
+        self.sources
+            .lock()
+            .get(&sid)
+            .and_then(|entry| entry.session_dir.clone())
+    }
+
     /// Start a source from a persisted/config-compatible channel spec.
     ///
     /// v0.1 uses the minimal server-default pipeline:

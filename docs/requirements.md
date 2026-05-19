@@ -160,7 +160,11 @@ session-dir's `index.jsonl` + `raw.bin` and writes one row per record
 to `<dst>`. The CLI refuses to run when `<session-dir>` lacks an
 `index.jsonl` file. `--tz` formats exported timestamp fields in a
 fixed display timezone such as `UTC`, `GMT+9`, `+09:00`, or
-`Asia/Tokyo` without changing the stored session-dir.
+`Asia/Tokyo` without changing the stored session-dir. The server exposes
+the same exporter set through an authenticated
+`GET /api/sessions/{sid}/export?format=text|csv|jsonl` endpoint that
+resolves `{sid}` to a server-known persisted session-dir rather than
+accepting arbitrary filesystem paths.
 
 ### FR-CLI-001  Import / export round-trip
 The CLI guarantees that for any plain-text input file `F`,

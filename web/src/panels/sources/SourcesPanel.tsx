@@ -5,6 +5,10 @@
 
 import { createSignal, For, Show } from "solid-js";
 import {
+  downloadSessionExport,
+  type SessionExportFormat,
+} from "~/adapters/sessionExport";
+import {
   openNewTerminalChannel,
   openTerminalChannel,
   sourcesStore,
@@ -63,6 +67,8 @@ function onOpenNewTerminal(sid: string, channels: number[]): void {
   pushToast({ level: "info", message: t("sources.open_terminal.new_requested") });
 }
 
+const EXPORT_FORMATS: SessionExportFormat[] = ["text", "csv", "jsonl"];
+
 export function SourcesPanel() {
   const [specInput, setSpecInput] = createSignal("mock://demo");
   const [presetName, setPresetName] = createSignal("");
@@ -75,6 +81,8 @@ export function SourcesPanel() {
   const [selectedSerialPorts, setSelectedSerialPorts] = createSignal<string[]>([]);
   const [serialDetecting, setSerialDetecting] = createSignal(false);
   const [serialBaud, setSerialBaud] = createSignal(115_200);
+  const [exportTimezone, setExportTimezone] = createSignal("");
+  const [exporting, setExporting] = createSignal<string | null>(null);
   const rows = () =>
     filterAndSortSources(
       Object.values(sourcesStore),
@@ -174,6 +182,24 @@ export function SourcesPanel() {
         level: "info",
         message: `${t("sources.serial.open_requested")} (${requested})`,
       });
+    }
+  }
+
+  async function onDownloadExport(sid: string, format: SessionExportFormat): Promise<void> {
+    setExporting(format);
+    try {
+      await downloadSessionExport(sid, {
+        format,
+        timezone: exportTimezone(),
+      });
+      pushToast({ level: "info", message: t("sources.export.requested") });
+    } catch (err) {
+      pushToast({
+        level: "error",
+        message: (err as Error).message ?? t("sources.export.failed"),
+      });
+    } finally {
+      setExporting(null);
     }
   }
 
@@ -557,6 +583,37 @@ export function SourcesPanel() {
                 </Show>
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {t("sources.detail.session_dir_help")}
+                </div>
+              </dd>
+              <dt>{t("sources.export.title")}</dt>
+              <dd>
+                <div style={{ display: "flex", gap: "6px", "flex-wrap": "wrap" }}>
+                  <input
+                    type="text"
+                    value={exportTimezone()}
+                    onInput={(ev) => setExportTimezone(ev.currentTarget.value)}
+                    placeholder={t("sources.export.timezone_placeholder")}
+                    aria-label={t("sources.export.timezone")}
+                    style={{ "min-width": "160px" }}
+                  />
+                  <For each={EXPORT_FORMATS}>
+                    {(format) => (
+                      <button
+                        type="button"
+                        onClick={() => void onDownloadExport(source().sid, format)}
+                        disabled={!source().persistent || exporting() !== null}
+                      >
+                        {exporting() === format
+                          ? t("sources.export.downloading")
+                          : t(`sources.export.${format}`)}
+                      </button>
+                    )}
+                  </For>
+                </div>
+                <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+                  {source().persistent
+                    ? t("sources.export.help")
+                    : t("sources.export.unavailable")}
                 </div>
               </dd>
               <dt>{t("sources.detail.channels")}</dt>

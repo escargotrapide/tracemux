@@ -287,6 +287,12 @@ export function resolveWanloggerUrl(): string {
   return DEFAULT_DEV_URL;
 }
 
+/** Resolve the optional bearer token shared by WSS and HTTP API requests. */
+export function resolveWanloggerToken(): string | undefined {
+  const token = import.meta.env.VITE_WANLOGGER_TOKEN?.trim();
+  return token && token.length > 0 ? token : undefined;
+}
+
 /** Resolve a server HTTP API URL matching the configured WSS endpoint. */
 export function resolveWanloggerHttpUrl(path: string): string {
   try {

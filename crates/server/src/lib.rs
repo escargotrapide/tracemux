@@ -10,6 +10,7 @@ pub mod audit;
 pub mod auth;
 pub mod clientlog;
 pub mod coalesce;
+pub mod export_api;
 pub mod fingerprint;
 pub mod hold;
 pub mod ingest;
@@ -28,7 +29,8 @@ pub mod ws;
 ///
 /// v0.1 binds an axum HTTP listener serving the public router from
 /// [`routes::build`] (`/healthz`, `/readyz`, `/api/version`,
-/// `/api/ai/verify`, and the reserved `/api/sessions/{sid}/range`)
+/// `/api/ai/verify`, the reserved `/api/sessions/{sid}/range`, and
+/// authenticated `/api/sessions/{sid}/export`)
 /// merged with the WSS router from [`ws::router`] (`/ws`).
 /// TLS termination remains in [`tls`] and is not wired in by this
 /// entry point yet.
@@ -116,10 +118,12 @@ pub async fn run_with_session_root_classifier_encoding_and_pattern(
             session_name_pattern,
         ),
     );
+    let export_state =
+        export_api::ExportRouteState::new(source_manager.clone(), Arc::new(auth.clone()), no_auth);
     let ws_state =
         ws::WsState::with_source_manager(auth, no_auth, conns, source_manager).with_audit(audit);
 
-    let app = routes::build().merge(ws::router(ws_state));
+    let app = routes::build_with_exports(export_state).merge(ws::router(ws_state));
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

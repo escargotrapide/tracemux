@@ -6,6 +6,7 @@ import { createStore } from "solid-js/store";
 import {
   WireClient,
   resolveWanloggerUrl,
+  resolveWanloggerToken,
   type ConnState,
   type CtlPayload,
   type DataPayload,
@@ -233,7 +234,7 @@ function handleConnState(state: ConnState): void {
 
 export function getClient(): WireClient {
   if (!client) {
-    const tokenEnv = import.meta.env.VITE_WANLOGGER_TOKEN;
+    const tokenEnv = resolveWanloggerToken();
     client = new WireClient({
       url: resolveWanloggerUrl(),
       ...(tokenEnv !== undefined ? { token: tokenEnv } : {}),
