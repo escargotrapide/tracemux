@@ -27,6 +27,7 @@ pub mod logsink;
 pub mod metrics;
 pub mod secret;
 pub mod session;
+pub mod session_name;
 pub mod sink;
 pub mod source;
 pub mod time;

@@ -70,6 +70,26 @@ pub async fn run_with_session_root_classifier_and_encoding(
     classifier: wanlogger_core::classify::LogClassifier,
     encoding: impl Into<String>,
 ) -> anyhow::Result<()> {
+    run_with_session_root_classifier_encoding_and_pattern(
+        bind,
+        no_auth,
+        session_root,
+        classifier,
+        encoding,
+        wanlogger_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN,
+    )
+    .await
+}
+
+/// Run the server with classification, text encoding, and session-dir naming.
+pub async fn run_with_session_root_classifier_encoding_and_pattern(
+    bind: &str,
+    no_auth: bool,
+    session_root: impl Into<std::path::PathBuf>,
+    classifier: wanlogger_core::classify::LogClassifier,
+    encoding: impl Into<String>,
+    session_name_pattern: impl Into<String>,
+) -> anyhow::Result<()> {
     use std::sync::Arc;
     use tokio::net::TcpListener;
 
@@ -88,11 +108,12 @@ pub async fn run_with_session_root_classifier_and_encoding(
     std::fs::create_dir_all(&session_root)?;
     let audit = Arc::new(audit::AuditLog::create(&session_root)?);
     let source_manager = Arc::new(
-        source_manager::SourceManager::with_session_root_classifier_and_encoding(
+        source_manager::SourceManager::with_session_root_classifier_encoding_and_pattern(
             ingest,
             session_root,
             classifier,
             encoding,
+            session_name_pattern,
         ),
     );
     let ws_state =

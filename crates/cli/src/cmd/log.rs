@@ -23,6 +23,9 @@ use wanlogger_core::classify::{ClassificationRule, LogClassifier};
 use wanlogger_core::codec::decode;
 use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
 use wanlogger_core::log::raw::RawWriter;
+use wanlogger_core::session_name::{
+    render_session_name, SessionNameParts, DEFAULT_CLI_SESSION_NAME_PATTERN,
+};
 use wanlogger_core::source::{ChannelSpec, ControlEvt, Frame};
 use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
 
@@ -43,6 +46,8 @@ pub struct Options {
     pub spec: String,
     /// Output prefix.
     pub prefix: Option<String>,
+    /// Session-dir name pattern.
+    pub name_pattern: Option<String>,
     /// Encoding label used for classification matching.
     pub encoding: String,
     /// Classifier rules in `contains=tag` form.
@@ -67,10 +72,21 @@ pub async fn run(options: Options) -> Result<()> {
         now.minute(),
         now.second()
     );
-    let dir_name = format!(
-        "{prefix}_{}_{}_{stamp}",
-        spec::kind_tag(&s),
-        spec::iface_tag(&s)
+    let kind = spec::kind_tag(&s);
+    let iface = spec::iface_tag(&s);
+    let unix_ns = wanlogger_core::time::unix_ns_now();
+    let dir_name = render_session_name(
+        options
+            .name_pattern
+            .as_deref()
+            .unwrap_or(DEFAULT_CLI_SESSION_NAME_PATTERN),
+        &SessionNameParts {
+            prefix,
+            kind,
+            iface: &iface,
+            timestamp: &stamp,
+            unix_ns,
+        },
     );
     let dir = PathBuf::from(&dir_name);
     std::fs::create_dir_all(&dir).context("creating session-dir")?;

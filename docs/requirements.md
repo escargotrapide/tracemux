@@ -264,6 +264,12 @@ decoded text records. Captured raw bytes remain lossless; only decoded
 `lines.jsonl` / `frames.jsonl` text and downstream classification use
 the selected encoding.
 
+### FR-CLI-007  Session-dir name patterns
+`wanlogger log` and `wanlogger serve` accept a session-dir name pattern
+for saved logs. Patterns may use `{prefix}`, `{kind}`, `{iface}`,
+`{timestamp}`, and `{unix_ns}` tokens; rendered names are sanitised so
+they stay within a single filesystem directory name.
+
 ### FR-UI-013  Terminal send box
 The Terminal panel includes an explicit send input and button that
 encodes text as UTF-8 and sends it as a `write` frame to the selected

@@ -58,3 +58,25 @@ fn log_classify_writes_tags_to_index() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["tags"], serde_json::json!(["fault"]));
 }
+
+// REQ: FR-CLI-007
+#[test]
+fn log_name_pattern_controls_session_dir_name() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("in.log"), b"hello\n").unwrap();
+
+    must_succeed(
+        Command::new(bin())
+            .current_dir(dir.path())
+            .arg("log")
+            .arg("file:///in.log")
+            .arg("--prefix")
+            .arg("capture")
+            .arg("--name-pattern")
+            .arg("{prefix}-{kind}-{iface}"),
+    );
+
+    let session = dir.path().join("capture-file-in.log");
+    assert!(session.is_dir(), "expected {}", session.display());
+    assert!(session.join("index.jsonl").is_file());
+}

@@ -18,6 +18,9 @@ use wanlogger_core::classify::{ClassifyingDecoder, LogClassifier};
 use wanlogger_core::decoder::{utf8_text::Utf8TextDecoder, Decoder};
 use wanlogger_core::framer::{passthrough::PassthroughFramer, Framer};
 use wanlogger_core::logsink::{fanout::FanoutLogSink, file::FileLogSink, LogSink};
+use wanlogger_core::session_name::{
+    render_session_name, SessionNameParts, DEFAULT_SERVER_SESSION_NAME_PATTERN,
+};
 use wanlogger_core::sink::Sink;
 use wanlogger_core::source::{
     file::FileSource, http_webhook::HttpWebhookSource, mock::MockSource, mqtt::MqttSource,
@@ -67,6 +70,7 @@ pub struct SourceManager {
     session_root: Option<PathBuf>,
     classifier: RwLock<LogClassifier>,
     encoding: RwLock<String>,
+    session_name_pattern: RwLock<String>,
     sources: Mutex<HashMap<Uuid, SourceEntry>>,
 }
 
@@ -116,6 +120,7 @@ impl SourceManager {
             session_root: None,
             classifier: RwLock::new(LogClassifier::new()),
             encoding: RwLock::new("utf-8".to_string()),
+            session_name_pattern: RwLock::new(DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()),
             sources: Mutex::new(HashMap::new()),
         }
     }
@@ -128,6 +133,7 @@ impl SourceManager {
             session_root: Some(session_root.into()),
             classifier: RwLock::new(LogClassifier::new()),
             encoding: RwLock::new("utf-8".to_string()),
+            session_name_pattern: RwLock::new(DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()),
             sources: Mutex::new(HashMap::new()),
         }
     }
@@ -144,6 +150,7 @@ impl SourceManager {
             session_root: Some(session_root.into()),
             classifier: RwLock::new(classifier),
             encoding: RwLock::new("utf-8".to_string()),
+            session_name_pattern: RwLock::new(DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()),
             sources: Mutex::new(HashMap::new()),
         }
     }
@@ -161,6 +168,26 @@ impl SourceManager {
             session_root: Some(session_root.into()),
             classifier: RwLock::new(classifier),
             encoding: RwLock::new(encoding.into()),
+            session_name_pattern: RwLock::new(DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()),
+            sources: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Construct with a root directory, classifier, encoding, and name pattern.
+    #[must_use]
+    pub fn with_session_root_classifier_encoding_and_pattern(
+        ingest: Arc<Ingest>,
+        session_root: impl Into<PathBuf>,
+        classifier: LogClassifier,
+        encoding: impl Into<String>,
+        session_name_pattern: impl Into<String>,
+    ) -> Self {
+        Self {
+            ingest,
+            session_root: Some(session_root.into()),
+            classifier: RwLock::new(classifier),
+            encoding: RwLock::new(encoding.into()),
+            session_name_pattern: RwLock::new(session_name_pattern.into()),
             sources: Mutex::new(HashMap::new()),
         }
     }
@@ -185,6 +212,17 @@ impl SourceManager {
     #[must_use]
     pub fn encoding(&self) -> String {
         self.encoding.read().clone()
+    }
+
+    /// Replace the session-dir name pattern used for subsequently started sources.
+    pub fn set_session_name_pattern(&self, pattern: impl Into<String>) {
+        *self.session_name_pattern.write() = pattern.into();
+    }
+
+    /// Snapshot the session-dir name pattern used for newly started sources.
+    #[must_use]
+    pub fn session_name_pattern(&self) -> String {
+        self.session_name_pattern.read().clone()
     }
 
     /// Shared ingest state used by this manager.
@@ -477,7 +515,7 @@ impl SourceManager {
         reuse.or_else(|| {
             self.session_root
                 .as_ref()
-                .map(|root| root.join(session_dir_name(spec)))
+                .map(|root| root.join(session_dir_name(spec, &self.session_name_pattern())))
         })
     }
 
@@ -771,12 +809,31 @@ pub fn default_session_root() -> PathBuf {
         .map_or_else(|| PathBuf::from("wanlogger-sessions"), PathBuf::from)
 }
 
-fn session_dir_name(spec: &ChannelSpec) -> String {
+fn session_dir_name(spec: &ChannelSpec, pattern: &str) -> String {
+    let iface = iface_tag(spec);
+    let unix_ns = wanlogger_core::time::unix_ns_now();
+    render_session_name(
+        pattern,
+        &SessionNameParts {
+            prefix: "wanlogger",
+            kind: kind_tag(spec),
+            iface: &iface,
+            timestamp: &compact_utc_timestamp(),
+            unix_ns,
+        },
+    )
+}
+
+fn compact_utc_timestamp() -> String {
+    let now = time::OffsetDateTime::now_utc();
     format!(
-        "wanlogger_{}_{}_{}",
-        kind_tag(spec),
-        iface_tag(spec),
-        wanlogger_core::time::unix_ns_now()
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
     )
 }
 
@@ -1020,6 +1077,39 @@ mod tests {
 
         let frames = std::fs::read_to_string(session_dirs[0].join("frames.jsonl")).unwrap();
         assert!(frames.contains("utf8-text:shift_jis"));
+
+        assert!(manager.remove(sid));
+        assert!(ingest.registry.get(&sid).is_none());
+    }
+
+    #[tokio::test]
+    async fn start_spec_uses_configured_session_name_pattern() {
+        // REQ: FR-CLI-007
+        let root = tempdir();
+        let input = root.join("input.log");
+        std::fs::write(&input, b"named\n").unwrap();
+        let sessions = root.join("sessions");
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::with_session_root_classifier_encoding_and_pattern(
+            ingest.clone(),
+            &sessions,
+            LogClassifier::new(),
+            "utf-8",
+            "{prefix}-{kind}-{iface}",
+        );
+
+        let sid = manager
+            .start_spec(ChannelSpec::File {
+                path: input.to_string_lossy().to_string(),
+                follow: false,
+            })
+            .await
+            .unwrap();
+        manager.wait(sid).await.unwrap().unwrap();
+
+        let session = sessions.join("wanlogger-file-input.log");
+        assert!(session.is_dir(), "expected {}", session.display());
+        assert!(session.join("raw.bin").is_file());
 
         assert!(manager.remove(sid));
         assert!(ingest.registry.get(&sid).is_none());

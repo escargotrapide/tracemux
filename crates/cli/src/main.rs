@@ -53,6 +53,9 @@ struct ServeArgs {
     /// Root directory for server-created session-dirs.
     #[arg(long, default_value = "wanlogger-sessions")]
     session_root: std::path::PathBuf,
+    /// Session-dir name pattern using {prefix}, {kind}, {iface}, {timestamp}, {unix_ns}.
+    #[arg(long, value_name = "PATTERN")]
+    session_name_pattern: Option<String>,
     /// Disable auth (gated to loopback).
     #[arg(long)]
     no_auth: bool,
@@ -111,6 +114,9 @@ struct LogArgs {
     /// Output prefix (defaults to `wanlogger`).
     #[arg(long)]
     prefix: Option<String>,
+    /// Session-dir name pattern using {prefix}, {kind}, {iface}, {timestamp}, {unix_ns}.
+    #[arg(long, value_name = "PATTERN")]
+    name_pattern: Option<String>,
     /// Decode encoding used for `--classify` matching.
     #[arg(long, default_value = "utf-8")]
     encoding: String,
@@ -227,12 +233,15 @@ async fn main() -> anyhow::Result<()> {
     match cli.cmd {
         Cmd::Serve(args) => {
             let classifier = cmd::log::classifier_from_specs(&args.classify)?;
-            wanlogger_server::run_with_session_root_classifier_and_encoding(
+            wanlogger_server::run_with_session_root_classifier_encoding_and_pattern(
                 &args.bind,
                 args.no_auth,
                 args.session_root,
                 classifier,
                 args.encoding,
+                args.session_name_pattern.unwrap_or_else(|| {
+                    wanlogger_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()
+                }),
             )
             .await?;
         }
@@ -257,6 +266,7 @@ async fn main() -> anyhow::Result<()> {
             cmd::log::run(cmd::log::Options {
                 spec: args.spec,
                 prefix: args.prefix,
+                name_pattern: args.name_pattern,
                 encoding: args.encoding,
                 classify: args.classify,
             })
