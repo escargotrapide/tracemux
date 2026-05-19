@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bodyText,
+  clientClassificationTags,
   labelForSid,
   metadataPrefix,
   payloadMatchesFilter,
@@ -87,5 +88,24 @@ describe("display frame helpers", () => {
     expect(payloadMatchesFilter(payload({ kind: "record" }), filter, "serial:COM7")).toBe(false);
     expect(payloadMatchesFilter(payload(), { ...filter, tagQuery: "warn" }, "serial:COM7")).toBe(false);
     expect(payloadMatchesFilter(payload(), { ...filter, sourceQuery: "com8" }, "serial:COM7")).toBe(false);
+  });
+
+  it("decodes bytes with selected encoding and filters client-side tags", () => {
+    // REQ: FR-UI-011
+    const p = payload({ body: new Uint8Array([0x82, 0xa0]) });
+    const rules = [
+      { id: "jp", contains: "あ", tag: "jp-text", caseSensitive: false, enabled: true, updatedAt: 1 },
+    ];
+    const tags = clientClassificationTags(p, rules, "shift_jis");
+
+    expect(bodyText(p, "shift_jis")).toBe("あ");
+    expect(tags).toEqual(["jp-text"]);
+    expect(payloadMatchesFilter(p, { kind: "all", tagQuery: "jp", sourceQuery: "" }, "COM7", tags)).toBe(true);
+    expect(renderPayload(
+      p,
+      { showTimestamp: false, showKind: true, showSource: false, timezone: "local" },
+      "COM7",
+      { encoding: "shift_jis", extraTags: tags },
+    )).toEqual({ text: "[bytes:fault|jp-text] あ", newline: false });
   });
 });

@@ -63,6 +63,20 @@ pub struct SourceSnapshot {
     pub bytes_in: u64,
 }
 
+/// Optional per-start pipeline settings for a source.
+///
+/// These override the manager defaults for one logical source lifetime
+/// and are preserved across `resume` / `restart` for spec-backed sources.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SourceStartOptions {
+    /// Classifier used by the text decoder for persisted decoded records.
+    pub classifier: Option<LogClassifier>,
+    /// Text encoding label passed to `Utf8TextDecoder`.
+    pub encoding: Option<String>,
+    /// Session-dir name pattern used when a new session-dir is created.
+    pub session_name_pattern: Option<String>,
+}
+
 /// Tracks running source tasks by session id.
 #[derive(Debug)]
 pub struct SourceManager {
@@ -77,6 +91,7 @@ pub struct SourceManager {
 struct SourceEntry {
     spec: Option<ChannelSpec>,
     session_dir: Option<PathBuf>,
+    start_options: SourceStartOptions,
     handle: Option<JoinHandle<anyhow::Result<RunnerStats>>>,
     sink: Option<SharedSink>,
 }
@@ -86,6 +101,7 @@ impl fmt::Debug for SourceEntry {
         f.debug_struct("SourceEntry")
             .field("spec", &self.spec)
             .field("session_dir", &self.session_dir)
+            .field("start_options", &self.start_options)
             .field(
                 "running",
                 &self.handle.as_ref().is_some_and(|h| !h.is_finished()),
@@ -98,6 +114,7 @@ impl fmt::Debug for SourceEntry {
 struct SourceRegistration {
     spec: Option<ChannelSpec>,
     session_dir: Option<PathBuf>,
+    start_options: SourceStartOptions,
     sink: Option<Box<dyn Sink>>,
 }
 
@@ -106,6 +123,7 @@ impl SourceRegistration {
         Self {
             spec: None,
             session_dir: None,
+            start_options: SourceStartOptions::default(),
             sink: None,
         }
     }
@@ -243,15 +261,26 @@ impl SourceManager {
     /// passthrough framer, passthrough decoder, optional file-backed
     /// log sink, and a system clock source.
     pub async fn start_spec(&self, spec: ChannelSpec) -> anyhow::Result<Uuid> {
+        self.start_spec_with_options(spec, SourceStartOptions::default())
+            .await
+    }
+
+    /// Start a source from a channel spec with per-start pipeline options.
+    pub async fn start_spec_with_options(
+        &self,
+        spec: ChannelSpec,
+        start_options: SourceStartOptions,
+    ) -> anyhow::Result<Uuid> {
         let sid = Uuid::new_v4();
-        self.start_spec_with_sid(sid, spec, None).await
+        self.start_spec_with_sid(sid, spec, None, start_options)
+            .await
     }
 
     /// Resume a stopped or completed spec-backed source with the same `sid`.
     ///
     /// Unlike [`Self::restart`], this rejects still-running sources.
     pub async fn resume(&self, sid: Uuid) -> anyhow::Result<Uuid> {
-        let (spec, session_dir) = {
+        let (spec, session_dir, start_options) = {
             let mut sources = self.sources.lock();
             let entry = sources
                 .get_mut(&sid)
@@ -267,9 +296,10 @@ impl SourceManager {
                 .spec
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("source sid is not resumable"))?;
-            (spec, entry.session_dir.clone())
+            (spec, entry.session_dir.clone(), entry.start_options.clone())
         };
-        self.start_spec_with_sid(sid, spec, session_dir).await
+        self.start_spec_with_sid(sid, spec, session_dir, start_options)
+            .await
     }
 
     /// Restart a spec-backed source with the same `sid`.
@@ -278,7 +308,7 @@ impl SourceManager {
     /// and existing session-dir, if any, are reused so subscribers and
     /// on-disk logs stay attached to the same logical source lifetime.
     pub async fn restart(&self, sid: Uuid) -> anyhow::Result<Uuid> {
-        let (spec, session_dir) = {
+        let (spec, session_dir, start_options) = {
             let mut sources = self.sources.lock();
             let entry = sources
                 .get_mut(&sid)
@@ -291,9 +321,10 @@ impl SourceManager {
                 handle.abort();
             }
             entry.sink = None;
-            (spec, entry.session_dir.clone())
+            (spec, entry.session_dir.clone(), entry.start_options.clone())
         };
-        self.start_spec_with_sid(sid, spec, session_dir).await
+        self.start_spec_with_sid(sid, spec, session_dir, start_options)
+            .await
     }
 
     async fn start_spec_with_sid(
@@ -301,20 +332,29 @@ impl SourceManager {
         sid: Uuid,
         spec: ChannelSpec,
         session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
     ) -> anyhow::Result<Uuid> {
         let time = SystemTimeSource::new(Uuid::new_v4());
-        let session_dir = self.session_dir_for(&spec, session_dir);
+        let session_dir = self.session_dir_for(&spec, session_dir, &start_options);
         match spec.clone() {
             ChannelSpec::Serial { .. } => {
-                self.start_serial_spec(sid, spec, time, session_dir).await
+                self.start_serial_spec(sid, spec, time, session_dir, start_options)
+                    .await
             }
-            ChannelSpec::Tcp { .. } => self.start_tcp_spec(sid, spec, time, session_dir).await,
-            ChannelSpec::Udp { .. } => self.start_udp_spec(sid, spec, time, session_dir).await,
+            ChannelSpec::Tcp { .. } => {
+                self.start_tcp_spec(sid, spec, time, session_dir, start_options)
+                    .await
+            }
+            ChannelSpec::Udp { .. } => {
+                self.start_udp_spec(sid, spec, time, session_dir, start_options)
+                    .await
+            }
             ChannelSpec::Process { .. } => {
-                self.start_process_spec(sid, spec, time, session_dir).await
+                self.start_process_spec(sid, spec, time, session_dir, start_options)
+                    .await
             }
             _ => {
-                self.start_source_only_spec(sid, spec, time, session_dir)
+                self.start_source_only_spec(sid, spec, time, session_dir, start_options)
                     .await
             }
         }
@@ -326,6 +366,7 @@ impl SourceManager {
         spec: ChannelSpec,
         time: SystemTimeSource,
         session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
     ) -> anyhow::Result<Uuid> {
         let ChannelSpec::Serial {
             port,
@@ -340,8 +381,16 @@ impl SourceManager {
         };
         let (source, sink) =
             SerialSource::open_duplex(port, baud, data_bits, parity, stop_bits, flow)?;
-        self.start_default_pipeline(sid, spec, source, time, session_dir, Some(Box::new(sink)))
-            .await
+        self.start_default_pipeline(
+            sid,
+            spec,
+            source,
+            time,
+            session_dir,
+            Some(Box::new(sink)),
+            start_options,
+        )
+        .await
     }
 
     async fn start_tcp_spec(
@@ -350,13 +399,22 @@ impl SourceManager {
         spec: ChannelSpec,
         time: SystemTimeSource,
         session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
     ) -> anyhow::Result<Uuid> {
         let ChannelSpec::Tcp { addr } = spec.clone() else {
             unreachable!("start_tcp_spec called with non-tcp spec");
         };
         let (source, sink) = TcpSource::connect_duplex(addr).await?;
-        self.start_default_pipeline(sid, spec, source, time, session_dir, Some(Box::new(sink)))
-            .await
+        self.start_default_pipeline(
+            sid,
+            spec,
+            source,
+            time,
+            session_dir,
+            Some(Box::new(sink)),
+            start_options,
+        )
+        .await
     }
 
     async fn start_udp_spec(
@@ -365,13 +423,22 @@ impl SourceManager {
         spec: ChannelSpec,
         time: SystemTimeSource,
         session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
     ) -> anyhow::Result<Uuid> {
         let ChannelSpec::Udp { bind } = spec.clone() else {
             unreachable!("start_udp_spec called with non-udp spec");
         };
         let (source, sink) = UdpSource::bind_duplex(bind).await?;
-        self.start_default_pipeline(sid, spec, source, time, session_dir, Some(Box::new(sink)))
-            .await
+        self.start_default_pipeline(
+            sid,
+            spec,
+            source,
+            time,
+            session_dir,
+            Some(Box::new(sink)),
+            start_options,
+        )
+        .await
     }
 
     async fn start_process_spec(
@@ -380,13 +447,22 @@ impl SourceManager {
         spec: ChannelSpec,
         time: SystemTimeSource,
         session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
     ) -> anyhow::Result<Uuid> {
         let ChannelSpec::Process { argv } = spec.clone() else {
             unreachable!("start_process_spec called with non-process spec");
         };
         let (source, sink) = ProcessSource::spawn_duplex(argv)?;
-        self.start_default_pipeline(sid, spec, source, time, session_dir, Some(Box::new(sink)))
-            .await
+        self.start_default_pipeline(
+            sid,
+            spec,
+            source,
+            time,
+            session_dir,
+            Some(Box::new(sink)),
+            start_options,
+        )
+        .await
     }
 
     async fn start_source_only_spec(
@@ -395,6 +471,7 @@ impl SourceManager {
         spec: ChannelSpec,
         time: SystemTimeSource,
         session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
     ) -> anyhow::Result<Uuid> {
         match spec.clone() {
             ChannelSpec::File { path, follow } => {
@@ -405,6 +482,7 @@ impl SourceManager {
                     time,
                     session_dir,
                     None,
+                    start_options,
                 )
                 .await
             }
@@ -416,6 +494,7 @@ impl SourceManager {
                     time,
                     session_dir,
                     None,
+                    start_options,
                 )
                 .await
             }
@@ -427,6 +506,7 @@ impl SourceManager {
                     time,
                     session_dir,
                     None,
+                    start_options,
                 )
                 .await
             }
@@ -438,6 +518,7 @@ impl SourceManager {
                     time,
                     session_dir,
                     None,
+                    start_options,
                 )
                 .await
             }
@@ -449,6 +530,7 @@ impl SourceManager {
                     time,
                     session_dir,
                     None,
+                    start_options,
                 )
                 .await
             }
@@ -460,6 +542,7 @@ impl SourceManager {
                     time,
                     session_dir,
                     None,
+                    start_options,
                 )
                 .await
             }
@@ -471,6 +554,7 @@ impl SourceManager {
                     time,
                     session_dir,
                     None,
+                    start_options,
                 )
                 .await
             }
@@ -488,34 +572,52 @@ impl SourceManager {
         time: SystemTimeSource,
         session_dir: Option<PathBuf>,
         sink: Option<Box<dyn Sink>>,
+        start_options: SourceStartOptions,
     ) -> anyhow::Result<Uuid>
     where
         S: Source + Send + 'static,
     {
-        let encoding = self.encoding();
+        let encoding = start_options
+            .encoding
+            .clone()
+            .unwrap_or_else(|| self.encoding());
+        let classifier = start_options
+            .classifier
+            .clone()
+            .unwrap_or_else(|| self.classifier());
         let decoder_label = format!("utf8-text:{encoding}");
         let logsink = Self::log_sink_for(sid, &spec, session_dir.as_deref(), &decoder_label)?;
         self.start_source_with_sid(
             sid,
             source,
             PassthroughFramer,
-            ClassifyingDecoder::new(Utf8TextDecoder::new(encoding), self.classifier()),
+            ClassifyingDecoder::new(Utf8TextDecoder::new(encoding), classifier),
             logsink,
             time,
             SourceRegistration {
                 spec: Some(spec),
                 session_dir,
+                start_options,
                 sink,
             },
         )
         .await
     }
 
-    fn session_dir_for(&self, spec: &ChannelSpec, reuse: Option<PathBuf>) -> Option<PathBuf> {
+    fn session_dir_for(
+        &self,
+        spec: &ChannelSpec,
+        reuse: Option<PathBuf>,
+        start_options: &SourceStartOptions,
+    ) -> Option<PathBuf> {
         reuse.or_else(|| {
+            let pattern = start_options
+                .session_name_pattern
+                .clone()
+                .unwrap_or_else(|| self.session_name_pattern());
             self.session_root
                 .as_ref()
-                .map(|root| root.join(session_dir_name(spec, &self.session_name_pattern())))
+                .map(|root| root.join(session_dir_name(spec, &pattern)))
         })
     }
 
@@ -632,6 +734,7 @@ impl SourceManager {
             SourceEntry {
                 spec: registration.spec,
                 session_dir: registration.session_dir,
+                start_options: registration.start_options,
                 handle: Some(handle),
                 sink: registration.sink.map(shared_sink),
             },
@@ -1077,6 +1180,54 @@ mod tests {
 
         let frames = std::fs::read_to_string(session_dirs[0].join("frames.jsonl")).unwrap();
         assert!(frames.contains("utf8-text:shift_jis"));
+
+        assert!(manager.remove(sid));
+        assert!(ingest.registry.get(&sid).is_none());
+    }
+
+    #[tokio::test]
+    async fn start_spec_with_options_overrides_defaults_and_reuses_on_resume() {
+        // REQ: FR-CLI-005
+        // REQ: FR-CLI-006
+        // REQ: FR-CLI-007
+        let root = tempdir();
+        let input = root.join("input.log");
+        std::fs::write(&input, [b'E', b'R', b'R', b' ', 0x82, 0xA0, b'\n']).unwrap();
+        let sessions = root.join("sessions");
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::with_session_root(ingest.clone(), &sessions);
+
+        let classifier = LogClassifier::from_rules(vec![ClassificationRule::contains("あ", "jp")]);
+        let sid = manager
+            .start_spec_with_options(
+                ChannelSpec::File {
+                    path: input.to_string_lossy().to_string(),
+                    follow: false,
+                },
+                SourceStartOptions {
+                    classifier: Some(classifier),
+                    encoding: Some("shift_jis".to_string()),
+                    session_name_pattern: Some("{prefix}-{kind}-{iface}-custom".to_string()),
+                },
+            )
+            .await
+            .unwrap();
+        manager.wait(sid).await.unwrap().unwrap();
+
+        let session = sessions.join("wanlogger-file-input.log-custom");
+        assert!(session.is_dir(), "expected {}", session.display());
+        let lines = std::fs::read_to_string(session.join("lines.jsonl")).unwrap();
+        let line_row: serde_json::Value = serde_json::from_str(lines.trim()).unwrap();
+        assert_eq!(line_row["text"], "ERR あ\n");
+        assert_eq!(line_row["tags"], serde_json::json!(["jp"]));
+        let frames = std::fs::read_to_string(session.join("frames.jsonl")).unwrap();
+        assert!(frames.contains("utf8-text:shift_jis"));
+
+        let resumed = manager.resume(sid).await.unwrap();
+        assert_eq!(resumed, sid);
+        manager.wait(sid).await.unwrap().unwrap();
+        let resumed_lines = std::fs::read_to_string(session.join("lines.jsonl")).unwrap();
+        assert_eq!(resumed_lines.matches("\"tags\":[\"jp\"]").count(), 2);
 
         assert!(manager.remove(sid));
         assert!(ingest.registry.get(&sid).is_none());

@@ -10,16 +10,20 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { sourcesStore, useChannel } from "~/state";
 import { getChannelFrames } from "~/state/channelBuffers";
+import { enabledClassificationRules } from "~/state/classificationRules";
 import {
   displaySettings,
   updateDisplaySettings,
 } from "~/state/displaySettings";
 import {
+  clientClassificationTags,
   labelForSid,
   renderPayload,
   sourceDisplayName,
 } from "~/state/displayFrames";
 import { sourceAliases } from "~/state/sourceAliases";
+import { sourceEncodings } from "~/state/sourceEncodings";
+import { sourceStartOptions } from "~/state/sourceStartOptions";
 import { observeVisibility, TILE_COUNT } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
 import { t } from "~/i18n";
@@ -80,7 +84,9 @@ function Tile(props: TileBinding) {
 
   function renderFrame(p: DataPayload, enforceLimit = true): void {
     const sourceLabel = sourceDisplayName(p, sourcesStore, sourceAliases);
-    const rendered = renderPayload(p, displaySettings, sourceLabel);
+    const encoding = sourceEncodings[p.sid]?.encoding ?? sourceStartOptions.encoding;
+    const extraTags = clientClassificationTags(p, enabledClassificationRules(), encoding);
+    const rendered = renderPayload(p, displaySettings, sourceLabel, { encoding, extraTags });
     renderedRecords += 1;
     if (enforceLimit && renderedRecords > displaySettings.tileMaxRecords) {
       redrawFromBuffer();
@@ -128,6 +134,9 @@ function Tile(props: TileBinding) {
     displaySettings.showSource;
     displaySettings.timezone;
     displaySettings.tileMaxRecords;
+    sourceEncodings[props.sid]?.encoding;
+    sourceStartOptions.encoding;
+    enabledClassificationRules();
     redrawFromBuffer();
     requestAnimationFrame(safeFit);
   });

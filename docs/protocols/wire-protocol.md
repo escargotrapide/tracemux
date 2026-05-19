@@ -141,7 +141,7 @@ Client-to-server lifecycle requests use `payload.action`:
 | Action    | Envelope fields | Payload fields | Effect |
 | --------- | --------------- | -------------- | ------ |
 | `list`    | none            | none           | Return a full source snapshot. |
-| `start`   | none            | `spec` map     | Start a source from a `ChannelSpec`-compatible map. |
+| `start`   | none            | `spec` map, optional start overrides | Start a source from a `ChannelSpec`-compatible map. |
 | `stop`    | `sid`           | none           | Abort a running source task but keep the session registered. |
 | `resume`  | `sid`           | none           | Resume a stopped/completed spec-backed source with the same `sid`. |
 | `restart` | `sid`           | none           | Abort if running and start the source again with the same `sid`. |
@@ -153,12 +153,28 @@ Implemented server-side v0.1 kinds are `serial`, `tcp`, `udp`, `file`,
 `http-webhook`. Other `ChannelSpec` variants are reserved until their
 source implementation is wired into the server runner.
 
+`start` MAY also include these backward-compatible optional fields as
+siblings of `spec`:
+
+| Field | Type | Effect |
+| ----- | ---- | ------ |
+| `encoding` | string | Text encoding label for the source's decoder, e.g. `utf-8`, `shift_jis`, `cp932`. Unknown labels fall back to UTF-8 at the codec layer. |
+| `classifier` | array | Substring classification rules. Each item is `{ contains: string, tag: string, case_sensitive?: bool }`. Matching tags are added to decoded persisted records. |
+| `session_name_pattern` | string | Session-dir naming pattern for this start, using the same tokens as the server `--name-pattern` option. |
+
+These fields override server defaults for this logical source lifetime
+and are reused by `resume` / `restart`. Clients that do not understand
+them can omit them; older servers ignore unknown `ctl` fields.
+
 Example:
 
 ```msgpack
 {
   action: "start",
-  spec: { kind: "file", path: "C:/logs/app.log", follow: true }
+  spec: { kind: "file", path: "C:/logs/app.log", follow: true },
+  encoding: "shift_jis",
+  classifier: [{ contains: "ERROR", tag: "fault" }],
+  session_name_pattern: "{prefix}_{kind}_{iface}_{unix_ns}"
 }
 ```
 

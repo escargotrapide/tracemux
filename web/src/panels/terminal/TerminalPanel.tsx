@@ -28,8 +28,10 @@ import {
   useChannel,
 } from "~/state";
 import { getChannelFrames } from "~/state/channelBuffers";
+import { enabledClassificationRules } from "~/state/classificationRules";
 import { displaySettings } from "~/state/displaySettings";
 import {
+  clientClassificationTags,
   DEFAULT_DISPLAY_FILTER,
   labelForSid,
   payloadMatchesFilter,
@@ -38,6 +40,8 @@ import {
   type DisplayFilter,
 } from "~/state/displayFrames";
 import { sourceAliases } from "~/state/sourceAliases";
+import { sourceEncodings } from "~/state/sourceEncodings";
+import { sourceStartOptions } from "~/state/sourceStartOptions";
 import { observeVisibility } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
 
@@ -104,8 +108,10 @@ export function TerminalPanel(props: TerminalPanelProps) {
 
   function renderFrame(p: DataPayload, enforceLimit = true): void {
     const sourceLabel = sourceDisplayName(p, sourcesStore, sourceAliases);
-    if (!payloadMatchesFilter(p, activeFilter(), sourceLabel)) return;
-    const rendered = renderPayload(p, displaySettings, sourceLabel);
+    const encoding = sourceEncodings[p.sid]?.encoding ?? sourceStartOptions.encoding;
+    const extraTags = clientClassificationTags(p, enabledClassificationRules(), encoding);
+    if (!payloadMatchesFilter(p, activeFilter(), sourceLabel, extraTags)) return;
+    const rendered = renderPayload(p, displaySettings, sourceLabel, { encoding, extraTags });
     renderedRecords += 1;
     if (enforceLimit && renderedRecords > displaySettings.terminalMaxRecords) {
       redrawFromBuffer();
@@ -262,6 +268,9 @@ export function TerminalPanel(props: TerminalPanelProps) {
     displaySettings.showSource;
     displaySettings.timezone;
     displaySettings.terminalMaxRecords;
+    sourceEncodings[sid()]?.encoding;
+    sourceStartOptions.encoding;
+    enabledClassificationRules();
     redrawFromBuffer();
   });
 

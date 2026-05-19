@@ -24,7 +24,14 @@ import {
 } from "~/state/sourceFilters";
 import { detectSources, serialSpecForPort } from "~/state/sourceDiscovery";
 import { sourceAliases, updateSourceAlias } from "~/state/sourceAliases";
+import { sourceEncodings, updateSourceEncoding } from "~/state/sourceEncodings";
 import { sourceNotes, updateSourceNote } from "~/state/sourceNotes";
+import {
+  sourceStartOptions,
+  startCtlOptions,
+  SUPPORTED_SOURCE_ENCODINGS,
+  updateSourceStartOptions,
+} from "~/state/sourceStartOptions";
 import { parseSourceSpec } from "~/state/sourceSpec";
 import { t } from "~/i18n";
 
@@ -84,7 +91,7 @@ export function SourcesPanel() {
     ev.preventDefault();
     try {
       const spec = parseSourceSpec(specInput());
-      sendCtl(undefined, "start", spec);
+      sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>);
       pushToast({ level: "info", message: t("sources.start.requested") });
     } catch (err) {
       pushToast({
@@ -153,7 +160,7 @@ export function SourcesPanel() {
     for (const port of ports) {
       try {
         const spec = parseSourceSpec(serialSpecForPort(port, { baud: serialBaud() }));
-        sendCtl(undefined, "start", spec);
+        sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>);
         requested += 1;
       } catch (err) {
         pushToast({
@@ -196,6 +203,52 @@ export function SourcesPanel() {
           {t("sources.spec.help")}
         </span>
       </form>
+      <div
+        style={{
+          display: "grid",
+          "grid-template-columns": "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: "8px",
+          "align-items": "end",
+          "margin-bottom": "12px",
+        }}
+      >
+        <label>
+          {t("sources.start.encoding")} {" "}
+          <input
+            type="text"
+            list="wl-source-encoding-options"
+            value={sourceStartOptions.encoding}
+            onInput={(ev) => updateSourceStartOptions({ encoding: ev.currentTarget.value })}
+            aria-label={t("sources.start.encoding")}
+          />
+        </label>
+        <label>
+          {t("sources.start.session_pattern")} {" "}
+          <input
+            type="text"
+            value={sourceStartOptions.sessionNamePattern}
+            onInput={(ev) => updateSourceStartOptions({ sessionNamePattern: ev.currentTarget.value })}
+            placeholder="{prefix}_{kind}_{iface}_{unix_ns}"
+            aria-label={t("sources.start.session_pattern")}
+          />
+        </label>
+        <label style={{ display: "flex", gap: "6px", "align-items": "center" }}>
+          <input
+            type="checkbox"
+            checked={sourceStartOptions.sendClassificationRules}
+            onChange={(ev) => updateSourceStartOptions({ sendClassificationRules: ev.currentTarget.checked })}
+          />
+          <span>{t("sources.start.send_rules")}</span>
+        </label>
+        <datalist id="wl-source-encoding-options">
+          <For each={SUPPORTED_SOURCE_ENCODINGS}>
+            {(encoding) => <option value={encoding} />}
+          </For>
+        </datalist>
+        <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+          {t("sources.start.options_help")}
+        </div>
+      </div>
       <div
         style={{
           display: "flex",
@@ -467,6 +520,21 @@ export function SourcesPanel() {
                 />
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {t("sources.detail.alias_help")}
+                </div>
+              </dd>
+              <dt>{t("sources.detail.encoding")}</dt>
+              <dd>
+                <input
+                  type="text"
+                  list="wl-source-encoding-options"
+                  aria-label={t("sources.detail.encoding")}
+                  value={sourceEncodings[source().sid]?.encoding ?? sourceStartOptions.encoding}
+                  onInput={(ev) => updateSourceEncoding(source().sid, ev.currentTarget.value)}
+                  placeholder={sourceStartOptions.encoding}
+                  style={{ width: "100%" }}
+                />
+                <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+                  {t("sources.detail.encoding_help")}
                 </div>
               </dd>
               <dt>{t("sources.detail.kind")}</dt>

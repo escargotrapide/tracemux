@@ -687,6 +687,89 @@ async fn ctl_start_file_source_persists_session_dir() {
 }
 
 // REQ: FR-WIRE-001
+// REQ: FR-CLI-005
+// REQ: FR-CLI-006
+// REQ: FR-CLI-007
+#[tokio::test]
+async fn ctl_start_file_source_accepts_start_options() {
+    let root = std::env::temp_dir().join(format!(
+        "wanlogger-ws-start-options-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let input = root.join("input.log");
+    std::fs::write(&input, [b'E', b'R', b'R', b' ', 0x82, 0xA0, b'\n']).unwrap();
+    let input_text = input.to_string_lossy().to_string();
+    let sessions = root.join("sessions");
+    let manager = Arc::new(SourceManager::with_session_root(
+        Arc::new(Ingest::new()),
+        &sessions,
+    ));
+    let addr = spawn_server_with_manager(true, 8, manager.clone()).await;
+    let (mut socket, _) = tokio_tungstenite::connect_async(ws_request(addr))
+        .await
+        .expect("connect");
+
+    let start = Envelope::new(
+        FrameType::Ctl,
+        41,
+        value_map(vec![
+            ("action", value_str("start")),
+            (
+                "spec",
+                value_map(vec![
+                    ("kind", value_str("file")),
+                    ("path", value_str(&input_text)),
+                    ("follow", Value::Boolean(false)),
+                ]),
+            ),
+            ("encoding", value_str("shift_jis")),
+            (
+                "session_name_pattern",
+                value_str("{prefix}-{kind}-{iface}-ws"),
+            ),
+            (
+                "classifier",
+                Value::Array(vec![value_map(vec![
+                    ("contains", value_str("あ")),
+                    ("tag", value_str("jp")),
+                ])]),
+            ),
+        ]),
+    );
+    socket
+        .send(Message::Binary(encode(&start).unwrap()))
+        .await
+        .unwrap();
+
+    let msg = socket
+        .next()
+        .await
+        .expect("started frame")
+        .expect("start ok");
+    let Message::Binary(bytes) = msg else {
+        panic!("expected binary started ctl, got {msg:?}");
+    };
+    let started = decode(&bytes).expect("decode started");
+    assert_eq!(payload_str(&started.payload, "event"), Some("started"));
+    let sid = payload_str(&started.payload, "sid")
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        .expect("started sid");
+    manager.wait(sid).await.expect("task handle").unwrap();
+
+    let session = sessions.join("wanlogger-file-input.log-ws");
+    assert!(session.is_dir(), "expected {}", session.display());
+    let lines = std::fs::read_to_string(session.join("lines.jsonl")).unwrap();
+    let line_row: serde_json::Value = serde_json::from_str(lines.trim()).unwrap();
+    assert_eq!(line_row["text"], "ERR あ\n");
+    assert_eq!(line_row["tags"], serde_json::json!(["jp"]));
+    assert!(std::fs::read_to_string(session.join("frames.jsonl"))
+        .unwrap()
+        .contains("utf8-text:shift_jis"));
+    assert!(manager.remove(sid));
+}
+
+// REQ: FR-WIRE-001
 // REQ: FR-LOG-001
 #[tokio::test]
 async fn ctl_resume_completed_file_source_reuses_sid_and_session_dir() {

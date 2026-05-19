@@ -398,14 +398,16 @@ export function sendCtl(
   sid: string | undefined,
   action: "list" | "start" | "stop" | "resume" | "restart" | "remove",
   spec?: Record<string, unknown>,
+  options?: Record<string, unknown>,
 ): void {
   const payload: {
     action: "list" | "start" | "stop" | "resume" | "restart" | "remove";
     spec?: Record<string, unknown>;
-  } = {
+  } & Record<string, unknown> = {
     action,
   };
   if (spec) payload.spec = spec;
+  if (options) Object.assign(payload, options);
   getClient().send({ type: "ctl", ...(sid ? { sid } : {}), payload });
 }
 

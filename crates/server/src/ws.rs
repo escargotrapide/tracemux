@@ -32,13 +32,14 @@ use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+use wanlogger_core::classify::{ClassificationRule, LogClassifier};
 use wanlogger_core::{source::ChannelSpec, ErrorId, WanloggerError};
 
 use crate::audit::{AuditEvent, AuditKind, AuditLog, AuditResult};
 use crate::auth::{extract_bearer, is_loopback_allowed, BearerVerifier};
 use crate::ingest::Ingest;
 use crate::ratelimit::ConnCounter;
-use crate::source_manager::{SourceManager, SourceStatus};
+use crate::source_manager::{SourceManager, SourceStartOptions, SourceStatus};
 use crate::wire::{decode, encode, Envelope, FrameType, MAX_FRAME_BYTES};
 
 /// Subprotocol token advertised by the server.
@@ -495,7 +496,14 @@ async fn start_source_ctl(
         Ok(spec) => spec,
         Err(message) => return queue_envelope(out_tx, &ctl_error(env.seq, message), peer).await,
     };
-    match source_manager.start_spec(spec).await {
+    let start_options = match start_options_from_payload(&env.payload) {
+        Ok(options) => options,
+        Err(message) => return queue_envelope(out_tx, &ctl_error(env.seq, message), peer).await,
+    };
+    match source_manager
+        .start_spec_with_options(spec, start_options)
+        .await
+    {
         Ok(sid) => {
             let reply = ctl_event(env.seq, "started", "source started", Some(sid));
             queue_envelope(out_tx, &reply, peer).await
@@ -880,6 +888,62 @@ fn required_string_array(value: &Value, key: &str) -> Result<Vec<String>, String
                 .ok_or_else(|| format!("spec.{key} items must be strings"))
         })
         .collect()
+}
+
+fn optional_payload_str(value: &Value, key: &str) -> Result<Option<String>, String> {
+    match map_get(value, key) {
+        Some(Value::String(s)) => Ok(s.as_str().map(str::trim).and_then(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        })),
+        Some(_) => Err(format!("start.{key} string is required")),
+        None => Ok(None),
+    }
+}
+
+fn start_options_from_payload(value: &Value) -> Result<SourceStartOptions, String> {
+    Ok(SourceStartOptions {
+        encoding: optional_payload_str(value, "encoding")?,
+        session_name_pattern: optional_payload_str(value, "session_name_pattern")?,
+        classifier: classifier_from_payload(value)?,
+    })
+}
+
+fn classifier_from_payload(value: &Value) -> Result<Option<LogClassifier>, String> {
+    let Some(raw) = map_get(value, "classifier") else {
+        return Ok(None);
+    };
+    let Value::Array(items) = raw else {
+        return Err("start.classifier array is required".to_string());
+    };
+    let mut rules = Vec::new();
+    for item in items {
+        let contains = classifier_rule_str(item, "contains")?;
+        let tag = classifier_rule_str(item, "tag")?;
+        if contains.trim().is_empty() || tag.trim().is_empty() {
+            continue;
+        }
+        let case_sensitive = match map_get(item, "case_sensitive") {
+            Some(Value::Boolean(b)) => *b,
+            Some(_) => return Err("start.classifier[].case_sensitive bool is required".to_string()),
+            None => false,
+        };
+        rules.push(ClassificationRule::contains_with_case(
+            contains,
+            tag,
+            case_sensitive,
+        ));
+    }
+    Ok(Some(LogClassifier::from_rules(rules)))
+}
+
+fn classifier_rule_str(value: &Value, key: &str) -> Result<String, String> {
+    map_str(value, key)
+        .map(ToString::to_string)
+        .ok_or_else(|| format!("start.classifier[].{key} string is required"))
 }
 
 fn channel_spec_from_value(value: &Value) -> Result<ChannelSpec, String> {

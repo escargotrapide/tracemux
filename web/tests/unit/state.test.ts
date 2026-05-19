@@ -134,13 +134,21 @@ describe("state frame handler", () => {
     const send = vi.fn();
     __setClientForTest({ send });
 
-    sendCtl(undefined, "start", { kind: "mock", tag: "ui" });
+    sendCtl(undefined, "start", { kind: "mock", tag: "ui" }, {
+      encoding: "shift_jis",
+      classifier: [{ contains: "ERROR", tag: "fault" }],
+    });
     sendCtl("sid-stop", "stop");
     sendCtl("sid-restart", "restart");
 
     expect(send).toHaveBeenCalledWith({
       type: "ctl",
-      payload: { action: "start", spec: { kind: "mock", tag: "ui" } },
+      payload: {
+        action: "start",
+        spec: { kind: "mock", tag: "ui" },
+        encoding: "shift_jis",
+        classifier: [{ contains: "ERROR", tag: "fault" }],
+      },
     });
     expect(send).toHaveBeenCalledWith({
       type: "ctl",
