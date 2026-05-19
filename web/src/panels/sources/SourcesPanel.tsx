@@ -23,6 +23,7 @@ import {
   type SourceStatusFilter,
 } from "~/state/sourceFilters";
 import { detectSources, serialSpecForPort } from "~/state/sourceDiscovery";
+import { sourceNotes, updateSourceNote } from "~/state/sourceNotes";
 import { parseSourceSpec } from "~/state/sourceSpec";
 import { t } from "~/i18n";
 
@@ -463,6 +464,23 @@ export function SourcesPanel() {
               <dd>{source().bytesIn}</dd>
               <dt>{t("sources.detail.last")}</dt>
               <dd>{source().lastTsMs ? new Date(source().lastTsMs).toISOString() : "-"}</dd>
+              <dt>{t("sources.detail.notes")}</dt>
+              <dd>
+                <textarea
+                  aria-label={t("sources.detail.notes")}
+                  value={sourceNotes[source().sid]?.text ?? ""}
+                  onInput={(ev) => updateSourceNote(source().sid, ev.currentTarget.value)}
+                  placeholder={t("sources.detail.notes_placeholder")}
+                  style={{
+                    width: "100%",
+                    "min-height": "84px",
+                    resize: "vertical",
+                  }}
+                />
+                <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+                  {t("sources.detail.notes_help")}
+                </div>
+              </dd>
             </dl>
           </aside>
         )}

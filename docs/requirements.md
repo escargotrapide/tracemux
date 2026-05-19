@@ -293,3 +293,8 @@ The web UI can request host transport discovery from the server, show
 serial/COM candidates to the user, and start only the checked ports
 after explicit confirmation. Bulk opening reuses the existing source
 `start` control action for each selected serial source.
+
+### FR-UI-017  Source/session notes
+The web UI exposes a free-form notes field for each selected
+source/session. Notes are stored as browser-side annotations only and
+must not persist raw log data outside the server-owned session-dir.
