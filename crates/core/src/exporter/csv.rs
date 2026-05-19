@@ -9,8 +9,10 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 use async_trait::async_trait;
+use time::UtcOffset;
 
 use crate::error_id::{ErrorId, WanloggerError};
+use crate::exporter::timestamp::{format_rfc3339_in_timezone, parse_timezone_offset};
 use crate::exporter::Exporter;
 use crate::log::index::IndexEntry;
 use crate::log::raw::RawReader;
@@ -27,11 +29,17 @@ impl Exporter for CsvExporter {
     }
 
     async fn export(&mut self, src: &Path, dst: &Path) -> Result<()> {
-        run(src, dst)
+        run(src, dst, None)
     }
 }
 
-fn run(src: &Path, dst: &Path) -> Result<()> {
+/// Export CSV while formatting timestamps in a fixed timezone.
+pub fn export_with_timezone(src: &Path, dst: &Path, timezone: Option<&str>) -> Result<()> {
+    let offset = timezone.map(parse_timezone_offset).transpose()?;
+    run(src, dst, offset)
+}
+
+fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>) -> Result<()> {
     let idx = File::open(src.join("index.jsonl")).map_err(|e| err("opening index.jsonl", e))?;
     let mut raw = RawReader::open(src).map_err(|e| err("opening raw.bin", e))?;
     let out = File::create(dst).map_err(|e| err("creating dst", e))?;
@@ -49,11 +57,13 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
             .read_at(entry.off, entry.len)
             .map_err(|e| err("reading raw", e))?;
         let text = String::from_utf8_lossy(&bytes);
+        let ts_origin = format_rfc3339_in_timezone(&entry.ts_origin, timezone)?;
+        let ts_ingest = format_rfc3339_in_timezone(&entry.ts_ingest, timezone)?;
         writeln!(
             w,
             "{},{},{},{},{},{}",
-            entry.ts_origin,
-            entry.ts_ingest,
+            ts_origin,
+            ts_ingest,
             kind_str(&entry, "dir"),
             kind_str(&entry, "kind"),
             entry.len,

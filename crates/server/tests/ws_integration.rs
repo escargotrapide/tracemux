@@ -294,6 +294,11 @@ async fn ctl_list_sources_returns_registered_sessions() {
     assert_eq!(payload_str(row, "name"), Some("Demo source"));
     assert_eq!(payload_str(row, "kind"), Some("mock"));
     assert_eq!(payload_str(row, "status"), Some("unknown"));
+    assert_eq!(
+        value_get(row, "persistent").and_then(Value::as_bool),
+        Some(false)
+    );
+    assert!(value_get(row, "session_dir").is_none());
     assert_eq!(value_get(row, "bytes_in").and_then(Value::as_u64), Some(12));
     let channels = value_get(row, "channels")
         .and_then(Value::as_array)
@@ -683,6 +688,33 @@ async fn ctl_start_file_source_persists_session_dir() {
     assert!(std::fs::read_to_string(dir.join("meta.toml"))
         .unwrap()
         .contains(&sid.to_string()));
+
+    let list = Envelope::new(
+        FrameType::Ctl,
+        42,
+        value_map(vec![("action", value_str("list"))]),
+    );
+    socket
+        .send(Message::Binary(encode(&list).unwrap()))
+        .await
+        .unwrap();
+    let msg = socket.next().await.expect("ctl frame").expect("ctl ok");
+    let Message::Binary(bytes) = msg else {
+        panic!("expected binary ctl, got {msg:?}");
+    };
+    let listed = decode(&bytes).expect("decode sources");
+    let sources = value_get(&listed.payload, "sources")
+        .and_then(Value::as_array)
+        .expect("sources array");
+    let row = &sources[0];
+    assert_eq!(
+        value_get(row, "persistent").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        payload_str(row, "session_dir"),
+        Some(dir.to_string_lossy().as_ref())
+    );
     assert!(manager.remove(sid));
 }
 

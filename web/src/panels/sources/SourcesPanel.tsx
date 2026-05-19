@@ -541,6 +541,24 @@ export function SourcesPanel() {
               <dd>{source().kind}</dd>
               <dt>{t("sources.detail.status")}</dt>
               <dd>{statusLabel(source().status)}</dd>
+              <dt>{t("sources.detail.persistence")}</dt>
+              <dd>
+                {source().persistent
+                  ? t("sources.detail.persistence_on")
+                  : t("sources.detail.persistence_off")}
+              </dd>
+              <dt>{t("sources.detail.session_dir")}</dt>
+              <dd>
+                <Show
+                  when={source().sessionDir}
+                  fallback={<span style={{ color: "var(--wl-fg-muted)" }}>-</span>}
+                >
+                  {(dir) => <code title={dir()}>{dir()}</code>}
+                </Show>
+                <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+                  {t("sources.detail.session_dir_help")}
+                </div>
+              </dd>
               <dt>{t("sources.detail.channels")}</dt>
               <dd>{source().channels.join(", ") || "-"}</dd>
               <dt>{t("sources.detail.bytes")}</dt>

@@ -437,7 +437,7 @@ async fn list_sources_ctl(
                 sources
                     .into_iter()
                     .map(|source| {
-                        Value::Map(vec![
+                        let mut row = vec![
                             (
                                 Value::String("sid".into()),
                                 Value::String(source.sid.to_string().into()),
@@ -468,7 +468,18 @@ async fn list_sources_ctl(
                                 Value::String("bytes_in".into()),
                                 Value::from(source.bytes_in),
                             ),
-                        ])
+                            (
+                                Value::String("persistent".into()),
+                                Value::Boolean(source.session_dir.is_some()),
+                            ),
+                        ];
+                        if let Some(session_dir) = source.session_dir {
+                            row.push((
+                                Value::String("session_dir".into()),
+                                Value::String(session_dir.to_string_lossy().to_string().into()),
+                            ));
+                        }
+                        Value::Map(row)
                     })
                     .collect(),
             ),

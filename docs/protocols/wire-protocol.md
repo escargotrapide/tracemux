@@ -203,8 +203,15 @@ Server-to-client lifecycle acknowledgements also use `ctl` payloads:
   status: "running" | "stopped" | "unknown",
   channels: [0],
   bytes_in: 1234,
+  persistent?: boolean,
+  session_dir?: "wanlogger-sessions/wanlogger_serial_COM7_...",
 }
 ```
+
+`persistent` and `session_dir` are advisory UI metadata. They describe
+whether the server is writing a session-dir for the source and, if so,
+the server-local path. Clients MUST NOT persist log bytes directly based
+on these fields; they are display/navigation hints only.
 
 Lifecycle wire/validation errors use `E-2001`; source-open failures use
 `E-1101`.

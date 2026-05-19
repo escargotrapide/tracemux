@@ -158,7 +158,9 @@ to overwrite a non-empty destination directory.
 `wanlogger export {text,csv,jsonl} <session-dir> <dst>` reads the
 session-dir's `index.jsonl` + `raw.bin` and writes one row per record
 to `<dst>`. The CLI refuses to run when `<session-dir>` lacks an
-`index.jsonl` file.
+`index.jsonl` file. `--tz` formats exported timestamp fields in a
+fixed display timezone such as `UTC`, `GMT+9`, `+09:00`, or
+`Asia/Tokyo` without changing the stored session-dir.
 
 ### FR-CLI-001  Import / export round-trip
 The CLI guarantees that for any plain-text input file `F`,

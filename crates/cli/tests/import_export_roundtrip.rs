@@ -104,3 +104,40 @@ fn export_rejects_non_session_dir() {
         "stderr did not mention missing index.jsonl: {err}"
     );
 }
+
+// REQ: FR-EXP-001
+#[test]
+fn export_text_accepts_fixed_timezone() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let src = dir.path().join("in.txt");
+    std::fs::write(&src, b"tokyo\n").unwrap();
+
+    let session = dir.path().join("session");
+    must_succeed(
+        Command::new(bin())
+            .arg("import")
+            .arg("text")
+            .arg(&src)
+            .arg(&session),
+    );
+
+    let out = dir.path().join("out.txt");
+    must_succeed(
+        Command::new(bin())
+            .arg("export")
+            .arg("text")
+            .arg("--tz")
+            .arg("GMT+9")
+            .arg(&session)
+            .arg(&out),
+    );
+
+    let body = std::fs::read_to_string(&out).expect("read export");
+    let first_line = body.lines().next().expect("one exported row");
+    let (timestamp, text) = first_line.rsplit_once('\t').expect("timestamp/text");
+    assert_eq!(text, "tokyo");
+    assert!(
+        timestamp.ends_with("+09:00"),
+        "timestamp was not formatted for GMT+9: {timestamp}"
+    );
+}

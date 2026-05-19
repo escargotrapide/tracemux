@@ -368,6 +368,8 @@ describe("state frame handler", () => {
             channels: [0, 2],
             bytes_in: 12,
             last_ts_ms: 42,
+            persistent: true,
+            session_dir: "C:/logs/session-a",
           },
         ],
       },
@@ -382,6 +384,8 @@ describe("state frame handler", () => {
       channels: [0, 2],
       lastTsMs: 42,
       bytesIn: 12,
+      persistent: true,
+      sessionDir: "C:/logs/session-a",
     });
   });
 

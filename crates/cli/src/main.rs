@@ -152,6 +152,9 @@ struct ImportArgs {
 struct ExportArgs {
     /// Exporter kind (`csv`, `text`).
     kind: String,
+    /// Format exported timestamps in a fixed timezone (`UTC`, `GMT+9`, `+09:00`, `Asia/Tokyo`).
+    #[arg(long)]
+    tz: Option<String>,
     /// Source session-dir.
     src: std::path::PathBuf,
     /// Destination file.
@@ -318,7 +321,9 @@ async fn main() -> anyhow::Result<()> {
             cmd::extcap::run(mode).await?;
         }
         Cmd::Import(args) => cmd::import::run(&args.kind, &args.src, &args.dst).await?,
-        Cmd::Export(args) => cmd::export::run(&args.kind, &args.src, &args.dst).await?,
+        Cmd::Export(args) => {
+            cmd::export::run(&args.kind, &args.src, &args.dst, args.tz.as_deref())?;
+        }
         Cmd::AiVerify => ai_verify::run().await?,
         Cmd::JsonSchema(args) => json_schema::emit(&args.out)?,
     }

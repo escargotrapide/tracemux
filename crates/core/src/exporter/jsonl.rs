@@ -11,8 +11,10 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
+use time::UtcOffset;
 
 use crate::error_id::{ErrorId, WanloggerError};
+use crate::exporter::timestamp::{format_rfc3339_in_timezone, parse_timezone_offset};
 use crate::exporter::Exporter;
 use crate::log::index::IndexEntry;
 use crate::log::raw::RawReader;
@@ -29,11 +31,17 @@ impl Exporter for JsonlExporter {
     }
 
     async fn export(&mut self, src: &Path, dst: &Path) -> Result<()> {
-        run(src, dst)
+        run(src, dst, None)
     }
 }
 
-fn run(src: &Path, dst: &Path) -> Result<()> {
+/// Export JSONL while formatting timestamp fields in a fixed timezone.
+pub fn export_with_timezone(src: &Path, dst: &Path, timezone: Option<&str>) -> Result<()> {
+    let offset = timezone.map(parse_timezone_offset).transpose()?;
+    run(src, dst, offset)
+}
+
+fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>) -> Result<()> {
     let idx = File::open(src.join("index.jsonl")).map_err(|e| err("opening index.jsonl", e))?;
     let mut raw = RawReader::open(src).map_err(|e| err("opening raw.bin", e))?;
     let out = File::create(dst).map_err(|e| err("creating dst", e))?;
@@ -55,6 +63,14 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
             .as_object()
             .cloned()
             .unwrap_or_default();
+        obj.insert(
+            "ts_origin".to_string(),
+            json!(format_rfc3339_in_timezone(&entry.ts_origin, timezone)?),
+        );
+        obj.insert(
+            "ts_ingest".to_string(),
+            json!(format_rfc3339_in_timezone(&entry.ts_ingest, timezone)?),
+        );
         obj.insert("text".to_string(), json!(text));
         let v = Value::Object(obj);
         writeln!(w, "{v}").map_err(|e| err("writing dst", e))?;

@@ -9,8 +9,10 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 use async_trait::async_trait;
+use time::UtcOffset;
 
 use crate::error_id::{ErrorId, WanloggerError};
+use crate::exporter::timestamp::{format_rfc3339_in_timezone, parse_timezone_offset};
 use crate::exporter::Exporter;
 use crate::log::index::IndexEntry;
 use crate::log::raw::RawReader;
@@ -27,11 +29,17 @@ impl Exporter for TextExporter {
     }
 
     async fn export(&mut self, src: &Path, dst: &Path) -> Result<()> {
-        run(src, dst)
+        run(src, dst, None)
     }
 }
 
-fn run(src: &Path, dst: &Path) -> Result<()> {
+/// Export text while formatting timestamps in a fixed timezone.
+pub fn export_with_timezone(src: &Path, dst: &Path, timezone: Option<&str>) -> Result<()> {
+    let offset = timezone.map(parse_timezone_offset).transpose()?;
+    run(src, dst, offset)
+}
+
+fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>) -> Result<()> {
     let idx = File::open(src.join("index.jsonl")).map_err(|e| err("opening index.jsonl", e))?;
     let mut raw = RawReader::open(src).map_err(|e| err("opening raw.bin", e))?;
     let out = File::create(dst).map_err(|e| err("creating dst", e))?;
@@ -48,7 +56,8 @@ fn run(src: &Path, dst: &Path) -> Result<()> {
             .read_at(entry.off, entry.len)
             .map_err(|e| err("reading raw", e))?;
         let text = String::from_utf8_lossy(&bytes);
-        writeln!(w, "{}\t{}", entry.ts_origin, text).map_err(|e| err("writing dst", e))?;
+        let ts_origin = format_rfc3339_in_timezone(&entry.ts_origin, timezone)?;
+        writeln!(w, "{ts_origin}\t{text}").map_err(|e| err("writing dst", e))?;
     }
     w.flush().map_err(|e| err("flush dst", e))?;
     Ok(())

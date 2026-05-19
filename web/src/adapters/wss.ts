@@ -98,6 +98,8 @@ export interface SourceSyncPayload {
   channels?: number[];
   bytes_in?: number;
   last_ts_ms?: number;
+  persistent?: boolean;
+  session_dir?: string;
 }
 
 export type ConnState =

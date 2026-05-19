@@ -27,6 +27,8 @@ export interface SourceInfo {
   channels: number[];
   lastTsMs: number;
   bytesIn: number;
+  persistent?: boolean | undefined;
+  sessionDir?: string | undefined;
 }
 
 export interface ChannelKey {
@@ -197,6 +199,8 @@ function syncSources(items: SourceSyncPayload[]): void {
       channels: item.channels && item.channels.length > 0 ? item.channels : existing?.channels ?? [0],
       lastTsMs: item.last_ts_ms ?? existing?.lastTsMs ?? 0,
       bytesIn: item.bytes_in ?? existing?.bytesIn ?? 0,
+      persistent: item.persistent ?? existing?.persistent,
+      sessionDir: item.session_dir ?? existing?.sessionDir,
     });
   }
   for (const sid of Object.keys(sources)) {

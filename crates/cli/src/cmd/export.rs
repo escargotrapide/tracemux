@@ -7,9 +7,7 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
-use wanlogger_core::exporter::{
-    csv::CsvExporter, jsonl::JsonlExporter, text::TextExporter, Exporter,
-};
+use wanlogger_core::exporter::{csv, jsonl, text};
 
 /// Stable list of exporter kinds known to v0.1.
 pub const KINDS: &[&str] = &["csv", "text", "jsonl"];
@@ -18,8 +16,8 @@ pub const KINDS: &[&str] = &["csv", "text", "jsonl"];
 ///
 /// # Errors
 /// Returns an error when `kind` is unknown, when `src` is not a
-/// session-dir, or when the underlying [`Exporter`] fails.
-pub async fn run(kind: &str, src: &Path, dst: &Path) -> Result<()> {
+/// session-dir, or when the underlying exporter fails.
+pub fn run(kind: &str, src: &Path, dst: &Path, timezone: Option<&str>) -> Result<()> {
     if !KINDS.contains(&kind) {
         bail!(
             "unknown exporter kind `{kind}`; known: {}",
@@ -37,9 +35,9 @@ pub async fn run(kind: &str, src: &Path, dst: &Path) -> Result<()> {
     }
 
     match kind {
-        "text" => TextExporter.export(src, dst).await?,
-        "csv" => CsvExporter.export(src, dst).await?,
-        "jsonl" => JsonlExporter.export(src, dst).await?,
+        "text" => text::export_with_timezone(src, dst, timezone)?,
+        "csv" => csv::export_with_timezone(src, dst, timezone)?,
+        "jsonl" => jsonl::export_with_timezone(src, dst, timezone)?,
         _ => unreachable!("kind already validated"),
     }
     tracing::info!(kind, src = %src.display(), dst = %dst.display(), "export: ok");
@@ -51,23 +49,19 @@ mod tests {
     use super::*;
 
     // REQ: FR-EXP-001
-    #[tokio::test]
-    async fn unknown_kind_is_rejected() {
+    #[test]
+    fn unknown_kind_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let err = run("nope", dir.path(), &dir.path().join("out"))
-            .await
-            .unwrap_err();
+        let err = run("nope", dir.path(), &dir.path().join("out"), None).unwrap_err();
         assert!(err.to_string().contains("unknown exporter kind"));
     }
 
     // REQ: FR-EXP-001
-    #[tokio::test]
-    async fn rejects_non_session_dir() {
+    #[test]
+    fn rejects_non_session_dir() {
         let dir = tempfile::tempdir().unwrap();
         // empty dir -- no index.jsonl
-        let err = run("text", dir.path(), &dir.path().join("out.txt"))
-            .await
-            .unwrap_err();
+        let err = run("text", dir.path(), &dir.path().join("out.txt"), None).unwrap_err();
         assert!(err.to_string().contains("missing index.jsonl"));
     }
 }

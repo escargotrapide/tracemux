@@ -61,6 +61,8 @@ pub struct SourceSnapshot {
     pub channels: Vec<u32>,
     /// Bytes recorded by ingest stats.
     pub bytes_in: u64,
+    /// Session-dir path when this source is being persisted on disk.
+    pub session_dir: Option<PathBuf>,
 }
 
 /// Optional per-start pipeline settings for a source.
@@ -865,6 +867,9 @@ impl SourceManager {
                     SourceStatus::Stopped
                 }
             });
+            let session_dir = sources
+                .get(&sid)
+                .and_then(|entry| entry.session_dir.clone());
             let bytes_in = self
                 .ingest
                 .stats(&sid)
@@ -879,6 +884,7 @@ impl SourceManager {
                 status,
                 channels: vec![0],
                 bytes_in,
+                session_dir,
             });
         }
         out.sort_by_key(|s| s.sid);
@@ -1361,6 +1367,7 @@ mod tests {
         assert_eq!(list[0].status, SourceStatus::Unknown);
         assert_eq!(list[0].channels, vec![0]);
         assert_eq!(list[0].bytes_in, 5);
+        assert_eq!(list[0].session_dir, None);
     }
 
     #[tokio::test]
@@ -1378,6 +1385,7 @@ mod tests {
         assert_eq!(running.len(), 1);
         assert_eq!(running[0].sid, sid);
         assert_eq!(running[0].status, SourceStatus::Running);
+        assert_eq!(running[0].session_dir, None);
 
         assert!(manager.stop(sid));
         let stopped = manager.list_sources();
