@@ -59,10 +59,7 @@ pub fn build() -> Router {
         .route("/api/version", get(version))
         .route("/api/detect", get(detect))
         .route("/api/ai/verify", get(crate::ai_api::verify))
-        .route(
-            "/api/sessions/{sid}/range",
-            get(crate::range::range_handler),
-        )
+        .route("/api/sessions/:sid/range", get(crate::range::range_handler))
 }
 
 /// Build the public router plus authenticated session export.

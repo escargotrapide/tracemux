@@ -49,7 +49,7 @@ impl ExportRouteState {
 /// Attach the session export route.
 pub fn router(state: ExportRouteState) -> Router {
     Router::new()
-        .route("/api/sessions/{sid}/export", get(export_handler))
+        .route("/api/sessions/:sid/export", get(export_handler))
         .with_state(state)
 }
 

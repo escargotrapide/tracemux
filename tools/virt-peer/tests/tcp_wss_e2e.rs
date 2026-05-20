@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 use futures::{SinkExt, StreamExt};
 use rmpv::Value;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::process::{Child, Command};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -17,11 +17,13 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use wanlogger_server::auth::BearerVerifier;
+use wanlogger_server::export_api::ExportRouteState;
 use wanlogger_server::ingest::Ingest;
 use wanlogger_server::ratelimit::ConnCounter;
 use wanlogger_server::source_manager::SourceManager;
 use wanlogger_server::wire::{decode, encode, Envelope, FrameType};
-use wanlogger_server::ws::{self, WsState};
+use wanlogger_server::ws::WsState;
+use wanlogger_server::{routes, ws};
 
 type WsClient = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -110,6 +112,17 @@ async fn virt_peer_tcp_flows_through_wss_and_session_dir() -> Result<()> {
         "transcript was: {transcript_body}"
     );
 
+    let exported = http_export_text(server_addr, sid).await?;
+    assert!(
+        exported.starts_with("HTTP/1.1 200"),
+        "response was: {exported}"
+    );
+    assert!(
+        exported.contains("virt-peer-e2e"),
+        "response was: {exported}"
+    );
+    assert!(exported.contains("+09:00"), "response was: {exported}");
+
     peer.wait_success().await?;
     assert!(manager.remove(sid));
     Ok(())
@@ -124,9 +137,10 @@ async fn spawn_server(manager: Arc<SourceManager>) -> Result<SocketAddr> {
         BearerVerifier::new(),
         true,
         Arc::new(ConnCounter::new(8)),
-        manager,
+        manager.clone(),
     );
-    let app = ws::router(state);
+    let export_state = ExportRouteState::new(manager, Arc::new(BearerVerifier::new()), true);
+    let app = routes::build_with_exports(export_state).merge(ws::router(state));
     tokio::spawn(async move {
         axum::serve(
             listener,
@@ -136,6 +150,27 @@ async fn spawn_server(manager: Arc<SourceManager>) -> Result<SocketAddr> {
         .expect("test server failed");
     });
     Ok(addr)
+}
+
+async fn http_export_text(addr: SocketAddr, sid: uuid::Uuid) -> Result<String> {
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .context("connecting HTTP export endpoint")?;
+    let request = format!(
+        "GET /api/sessions/{sid}/export?format=text&tz=GMT%2B9 HTTP/1.1\r\n\
+         Host: {addr}\r\n\
+         Connection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .context("writing HTTP export request")?;
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .await
+        .context("reading HTTP export response")?;
+    Ok(String::from_utf8_lossy(&response).into_owned())
 }
 
 async fn spawn_virt_peer_tcp(transcript: &Path) -> Result<(ChildGuard, SocketAddr)> {
