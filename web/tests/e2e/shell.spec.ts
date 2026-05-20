@@ -27,6 +27,29 @@ async function injectFrame(page: Page, frame: unknown): Promise<void> {
   }, frame);
 }
 
+async function installClientSpy(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { __wanloggerSetClient?: unknown })
+        .__wanloggerSetClient === "function",
+  );
+  await page.evaluate(() => {
+    const sent: unknown[] = [];
+    const win = window as unknown as {
+      __wanloggerSetClient: (client: { send: (frame: unknown) => void }) => void;
+      __wanloggerSentFrames: unknown[];
+    };
+    win.__wanloggerSentFrames = sent;
+    win.__wanloggerSetClient({ send: (frame: unknown) => sent.push(frame) });
+  });
+}
+
+async function sentFrames(page: Page): Promise<unknown[]> {
+  return page.evaluate(
+    () => (window as unknown as { __wanloggerSentFrames?: unknown[] }).__wanloggerSentFrames ?? [],
+  );
+}
+
 test("loads shell and shows top-bar title", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("wanlogger").first()).toBeVisible();
@@ -206,4 +229,72 @@ test("source detail export button calls the HTTP export API", async ({ page }) =
   expect(exportUrl).toContain("format=text");
   expect(exportUrl).toContain("tz=GMT%2B9");
   await expect(page.getByText("Export download requested")).toBeVisible();
+});
+
+test("settings rules and source start defaults are sent with ctl start", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page);
+
+  await page.getByLabel("Default text encoding").fill("shift_jis");
+  await page.getByLabel("Session name pattern").fill("{prefix}_{kind}_{iface}_{unix_ns}");
+  await page.getByPlaceholder("ERROR, WARN, voltage...").fill("ERROR");
+  await page.getByPlaceholder("fault, warning, power...").fill("fault");
+  await page.getByRole("button", { name: "Add rule" }).click();
+  await expect(page.getByRole("cell", { name: "fault", exact: true })).toBeVisible();
+
+  await page.getByLabel("Source spec").fill("mock://phase3-ui");
+  await page.getByRole("button", { name: "Add source" }).click();
+  await expect(page.getByText("Source start requested")).toBeVisible();
+
+  const frames = await sentFrames(page);
+  const start = frames.find((frame) => {
+    const candidate = frame as { type?: string; payload?: { action?: string } };
+    return candidate.type === "ctl" && candidate.payload?.action === "start";
+  }) as {
+    payload?: {
+      encoding?: string;
+      session_name_pattern?: string;
+      classifier?: Array<{ contains?: string; tag?: string }>;
+    };
+  } | undefined;
+
+  expect(start?.payload?.encoding).toBe("shift_jis");
+  expect(start?.payload?.session_name_pattern).toBe("{prefix}_{kind}_{iface}_{unix_ns}");
+  expect(start?.payload?.classifier).toContainEqual({ contains: "ERROR", tag: "fault" });
+});
+
+test("source details expose persistence, per-source display settings, and notes", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 3,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "22222222-2222-4222-8222-222222222222",
+          name: "COM7 Logger",
+          kind: "serial",
+          status: "running",
+          channels: [0, 1],
+          bytes_in: 128,
+          persistent: true,
+          session_dir: "C:/logs/COM7-session",
+        },
+      ],
+    },
+  });
+
+  await page.getByRole("button", { name: "Details" }).click();
+  await expect(page.getByText("Saved to session-dir")).toBeVisible();
+  await expect(page.getByText("C:/logs/COM7-session")).toBeVisible();
+
+  await page.getByLabel("Display encoding").fill("cp932");
+  await page.getByLabel("Display alias").fill("Motor COM7");
+  await page.getByLabel("Notes").fill("Investigate boot noise");
+  await expect(page.getByText(/Motor COM7 \/ ch 0/).first()).toBeVisible();
 });
