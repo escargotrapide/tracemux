@@ -304,3 +304,39 @@ after explicit confirmation. Bulk opening reuses the existing source
 The web UI exposes a free-form notes field for each selected
 source/session. Notes are stored as browser-side annotations only and
 must not persist raw log data outside the server-owned session-dir.
+
+### FR-WIRE-003  Lifecycle start-option overrides
+WSS `ctl` lifecycle actions support optional start-option fields:
+`encoding`, `classifier`, and `session_name_pattern`. `start` applies
+them to the new source. `restart` may include the same fields without a
+new `spec`; supplied fields update that source's stored lifecycle
+options, while omitted fields keep the previous values for future
+`resume` / `restart` actions.
+
+### FR-CLI-008  Serve serial bulk startup
+`wanlogger serve --open-all-serial` starts serial sources automatically
+at server startup. When no `--serial-port` values are provided it uses
+server-side serial discovery; repeated `--serial-port PORT` values limit
+the startup set. Baud, data bits, parity, stop bits, and flow control are
+configurable, and a failure to open one port must not prevent attempts
+for the remaining ports.
+
+### FR-CLI-009  Watch subcommand
+`wanlogger watch` connects to `wanlogger serve` using the
+`wanlogger.v1` WSS subprotocol, subscribes to a target `--sid` and
+`--ch`, decodes inbound `data` frames, and emits one JSONL row per frame
+using schema `wanlogger/watch-frame/v1`. Binary bodies are represented
+losslessly as lowercase hex plus length, with UTF-8 text included when
+the bytes are valid UTF-8.
+
+### FR-REMOTE-001  Remote WSS mirror
+A server-started `remote` channel spec connects to another wanlogger
+server using the `wanlogger.v1` WSS subprotocol, subscribes to the edge
+`sid` / `ch` identified by the remote URL query, mirrors inbound `data`
+frames into a local server-owned session-dir, and republishes them under
+the local session id for UI, CLI, and AI subscribers. The mirror preserves
+the edge `ts_origin` and producing `node_id`, stamps a new central
+`ts_ingest`, and proxies local `write` frames back to the edge session.
+Bearer credentials for the edge server must be supplied by indirection
+such as `token_env` or `token_secret`, not by embedding the token value in
+the persisted source spec.

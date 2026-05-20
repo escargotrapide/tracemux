@@ -8,6 +8,7 @@
 //! * `serial://COM3?baud=115200&data=8&parity=none&stop=1&flow=none`
 //! * `process:///bin/sh?args=-c%20echo%20hi` (semi-colon separates)
 //! * `mock://tag`
+//! * `remote://wss%3A%2F%2Fedge%3A9000%2Fws%3Fsid%3D...%26ch%3D0`
 //!
 //! The output is a [`ChannelSpec`] from `wanlogger-core`.
 //!
@@ -66,6 +67,9 @@ pub fn parse(spec: &str) -> Result<ChannelSpec> {
         },
         "mock" => ChannelSpec::Mock {
             tag: body.to_string(),
+        },
+        "remote" => ChannelSpec::Remote {
+            url: pct_decode(body),
         },
         other => bail!("unsupported channel kind: {other}"),
     })
@@ -204,6 +208,7 @@ pub fn render(spec: &ChannelSpec) -> String {
         }
         ChannelSpec::Pipe { path } => format!("pipe:///{}", path.trim_start_matches('/')),
         ChannelSpec::Mock { tag } => format!("mock://{tag}"),
+        ChannelSpec::Remote { url } => format!("remote://{}", pct_encode(url)),
         other => format!("unsupported://{other:?}"),
     }
     .replace(' ', "%20")
@@ -226,6 +231,7 @@ pub fn kind_tag(spec: &ChannelSpec) -> &'static str {
         ChannelSpec::HttpWebhook { .. } => "http",
         ChannelSpec::Telnet { .. } => "telnet",
         ChannelSpec::Ssh { .. } => "ssh",
+        ChannelSpec::Remote { .. } => "remote",
         _ => "other",
     }
 }
@@ -259,8 +265,23 @@ pub fn iface_tag(spec: &ChannelSpec) -> String {
         ChannelSpec::Mqtt { topic, .. } => sanitize(topic),
         ChannelSpec::Mock { tag } => sanitize(tag),
         ChannelSpec::Replay { path } => sanitize(path),
+        ChannelSpec::Remote { url } => sanitize(url),
         _ => "iface".to_string(),
     }
+}
+
+fn pct_encode(s: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(b));
+        } else {
+            write!(&mut out, "%{b:02X}").expect("writing to String cannot fail");
+        }
+    }
+    out
 }
 
 fn sanitize(s: &str) -> String {
@@ -340,6 +361,22 @@ mod tests {
                 assert_eq!(path, "tmp/log");
                 assert!(follow);
             }
+            other => panic!("wrong: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_remote_mirror() {
+        // REQ: FR-REMOTE-001
+        let s = parse(
+            "remote://wss%3A%2F%2Fedge.example.test%3A9000%2Fws%3Fsid%3D00000000-0000-4000-8000-000000000001%26ch%3D0",
+        )
+        .unwrap();
+        match s {
+            ChannelSpec::Remote { url } => assert_eq!(
+                url,
+                "wss://edge.example.test:9000/ws?sid=00000000-0000-4000-8000-000000000001&ch=0"
+            ),
             other => panic!("wrong: {other:?}"),
         }
     }

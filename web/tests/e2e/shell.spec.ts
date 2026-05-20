@@ -134,7 +134,7 @@ test("source alias updates terminal and tile labels", async ({ page }) => {
     },
   });
 
-  await expect(page.getByText(/serial:COM7 \/ ch 0/).first()).toBeVisible();
+  await expect(page.getByText(/COM7 \/ ch 0/).first()).toBeVisible();
   await page.getByRole("button", { name: /Details|�ڍ�/ }).first().click();
   await page.getByLabel(/Display alias|�\�����G�C���A�X/).fill("Motor UART");
 
@@ -182,8 +182,141 @@ test("tile xterm viewport remains mouse-scrollable", async ({ page }) => {
   });
 
   expect(styles.viewportOverflowY).not.toBe("hidden");
-  expect(styles.bodyOverflowY).not.toBe("hidden");
+  expect(styles.bodyOverflowY).toBe("hidden");
   expect(styles.pointerEvents).not.toBe("none");
+});
+
+test("tile viewport auto-follows the newest log while at bottom", async ({ page }) => {
+  // REQ: FR-UI-012
+  await page.goto("/");
+  await waitForInject(page);
+
+  for (let seq = 0; seq < 80; seq += 1) {
+    await injectFrame(page, {
+      type: "data",
+      seq,
+      payload: {
+        ts_origin: seq,
+        ts_ingest: seq + 1,
+        mono_ns: 0,
+        boot_id: "b",
+        node_id: "n",
+        clock_offset_ms: 0,
+        clock_quality: "best-effort",
+        drift_ppm: 0,
+        clock_source: "system",
+        sid: "tile-follow-source",
+        ch: 0,
+        dir: "in",
+        kind: "bytes",
+        body: new TextEncoder().encode(`line-${seq}\n`),
+        source: "serial:COM9",
+      },
+    });
+  }
+
+  const viewport = page.locator(".wl-tile-body .xterm-viewport").first();
+  await expect(viewport).toBeVisible();
+  await expect.poll(async () => viewport.evaluate((node) => (
+    node.scrollHeight - node.scrollTop - node.clientHeight
+  ))).toBeLessThan(8);
+});
+
+test("tile viewport preserves manual scroll and resumes bottom follow", async ({ page }) => {
+  // REQ: FR-UI-012
+  await page.goto("/");
+  await waitForInject(page);
+
+  for (let seq = 0; seq < 90; seq += 1) {
+    await injectFrame(page, {
+      type: "data",
+      seq,
+      payload: {
+        ts_origin: seq,
+        ts_ingest: seq + 1,
+        mono_ns: 0,
+        boot_id: "b",
+        node_id: "n",
+        clock_offset_ms: 0,
+        clock_quality: "best-effort",
+        drift_ppm: 0,
+        clock_source: "system",
+        sid: "tile-manual-scroll-source",
+        ch: 0,
+        dir: "in",
+        kind: "bytes",
+        body: new TextEncoder().encode(`before-${seq}\n`),
+        source: "serial:COM10",
+      },
+    });
+  }
+
+  const viewport = page.locator(".wl-tile-body .xterm-viewport").first();
+  await expect(viewport).toBeVisible();
+  await expect.poll(async () => viewport.evaluate((node) => (
+    node.scrollHeight - node.scrollTop - node.clientHeight
+  ))).toBeLessThan(8);
+
+  await viewport.evaluate((node) => {
+    node.scrollTop = 0;
+    node.dispatchEvent(new Event("scroll"));
+  });
+
+  await injectFrame(page, {
+    type: "data",
+    seq: 91,
+    payload: {
+      ts_origin: 91,
+      ts_ingest: 92,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "tile-manual-scroll-source",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new TextEncoder().encode("while-reading-old-lines\n"),
+      source: "serial:COM10",
+    },
+  });
+
+  await expect.poll(async () => viewport.evaluate((node) => (
+    node.scrollHeight - node.scrollTop - node.clientHeight
+  ))).toBeGreaterThan(16);
+
+  await viewport.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+    node.dispatchEvent(new Event("scroll"));
+  });
+  await injectFrame(page, {
+    type: "data",
+    seq: 92,
+    payload: {
+      ts_origin: 92,
+      ts_ingest: 93,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "tile-manual-scroll-source",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new TextEncoder().encode("follow-again\n"),
+      source: "serial:COM10",
+    },
+  });
+
+  await expect.poll(async () => viewport.evaluate((node) => (
+    node.scrollHeight - node.scrollTop - node.clientHeight
+  ))).toBeLessThan(8);
 });
 
 test("source detail export button calls the HTTP export API", async ({ page }) => {
@@ -223,6 +356,7 @@ test("source detail export button calls the HTTP export API", async ({ page }) =
   await expect(page.getByRole("cell", { name: "Export Source" })).toBeVisible();
   await page.getByRole("button", { name: "Details" }).click();
   await page.getByLabel("Export timezone").fill("GMT+9");
+  await page.getByLabel("Export filename pattern").fill("{source}_{timestamp}.{ext}");
   await page.getByRole("button", { name: "Download text" }).click();
 
   await expect.poll(() => exportUrl).toContain("/api/sessions/11111111-1111-4111-8111-111111111111/export");
@@ -269,6 +403,7 @@ test("source details expose persistence, per-source display settings, and notes"
   // REQ: FR-UI-014
   await page.goto("/");
   await waitForInject(page);
+  await installClientSpy(page);
   await injectFrame(page, {
     type: "ctl",
     seq: 3,
@@ -294,7 +429,125 @@ test("source details expose persistence, per-source display settings, and notes"
   await expect(page.getByText("C:/logs/COM7-session")).toBeVisible();
 
   await page.getByLabel("Display encoding").fill("cp932");
+  await page.getByLabel("Channel encoding ch 1").fill("shift_jis");
   await page.getByLabel("Display alias").fill("Motor COM7");
   await page.getByLabel("Notes").fill("Investigate boot noise");
+  await page.getByRole("button", { name: "Restart with encoding" }).click();
   await expect(page.getByText(/Motor COM7 \/ ch 0/).first()).toBeVisible();
+
+  const frames = await sentFrames(page);
+  const restart = frames.find((frame) => {
+    const candidate = frame as { type?: string; sid?: string; payload?: { action?: string } };
+    return candidate.type === "ctl" && candidate.sid === "22222222-2222-4222-8222-222222222222" && candidate.payload?.action === "restart";
+  }) as { payload?: { encoding?: string } } | undefined;
+  expect(restart?.payload?.encoding).toBe("cp932");
+});
+
+test("source notes load from and sync to the annotation API", async ({ page }) => {
+  // REQ: FR-UI-017
+  const sid = "44444444-4444-4444-8444-444444444444";
+  let savedBody: unknown = null;
+  await page.route("http://127.0.0.1:9000/api/annotations**", async (route) => {
+    const request = route.request();
+    if (request.method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify([
+          {
+            id: "55555555-5555-5555-8555-555555555555",
+            target: { kind: "session", sid },
+            text: "server memo",
+            updated_at: "2026-05-20T00:00:00Z",
+            deleted: false,
+          },
+        ]),
+      });
+      return;
+    }
+    if (request.method() === "PUT") {
+      savedBody = JSON.parse(request.postData() ?? "{}");
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "55555555-5555-5555-8555-555555555555",
+          ...(savedBody as Record<string, unknown>),
+          updated_at: "2026-05-20T00:00:01Z",
+          deleted: false,
+        }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 4,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid,
+          name: "Annotated Source",
+          kind: "serial",
+          status: "running",
+          channels: [0],
+          bytes_in: 1,
+          persistent: true,
+          session_dir: "C:/logs/annotated",
+        },
+      ],
+    },
+  });
+
+  await page.getByRole("button", { name: "Details" }).click();
+  const details = page.locator("aside");
+  await expect(details.getByLabel("Notes")).toHaveValue("server memo");
+  await expect(details.getByText("Synced", { exact: true })).toBeVisible();
+
+  await details.getByLabel("Notes").fill("client memo");
+  await details.getByRole("button", { name: "Sync now" }).click();
+  await expect.poll(() => savedBody).toMatchObject({
+    target: { kind: "session", sid },
+    text: "client memo",
+  });
+  await expect(details.getByText("Synced", { exact: true })).toBeVisible();
+});
+
+test("source note annotation sync failure is visible but non-fatal", async ({ page }) => {
+  // REQ: FR-UI-017
+  await page.route("http://127.0.0.1:9000/api/annotations**", async (route) => {
+    await route.fulfill({ status: 500, body: "annotation store down" });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 5,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "66666666-6666-4666-8666-666666666666",
+          name: "Failing Annotation Source",
+          kind: "serial",
+          status: "running",
+          channels: [0],
+          bytes_in: 1,
+          persistent: true,
+          session_dir: "C:/logs/failing-annotation",
+        },
+      ],
+    },
+  });
+
+  await page.getByRole("button", { name: "Details" }).click();
+  const details = page.locator("aside");
+  await expect(details.getByText("Sync failed")).toBeVisible();
+  await expect(page.getByText("Source note sync failed; kept in this browser.")).toBeVisible();
 });

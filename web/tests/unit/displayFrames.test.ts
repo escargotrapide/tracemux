@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bodyText,
   clientClassificationTags,
+  friendlySourceName,
   labelForSid,
   metadataPrefix,
   payloadMatchesFilter,
@@ -36,7 +37,14 @@ function payload(patch: Partial<DataPayload> = {}): DataPayload {
 describe("display frame helpers", () => {
   it("prefers aliases and source labels over short ids", () => {
     // REQ: FR-UI-014
-    expect(labelForSid("sid-123456", { "sid-123456": { name: "COM7" } })).toBe("COM7");
+    expect(labelForSid("sid-123456", { "sid-123456": { name: "serial:COM7" } })).toBe("COM7");
+    expect(friendlySourceName("tcp:127.0.0.1:5555")).toBe("127.0.0.1:5555");
+    expect(
+      sourceDisplayName(
+        { sid: "sid-123456", source: "serial:COM8" },
+        { "sid-123456": { name: "serial:COM7" } },
+      ),
+    ).toBe("COM7");
     expect(
       sourceDisplayName(
         { sid: "sid-123456", source: "serial:COM7" },

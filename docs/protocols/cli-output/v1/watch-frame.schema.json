@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wanlogger.dev/cli-output/v1/watch-frame.schema.json",
+  "title": "wanlogger watch frame",
+  "description": "One JSONL row emitted by `wanlogger watch` for a WSS data frame.",
+  "type": "object",
+  "required": ["schema", "seq", "sid", "ch", "kind", "body"],
+  "properties": {
+    "schema": { "type": "string", "const": "wanlogger/watch-frame/v1" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "sid": { "type": "string", "format": "uuid" },
+    "ch": { "type": "integer", "minimum": 0 },
+    "ts_origin": { "type": "integer" },
+    "ts_ingest": { "type": "integer" },
+    "mono_ns": { "type": "integer", "minimum": 0 },
+    "boot_id": { "type": "string" },
+    "node_id": { "type": "string" },
+    "clock_offset_ms": { "type": "integer" },
+    "clock_quality": {
+      "type": "string",
+      "enum": ["synced", "best-effort", "unknown", "imported"]
+    },
+    "drift_ppm": { "type": "number" },
+    "clock_source": {
+      "type": "string",
+      "enum": ["system", "ntp", "ptp", "monotonic", "imported"]
+    },
+    "dir": { "type": "string", "enum": ["in", "out"] },
+    "kind": { "type": "string", "enum": ["bytes", "datagram", "frame", "record"] },
+    "body": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "len", "hex"],
+          "properties": {
+            "type": { "type": "string", "const": "bin" },
+            "len": { "type": "integer", "minimum": 0 },
+            "hex": { "type": "string", "pattern": "^[0-9a-f]*$" },
+            "text": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        { "type": "object", "additionalProperties": true },
+        { "type": "array" },
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "additionalProperties": true
+}

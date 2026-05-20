@@ -3,7 +3,7 @@
 //
 // REQ: FR-UI-008
 
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import {
   downloadSessionExport,
   type SessionExportFormat,
@@ -28,7 +28,19 @@ import {
 } from "~/state/sourceFilters";
 import { detectSources, serialSpecForPort } from "~/state/sourceDiscovery";
 import { sourceAliases, updateSourceAlias } from "~/state/sourceAliases";
-import { sourceEncodings, updateSourceEncoding } from "~/state/sourceEncodings";
+import {
+  channelEncodingKey,
+  encodingForChannel,
+  sourceEncodings,
+  sourceEncodingKey,
+  updateChannelEncoding,
+  updateSourceEncoding,
+} from "~/state/sourceEncodings";
+import { exportSettings, updateExportSettings } from "~/state/exportSettings";
+import {
+  loadAndApplySourceAnnotations,
+  syncSourceNoteToServer,
+} from "~/state/annotationSync";
 import { sourceNotes, updateSourceNote } from "~/state/sourceNotes";
 import {
   sourceStartOptions,
@@ -43,6 +55,22 @@ function onAction(sid: string, action: "stop" | "restart" | "remove"): void {
   try {
     sendCtl(sid, action);
     pushToast({ level: "info", message: `${action}: ${sid.slice(0, 8)}` });
+  } catch (err) {
+    pushToast({
+      level: "error",
+      message: (err as Error).message ?? "ctl failed",
+    });
+  }
+}
+
+function onRestartWithServerEncoding(sid: string): void {
+  const encoding = sourceEncodings[sourceEncodingKey(sid)]?.encoding ?? sourceStartOptions.encoding;
+  try {
+    sendCtl(sid, "restart", undefined, {
+      ...(startCtlOptions() as Record<string, unknown>),
+      encoding,
+    });
+    pushToast({ level: "info", message: t("sources.detail.server_encoding_requested") });
   } catch (err) {
     pushToast({
       level: "error",
@@ -68,6 +96,11 @@ function onOpenNewTerminal(sid: string, channels: number[]): void {
 }
 
 const EXPORT_FORMATS: SessionExportFormat[] = ["text", "csv", "jsonl"];
+type AnnotationSyncStatus = "idle" | "loading" | "syncing" | "synced" | "error";
+
+function annotationSyncLabel(status: AnnotationSyncStatus): string {
+  return t(`annotations.sync.${status}`);
+}
 
 export function SourcesPanel() {
   const [specInput, setSpecInput] = createSignal("mock://demo");
@@ -83,6 +116,8 @@ export function SourcesPanel() {
   const [serialBaud, setSerialBaud] = createSignal(115_200);
   const [exportTimezone, setExportTimezone] = createSignal("");
   const [exporting, setExporting] = createSignal<string | null>(null);
+  const [loadedNotesSid, setLoadedNotesSid] = createSignal<string | null>(null);
+  const [sourceNoteSyncStatus, setSourceNoteSyncStatus] = createSignal<Record<string, AnnotationSyncStatus>>({});
   const rows = () =>
     filterAndSortSources(
       Object.values(sourcesStore),
@@ -94,6 +129,20 @@ export function SourcesPanel() {
     const sid = selectedSid();
     return sid ? sourcesStore[sid] : undefined;
   };
+
+  createEffect(() => {
+    const sid = selectedSid();
+    if (!sid || loadedNotesSid() === sid) return;
+    setLoadedNotesSid(sid);
+    setSourceNoteStatus(sid, "loading");
+    void loadAndApplySourceAnnotations(sid)
+      .then(() => setSourceNoteStatus(sid, "synced"))
+      .catch((err) => {
+        setSourceNoteStatus(sid, "error");
+        console.warn("E-UI-ANNOTATION-SYNC load source notes failed", err);
+        pushToast({ level: "warn", message: t("sources.detail.notes_sync_failed") });
+      });
+  });
 
   function onStart(ev: SubmitEvent): void {
     ev.preventDefault();
@@ -188,9 +237,12 @@ export function SourcesPanel() {
   async function onDownloadExport(sid: string, format: SessionExportFormat): Promise<void> {
     setExporting(format);
     try {
+      const source = sourcesStore[sid];
       await downloadSessionExport(sid, {
         format,
         timezone: exportTimezone(),
+        filenamePattern: exportSettings.filenamePattern,
+        sourceName: sourceAliases[sid]?.label ?? source?.name ?? sid,
       });
       pushToast({ level: "info", message: t("sources.export.requested") });
     } catch (err) {
@@ -201,6 +253,35 @@ export function SourcesPanel() {
     } finally {
       setExporting(null);
     }
+  }
+
+  function onSourceNoteInput(sid: string, text: string): void {
+    updateSourceNote(sid, text);
+  }
+
+  function onSourceNoteBlur(sid: string): void {
+    syncSourceNoteNow(sid);
+  }
+
+  function setSourceNoteStatus(sid: string, status: AnnotationSyncStatus): void {
+    setSourceNoteSyncStatus((prev) => ({ ...prev, [sid]: status }));
+  }
+
+  function sourceNoteStatus(sid: string): AnnotationSyncStatus {
+    return sourceNoteSyncStatus()[sid] ?? "idle";
+  }
+
+  function syncSourceNoteNow(sid: string): void {
+    const note = sourceNotes[sid];
+    if (!note) return;
+    setSourceNoteStatus(sid, "syncing");
+    void syncSourceNoteToServer(note)
+      .then(() => setSourceNoteStatus(sid, "synced"))
+      .catch((err) => {
+        setSourceNoteStatus(sid, "error");
+        console.warn("E-UI-ANNOTATION-SYNC save source note failed", err);
+        pushToast({ level: "warn", message: t("sources.detail.notes_sync_failed") });
+      });
   }
 
   return (
@@ -550,17 +631,53 @@ export function SourcesPanel() {
               </dd>
               <dt>{t("sources.detail.encoding")}</dt>
               <dd>
-                <input
-                  type="text"
-                  list="wl-source-encoding-options"
-                  aria-label={t("sources.detail.encoding")}
-                  value={sourceEncodings[source().sid]?.encoding ?? sourceStartOptions.encoding}
-                  onInput={(ev) => updateSourceEncoding(source().sid, ev.currentTarget.value)}
-                  placeholder={sourceStartOptions.encoding}
-                  style={{ width: "100%" }}
-                />
+                <div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
+                  <input
+                    type="text"
+                    list="wl-source-encoding-options"
+                    aria-label={t("sources.detail.encoding")}
+                    value={sourceEncodings[sourceEncodingKey(source().sid)]?.encoding ?? sourceStartOptions.encoding}
+                    onInput={(ev) => updateSourceEncoding(source().sid, ev.currentTarget.value)}
+                    placeholder={sourceStartOptions.encoding}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onRestartWithServerEncoding(source().sid)}
+                    title={t("sources.detail.server_encoding_help")}
+                  >
+                    {t("sources.detail.server_encoding_apply")}
+                  </button>
+                </div>
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
-                  {t("sources.detail.encoding_help")}
+                  {t("sources.detail.encoding_help")} {t("sources.detail.server_encoding_help")}
+                </div>
+              </dd>
+              <dt>{t("sources.detail.channel_encodings")}</dt>
+              <dd>
+                <div style={{ display: "grid", gap: "6px" }}>
+                  <For each={source().channels}>
+                    {(channel) => (
+                      <label style={{ display: "flex", gap: "6px", "align-items": "center" }}>
+                        <span>ch {channel}</span>
+                        <input
+                          type="text"
+                          list="wl-source-encoding-options"
+                          aria-label={`${t("sources.detail.channel_encoding")} ch ${channel}`}
+                          value={encodingForChannel(source().sid, channel, sourceStartOptions.encoding)}
+                          onInput={(ev) => updateChannelEncoding(source().sid, channel, ev.currentTarget.value)}
+                          placeholder={sourceEncodings[sourceEncodingKey(source().sid)]?.encoding ?? sourceStartOptions.encoding}
+                          style={{ flex: 1 }}
+                        />
+                        <Show when={sourceEncodings[channelEncodingKey(source().sid, channel)]?.encoding}>
+                          <span style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>override</span>
+                        </Show>
+                      </label>
+                    )}
+                  </For>
+                </div>
+                <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+                  {t("sources.detail.channel_encoding_help")}
                 </div>
               </dd>
               <dt>{t("sources.detail.kind")}</dt>
@@ -596,6 +713,14 @@ export function SourcesPanel() {
                     aria-label={t("sources.export.timezone")}
                     style={{ "min-width": "160px" }}
                   />
+                  <input
+                    type="text"
+                    value={exportSettings.filenamePattern}
+                    onInput={(ev) => updateExportSettings({ filenamePattern: ev.currentTarget.value })}
+                    placeholder={t("sources.export.filename_pattern_placeholder")}
+                    aria-label={t("sources.export.filename_pattern")}
+                    style={{ "min-width": "260px" }}
+                  />
                   <For each={EXPORT_FORMATS}>
                     {(format) => (
                       <button
@@ -612,7 +737,7 @@ export function SourcesPanel() {
                 </div>
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {source().persistent
-                    ? t("sources.export.help")
+                    ? `${t("sources.export.help")} ${t("sources.export.filename_pattern_help")}`
                     : t("sources.export.unavailable")}
                 </div>
               </dd>
@@ -627,7 +752,8 @@ export function SourcesPanel() {
                 <textarea
                   aria-label={t("sources.detail.notes")}
                   value={sourceNotes[source().sid]?.text ?? ""}
-                  onInput={(ev) => updateSourceNote(source().sid, ev.currentTarget.value)}
+                  onInput={(ev) => onSourceNoteInput(source().sid, ev.currentTarget.value)}
+                  onBlur={() => onSourceNoteBlur(source().sid)}
                   placeholder={t("sources.detail.notes_placeholder")}
                   style={{
                     width: "100%",
@@ -635,8 +761,16 @@ export function SourcesPanel() {
                     resize: "vertical",
                   }}
                 />
-                <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
-                  {t("sources.detail.notes_help")}
+                <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px", display: "flex", gap: "8px", "align-items": "center", "flex-wrap": "wrap" }}>
+                  <span>{t("sources.detail.notes_help")}</span>
+                  <button
+                    type="button"
+                    onClick={() => syncSourceNoteNow(source().sid)}
+                    disabled={sourceNoteStatus(source().sid) === "loading" || sourceNoteStatus(source().sid) === "syncing"}
+                  >
+                    {t("annotations.sync.now")}
+                  </button>
+                  <span>{annotationSyncLabel(sourceNoteStatus(source().sid))}</span>
                 </div>
               </dd>
             </dl>

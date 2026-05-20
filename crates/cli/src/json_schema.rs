@@ -26,6 +26,10 @@ const SCHEMAS: &[(&str, &str)] = &[
         include_str!("schemas/detect.schema.json"),
     ),
     (
+        "watch-frame.schema.json",
+        include_str!("schemas/watch-frame.schema.json"),
+    ),
+    (
         "version.schema.json",
         include_str!("schemas/version.schema.json"),
     ),

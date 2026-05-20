@@ -1,7 +1,7 @@
 //! `wanlogger` — single binary CLI / server.
 //!
-//! Subcommands: `serve | connect | send | detect | log | profile | replay |
-//! extcap | import | export | ai-verify | json-schema`.
+//! Subcommands: `serve | connect | send | watch | token-hash | detect | log | profile |
+//! replay | extcap | import | export | ai-verify | json-schema`.
 
 use clap::{Parser, Subcommand};
 
@@ -25,6 +25,10 @@ enum Cmd {
     Connect(ConnectArgs),
     /// Send bytes to a running server session via WSS write-back.
     Send(SendArgs),
+    /// Subscribe to a running server session and emit data frames as JSONL.
+    Watch(WatchArgs),
+    /// Hash a bearer token into argon2id PHC format for `serve --token-phc-file`.
+    TokenHash(TokenHashArgs),
     /// Auto-detect available transports.
     Detect,
     /// Log a single channel to a session-dir.
@@ -59,12 +63,45 @@ struct ServeArgs {
     /// Disable auth (gated to loopback).
     #[arg(long)]
     no_auth: bool,
+    /// Add an argon2id PHC hash for an accepted bearer token.
+    #[arg(long = "token-phc", value_name = "PHC")]
+    token_phc: Vec<String>,
+    /// Read accepted bearer-token PHC hashes from a file, one per line.
+    #[arg(long = "token-phc-file", value_name = "PATH")]
+    token_phc_files: Vec<std::path::PathBuf>,
+    /// Serve HTTPS/WSS instead of HTTP/WS.
+    #[arg(long)]
+    tls: bool,
+    /// Directory for TLS server.crt/server.key. Implies `--tls`.
+    #[arg(long, value_name = "DIR")]
+    tls_dir: Option<std::path::PathBuf>,
     /// Default text encoding for server-side decoded records.
     #[arg(long, default_value = "utf-8")]
     encoding: String,
     /// Add a server-side substring classifier as `contains=tag`.
     #[arg(long = "classify", value_name = "CONTAINS=TAG")]
     classify: Vec<String>,
+    /// Detect and open every serial/COM port when the server starts.
+    #[arg(long)]
+    open_all_serial: bool,
+    /// Explicit serial port(s) for `--open-all-serial`; repeat to open several.
+    #[arg(long = "serial-port", value_name = "PORT")]
+    serial_ports: Vec<String>,
+    /// Baud rate used by `--open-all-serial`.
+    #[arg(long, default_value_t = 115_200)]
+    serial_baud: u32,
+    /// Data bits used by `--open-all-serial`.
+    #[arg(long, default_value_t = 8)]
+    serial_data_bits: u8,
+    /// Parity used by `--open-all-serial` (`none`, `even`, `odd`).
+    #[arg(long, default_value = "none")]
+    serial_parity: String,
+    /// Stop bits used by `--open-all-serial`.
+    #[arg(long, default_value_t = 1)]
+    serial_stop_bits: u8,
+    /// Flow control used by `--open-all-serial` (`none`, `hardware`, `software`).
+    #[arg(long, default_value = "none")]
+    serial_flow: String,
 }
 
 #[derive(Debug, clap::Args)]
@@ -105,6 +142,32 @@ struct SendArgs {
     /// Wait for `ctl.write_ack` or `ctl.error` before exiting.
     #[arg(long)]
     wait_ack: bool,
+}
+
+#[derive(Debug, clap::Args)]
+struct WatchArgs {
+    /// WebSocket endpoint for `wanlogger serve`.
+    #[arg(long, default_value = "ws://127.0.0.1:9000/ws")]
+    url: String,
+    /// Bearer token. Defaults to `WANLOGGER_TOKEN` when set.
+    #[arg(long, env = "WANLOGGER_TOKEN")]
+    token: Option<String>,
+    /// Target session id.
+    #[arg(long)]
+    sid: String,
+    /// Target channel.
+    #[arg(long, default_value_t = 0)]
+    ch: u32,
+    /// Exit after this many data frames.
+    #[arg(long)]
+    max_frames: Option<u64>,
+}
+
+#[derive(Debug, clap::Args)]
+struct TokenHashArgs {
+    /// Bearer token to hash. Prefer WANLOGGER_TOKEN over passing secrets on a command line.
+    #[arg(long, env = "WANLOGGER_TOKEN")]
+    token: String,
 }
 
 #[derive(Debug, clap::Args)]
@@ -233,93 +296,23 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
-    match cli.cmd {
-        Cmd::Serve(args) => {
-            let classifier = cmd::log::classifier_from_specs(&args.classify)?;
-            wanlogger_server::run_with_session_root_classifier_encoding_and_pattern(
-                &args.bind,
-                args.no_auth,
-                args.session_root,
-                classifier,
-                args.encoding,
-                args.session_name_pattern.unwrap_or_else(|| {
-                    wanlogger_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()
-                }),
-            )
-            .await?;
-        }
+    run_cmd(cli.cmd).await
+}
+
+async fn run_cmd(cmd: Cmd) -> anyhow::Result<()> {
+    match cmd {
+        Cmd::Serve(args) => run_serve(args).await?,
         Cmd::Connect(args) => cmd::connect::run(&args.spec).await?,
-        Cmd::Send(args) => {
-            cmd::send::run(cmd::send::Options {
-                url: args.url,
-                token: args.token,
-                sid: args.sid,
-                ch: args.ch,
-                text: args.text,
-                encoding: args.encoding,
-                file: args.file,
-                hex: args.hex,
-                udp_target: args.udp_target,
-                wait_ack: args.wait_ack,
-            })
-            .await?;
-        }
+        Cmd::Send(args) => run_send(args).await?,
+        Cmd::Watch(args) => run_watch(args).await?,
+        Cmd::TokenHash(args) => run_token_hash(&args)?,
         Cmd::Detect => cmd::detect::run()?,
-        Cmd::Log(args) => {
-            cmd::log::run(cmd::log::Options {
-                spec: args.spec,
-                prefix: args.prefix,
-                name_pattern: args.name_pattern,
-                encoding: args.encoding,
-                classify: args.classify,
-            })
-            .await?;
-        }
-        Cmd::Profile(args) => {
-            let dir = args.dir.unwrap_or_else(cmd::profile::default_dir);
-            let action = match args.action {
-                ProfileAction::List => cmd::profile::Action::List,
-                ProfileAction::Show { name } => cmd::profile::Action::Show { name },
-                ProfileAction::Set { name, spec } => cmd::profile::Action::Set { name, spec },
-                ProfileAction::Del { name } => cmd::profile::Action::Del { name },
-            };
-            cmd::profile::run(&dir, action)?;
-        }
+        Cmd::Log(args) => run_log(args).await?,
+        Cmd::Profile(args) => run_profile(args)?,
         Cmd::Replay(args) => {
             wanlogger_replay::run(&args.session, args.rate, args.seed).await?;
         }
-        Cmd::Extcap(args) => {
-            let mode = if args.extcap_interfaces {
-                cmd::extcap::Mode::Interfaces
-            } else if args.extcap_dlts {
-                cmd::extcap::Mode::Dlts {
-                    interface: args.extcap_interface.ok_or_else(|| {
-                        anyhow::anyhow!("--extcap-dlts requires --extcap-interface")
-                    })?,
-                }
-            } else if args.extcap_config {
-                cmd::extcap::Mode::Config {
-                    interface: args.extcap_interface.ok_or_else(|| {
-                        anyhow::anyhow!("--extcap-config requires --extcap-interface")
-                    })?,
-                }
-            } else if args.capture {
-                cmd::extcap::Mode::Capture {
-                    interface: args
-                        .extcap_interface
-                        .ok_or_else(|| anyhow::anyhow!("--capture requires --extcap-interface"))?,
-                    fifo: args
-                        .fifo
-                        .ok_or_else(|| anyhow::anyhow!("--capture requires --fifo"))?,
-                    spec: args
-                        .spec
-                        .ok_or_else(|| anyhow::anyhow!("--capture requires --spec"))?,
-                }
-            } else {
-                anyhow::bail!("extcap: one of --extcap-interfaces / --extcap-dlts / --extcap-config / --capture is required");
-            };
-            cmd::extcap::run(mode).await?;
-        }
+        Cmd::Extcap(args) => run_extcap(args).await?,
         Cmd::Import(args) => cmd::import::run(&args.kind, &args.src, &args.dst).await?,
         Cmd::Export(args) => {
             cmd::export::run(&args.kind, &args.src, &args.dst, args.tz.as_deref())?;
@@ -328,4 +321,246 @@ async fn main() -> anyhow::Result<()> {
         Cmd::JsonSchema(args) => json_schema::emit(&args.out)?,
     }
     Ok(())
+}
+
+async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
+    let classifier = cmd::log::classifier_from_specs(&args.classify)?;
+    let startup = serve_startup_sources(&args);
+    let security = serve_security(&args);
+    wanlogger_server::run_with_session_root_classifier_encoding_pattern_startup_and_security(
+        &args.bind,
+        args.no_auth,
+        args.session_root,
+        classifier,
+        args.encoding,
+        args.session_name_pattern.unwrap_or_else(|| {
+            wanlogger_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()
+        }),
+        startup,
+        security,
+    )
+    .await
+}
+
+async fn run_send(args: SendArgs) -> anyhow::Result<()> {
+    cmd::send::run(cmd::send::Options {
+        url: args.url,
+        token: args.token,
+        sid: args.sid,
+        ch: args.ch,
+        text: args.text,
+        encoding: args.encoding,
+        file: args.file,
+        hex: args.hex,
+        udp_target: args.udp_target,
+        wait_ack: args.wait_ack,
+    })
+    .await
+}
+
+async fn run_watch(args: WatchArgs) -> anyhow::Result<()> {
+    cmd::watch::run(cmd::watch::Options {
+        url: args.url,
+        token: args.token,
+        sid: args.sid,
+        ch: args.ch,
+        max_frames: args.max_frames,
+    })
+    .await
+}
+
+fn run_token_hash(args: &TokenHashArgs) -> anyhow::Result<()> {
+    if args.token.is_empty() {
+        anyhow::bail!("token must not be empty");
+    }
+    println!("{}", wanlogger_server::auth::hash_token(&args.token)?);
+    Ok(())
+}
+
+async fn run_log(args: LogArgs) -> anyhow::Result<()> {
+    cmd::log::run(cmd::log::Options {
+        spec: args.spec,
+        prefix: args.prefix,
+        name_pattern: args.name_pattern,
+        encoding: args.encoding,
+        classify: args.classify,
+    })
+    .await
+}
+
+fn run_profile(args: ProfileArgs) -> anyhow::Result<()> {
+    let dir = args.dir.unwrap_or_else(cmd::profile::default_dir);
+    let action = match args.action {
+        ProfileAction::List => cmd::profile::Action::List,
+        ProfileAction::Show { name } => cmd::profile::Action::Show { name },
+        ProfileAction::Set { name, spec } => cmd::profile::Action::Set { name, spec },
+        ProfileAction::Del { name } => cmd::profile::Action::Del { name },
+    };
+    cmd::profile::run(&dir, action)
+}
+
+async fn run_extcap(args: ExtcapArgs) -> anyhow::Result<()> {
+    cmd::extcap::run(extcap_mode(args)?).await
+}
+
+fn extcap_mode(args: ExtcapArgs) -> anyhow::Result<cmd::extcap::Mode> {
+    if args.extcap_interfaces {
+        return Ok(cmd::extcap::Mode::Interfaces);
+    }
+    if args.extcap_dlts {
+        return Ok(cmd::extcap::Mode::Dlts {
+            interface: args
+                .extcap_interface
+                .ok_or_else(|| anyhow::anyhow!("--extcap-dlts requires --extcap-interface"))?,
+        });
+    }
+    if args.extcap_config {
+        return Ok(cmd::extcap::Mode::Config {
+            interface: args
+                .extcap_interface
+                .ok_or_else(|| anyhow::anyhow!("--extcap-config requires --extcap-interface"))?,
+        });
+    }
+    if args.capture {
+        return Ok(cmd::extcap::Mode::Capture {
+            interface: args
+                .extcap_interface
+                .ok_or_else(|| anyhow::anyhow!("--capture requires --extcap-interface"))?,
+            fifo: args
+                .fifo
+                .ok_or_else(|| anyhow::anyhow!("--capture requires --fifo"))?,
+            spec: args
+                .spec
+                .ok_or_else(|| anyhow::anyhow!("--capture requires --spec"))?,
+        });
+    }
+    anyhow::bail!(
+        "extcap: one of --extcap-interfaces / --extcap-dlts / --extcap-config / --capture is required"
+    );
+}
+
+fn serve_startup_sources(args: &ServeArgs) -> wanlogger_server::StartupSources {
+    if !args.open_all_serial {
+        return wanlogger_server::StartupSources::default();
+    }
+    wanlogger_server::StartupSources {
+        serial: Some(wanlogger_server::SerialAutostart {
+            ports: if args.serial_ports.is_empty() {
+                None
+            } else {
+                Some(args.serial_ports.clone())
+            },
+            options: wanlogger_server::source_manager::SerialPortOptions {
+                baud: args.serial_baud,
+                data_bits: args.serial_data_bits,
+                parity: args.serial_parity.clone(),
+                stop_bits: args.serial_stop_bits,
+                flow: args.serial_flow.clone(),
+            },
+        }),
+    }
+}
+
+fn serve_security(args: &ServeArgs) -> wanlogger_server::ServerSecurity {
+    let tls = if args.tls || args.tls_dir.is_some() {
+        Some(wanlogger_server::TlsServeConfig {
+            dir: args
+                .tls_dir
+                .clone()
+                .unwrap_or_else(|| args.session_root.join("tls")),
+        })
+    } else {
+        None
+    };
+    wanlogger_server::ServerSecurity {
+        token_phc: args.token_phc.clone(),
+        token_phc_files: args.token_phc_files.clone(),
+        tls,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serve_open_all_serial_args_build_startup_config() {
+        // REQ: FR-CLI-008
+        let cli = Cli::try_parse_from([
+            "wanlogger",
+            "serve",
+            "--open-all-serial",
+            "--serial-port",
+            "COM7",
+            "--serial-port",
+            "COM8",
+            "--serial-baud",
+            "9600",
+            "--serial-data-bits",
+            "7",
+            "--serial-parity",
+            "even",
+            "--serial-stop-bits",
+            "2",
+            "--serial-flow",
+            "hardware",
+        ])
+        .unwrap();
+
+        let Cmd::Serve(args) = cli.cmd else {
+            panic!("expected serve command");
+        };
+        let startup = serve_startup_sources(&args);
+        let serial = startup.serial.expect("serial startup");
+        assert_eq!(
+            serial.ports,
+            Some(vec!["COM7".to_string(), "COM8".to_string()])
+        );
+        assert_eq!(serial.options.baud, 9_600);
+        assert_eq!(serial.options.data_bits, 7);
+        assert_eq!(serial.options.parity, "even");
+        assert_eq!(serial.options.stop_bits, 2);
+        assert_eq!(serial.options.flow, "hardware");
+    }
+
+    #[test]
+    fn serve_security_args_build_security_config() {
+        // REQ: FR-WIRE-002
+        let cli = Cli::try_parse_from([
+            "wanlogger",
+            "serve",
+            "--session-root",
+            "sessions",
+            "--token-phc",
+            "$argon2id$v=19$m=1,t=1,p=1$c2FsdA$uUuXQDV5uH1o0kQ8qM1S7g",
+            "--token-phc-file",
+            "tokens.phc",
+            "--tls-dir",
+            "tls-state",
+        ])
+        .unwrap();
+
+        let Cmd::Serve(args) = cli.cmd else {
+            panic!("expected serve command");
+        };
+        let security = serve_security(&args);
+        assert_eq!(security.token_phc.len(), 1);
+        assert_eq!(
+            security.token_phc_files,
+            vec![std::path::PathBuf::from("tokens.phc")]
+        );
+        assert_eq!(
+            security.tls.expect("tls config").dir,
+            std::path::PathBuf::from("tls-state")
+        );
+    }
+
+    #[test]
+    fn token_hash_args_parse_token() {
+        let cli = Cli::try_parse_from(["wanlogger", "token-hash", "--token", "secret"]).unwrap();
+        let Cmd::TokenHash(args) = cli.cmd else {
+            panic!("expected token-hash command");
+        };
+        assert_eq!(args.token, "secret");
+    }
 }

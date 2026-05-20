@@ -144,7 +144,7 @@ Client-to-server lifecycle requests use `payload.action`:
 | `start`   | none            | `spec` map, optional start overrides | Start a source from a `ChannelSpec`-compatible map. |
 | `stop`    | `sid`           | none           | Abort a running source task but keep the session registered. |
 | `resume`  | `sid`           | none           | Resume a stopped/completed spec-backed source with the same `sid`. |
-| `restart` | `sid`           | none           | Abort if running and start the source again with the same `sid`. |
+| `restart` | `sid`           | optional start overrides | Abort if running and start the source again with the same `sid`. Supplied overrides update future resumes/restarts for that source. |
 | `remove`  | `sid`           | none           | Stop the task and remove the session from the registry. |
 
 `start.spec` is encoded as a map whose `kind` matches the source kind.
@@ -154,7 +154,8 @@ Implemented server-side v0.1 kinds are `serial`, `tcp`, `udp`, `file`,
 source implementation is wired into the server runner.
 
 `start` MAY also include these backward-compatible optional fields as
-siblings of `spec`:
+siblings of `spec`. `restart` MAY include the same fields without
+`spec`; omitted fields keep the source's previously stored options.
 
 | Field | Type | Effect |
 | ----- | ---- | ------ |
@@ -163,8 +164,10 @@ siblings of `spec`:
 | `session_name_pattern` | string | Session-dir naming pattern for this start, using the same tokens as the server `--name-pattern` option. |
 
 These fields override server defaults for this logical source lifetime
-and are reused by `resume` / `restart`. Clients that do not understand
-them can omit them; older servers ignore unknown `ctl` fields.
+and are reused by `resume` / `restart`. On `restart`, supplied fields
+become the new stored options for later lifecycle actions. Clients that
+do not understand them can omit them; older servers ignore unknown `ctl`
+fields.
 
 Example:
 
@@ -175,6 +178,17 @@ Example:
   encoding: "shift_jis",
   classifier: [{ contains: "ERROR", tag: "fault" }],
   session_name_pattern: "{prefix}_{kind}_{iface}_{unix_ns}"
+}
+```
+
+Example restart that changes only the server-side text decoder from this
+point forward while keeping the previous `classifier` and
+`session_name_pattern`:
+
+```msgpack
+{
+  action: "restart",
+  encoding: "cp932"
 }
 ```
 

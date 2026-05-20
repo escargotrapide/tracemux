@@ -31,6 +31,7 @@ use wanlogger_core::time::{system::SystemTimeSource, TimeSource};
 use wanlogger_core::{ErrorId, WanloggerError};
 
 use crate::ingest::Ingest;
+use crate::remote_mirror::{self, RemoteTarget};
 use crate::runner::{run_source_once_notify, RunnerStats};
 
 type SharedSink = Arc<tokio::sync::Mutex<Box<dyn Sink>>>;
@@ -77,6 +78,57 @@ pub struct SourceStartOptions {
     pub encoding: Option<String>,
     /// Session-dir name pattern used when a new session-dir is created.
     pub session_name_pattern: Option<String>,
+}
+
+/// Serial-port parameters used for detected/bulk startup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SerialPortOptions {
+    /// Baud rate, for example `115200`.
+    pub baud: u32,
+    /// Data bits, normally `8`.
+    pub data_bits: u8,
+    /// Parity mode (`none`, `even`, or `odd`).
+    pub parity: String,
+    /// Stop bits (`1` or `2`).
+    pub stop_bits: u8,
+    /// Flow-control mode (`none`, `hardware`, or `software`).
+    pub flow: String,
+}
+
+impl Default for SerialPortOptions {
+    fn default() -> Self {
+        Self {
+            baud: 115_200,
+            data_bits: 8,
+            parity: "none".to_string(),
+            stop_bits: 1,
+            flow: "none".to_string(),
+        }
+    }
+}
+
+/// Result for one serial port in a bulk start request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SerialStartOutcome {
+    /// Serial port name, for example `COM7` or `/dev/ttyUSB0`.
+    pub port: String,
+    /// Session id when the port was opened successfully.
+    pub sid: Option<Uuid>,
+    /// Error message when opening failed.
+    pub error: Option<String>,
+}
+
+/// Build a serial [`ChannelSpec`] from a detected port and shared options.
+#[must_use]
+pub fn serial_spec_for_port(port: impl Into<String>, options: &SerialPortOptions) -> ChannelSpec {
+    ChannelSpec::Serial {
+        port: port.into(),
+        baud: options.baud,
+        data_bits: options.data_bits,
+        parity: options.parity.clone(),
+        stop_bits: options.stop_bits,
+        flow: options.flow.clone(),
+    }
 }
 
 /// Tracks running source tasks by session id.
@@ -287,6 +339,57 @@ impl SourceManager {
             .await
     }
 
+    /// Start one serial source per supplied port and return per-port outcomes.
+    ///
+    /// A failed port does not stop the rest of the batch, which keeps
+    /// `--open-all-serial` useful on hosts where one COM port is busy.
+    pub async fn start_serial_ports<I, P>(
+        &self,
+        ports: I,
+        serial_options: &SerialPortOptions,
+        start_options: SourceStartOptions,
+    ) -> Vec<SerialStartOutcome>
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<String>,
+    {
+        let mut outcomes = Vec::new();
+        for port in ports {
+            let port = port.into();
+            let spec = serial_spec_for_port(port.clone(), serial_options);
+            match self
+                .start_spec_with_options(spec, start_options.clone())
+                .await
+            {
+                Ok(sid) => outcomes.push(SerialStartOutcome {
+                    port,
+                    sid: Some(sid),
+                    error: None,
+                }),
+                Err(err) => outcomes.push(SerialStartOutcome {
+                    port,
+                    sid: None,
+                    error: Some(err.to_string()),
+                }),
+            }
+        }
+        outcomes
+    }
+
+    /// Detect host serial ports and start one source for each candidate.
+    pub async fn start_detected_serial_ports(
+        &self,
+        serial_options: &SerialPortOptions,
+        start_options: SourceStartOptions,
+    ) -> Vec<SerialStartOutcome> {
+        self.start_serial_ports(
+            wanlogger_core::detect::serial::list(),
+            serial_options,
+            start_options,
+        )
+        .await
+    }
+
     /// Resume a stopped or completed spec-backed source with the same `sid`.
     ///
     /// Unlike [`Self::restart`], this rejects still-running sources.
@@ -319,6 +422,20 @@ impl SourceManager {
     /// and existing session-dir, if any, are reused so subscribers and
     /// on-disk logs stay attached to the same logical source lifetime.
     pub async fn restart(&self, sid: Uuid) -> anyhow::Result<Uuid> {
+        self.restart_with_options(sid, SourceStartOptions::default())
+            .await
+    }
+
+    /// Restart a spec-backed source and merge new per-start options.
+    ///
+    /// `None` fields keep the source's previous options, while supplied
+    /// fields (for example `encoding`) become the new resume/restart
+    /// defaults for that source.
+    pub async fn restart_with_options(
+        &self,
+        sid: Uuid,
+        overrides: SourceStartOptions,
+    ) -> anyhow::Result<Uuid> {
         let (spec, session_dir, start_options) = {
             let mut sources = self.sources.lock();
             let entry = sources
@@ -332,7 +449,11 @@ impl SourceManager {
                 handle.abort();
             }
             entry.sink = None;
-            (spec, entry.session_dir.clone(), entry.start_options.clone())
+            (
+                spec,
+                entry.session_dir.clone(),
+                merge_start_options(entry.start_options.clone(), overrides),
+            )
         };
         self.start_spec_with_sid(sid, spec, session_dir, start_options)
             .await
@@ -363,6 +484,9 @@ impl SourceManager {
             ChannelSpec::Process { .. } => {
                 self.start_process_spec(sid, spec, time, session_dir, start_options)
                     .await
+            }
+            ChannelSpec::Remote { .. } => {
+                self.start_remote_spec(sid, spec, time, session_dir, start_options)
             }
             _ => {
                 self.start_source_only_spec(sid, spec, time, session_dir, start_options)
@@ -573,6 +697,45 @@ impl SourceManager {
                 "source kind not yet implemented in server: {other:?}"
             )),
         }
+    }
+
+    fn start_remote_spec(
+        &self,
+        sid: Uuid,
+        spec: ChannelSpec,
+        time: SystemTimeSource,
+        session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
+    ) -> anyhow::Result<Uuid> {
+        let ChannelSpec::Remote { url } = spec.clone() else {
+            unreachable!("start_remote_spec called with non-remote spec");
+        };
+        let target = RemoteTarget::parse(&url)?;
+        let decoder_label = "remote-mirror";
+        let logsink = Self::log_sink_for(sid, &spec, session_dir.as_deref(), decoder_label)?;
+        let mut state = wanlogger_core::session::registry::SessionState::new(
+            kind_tag(&spec),
+            target.display_target(),
+        );
+        state.sid = sid;
+        self.ingest.register_session(state);
+
+        let (sink, write_rx) = remote_mirror::RemoteWriteSink::channel();
+        let ingest = self.ingest.clone();
+        let handle = tokio::spawn(async move {
+            remote_mirror::run(ingest, sid, target, logsink, time, write_rx).await
+        });
+        self.sources.lock().insert(
+            sid,
+            SourceEntry {
+                spec: Some(spec),
+                session_dir,
+                start_options,
+                handle: Some(handle),
+                sink: Some(shared_sink(Box::new(sink))),
+            },
+        );
+        Ok(sid)
     }
 
     async fn start_default_pipeline<S>(
@@ -916,6 +1079,17 @@ fn shared_sink(sink: Box<dyn Sink>) -> SharedSink {
     Arc::new(tokio::sync::Mutex::new(sink))
 }
 
+fn merge_start_options(
+    base: SourceStartOptions,
+    overrides: SourceStartOptions,
+) -> SourceStartOptions {
+    SourceStartOptions {
+        classifier: overrides.classifier.or(base.classifier),
+        encoding: overrides.encoding.or(base.encoding),
+        session_name_pattern: overrides.session_name_pattern.or(base.session_name_pattern),
+    }
+}
+
 fn write_error(id: ErrorId, message: impl Into<String>) -> anyhow::Error {
     WanloggerError::new(id, message).into()
 }
@@ -970,6 +1144,7 @@ fn kind_tag(spec: &ChannelSpec) -> &'static str {
         ChannelSpec::HttpWebhook { .. } => "http-webhook",
         ChannelSpec::Telnet { .. } => "telnet",
         ChannelSpec::Ssh { .. } => "ssh",
+        ChannelSpec::Remote { .. } => "remote",
         _ => "other",
     }
 }
@@ -1001,6 +1176,7 @@ fn iface_tag(spec: &ChannelSpec) -> String {
         ChannelSpec::Mqtt { topic, .. } => sanitize(topic),
         ChannelSpec::Mock { tag } => sanitize(tag),
         ChannelSpec::Replay { path } => sanitize(path),
+        ChannelSpec::Remote { url } => sanitize(url),
         _ => "iface".to_string(),
     }
 }
@@ -1246,6 +1422,89 @@ mod tests {
 
         assert!(manager.remove(sid));
         assert!(ingest.registry.get(&sid).is_none());
+    }
+
+    #[tokio::test]
+    async fn restart_with_options_updates_persisted_encoding() {
+        // REQ: FR-WIRE-003
+        let root = tempdir();
+        let input = root.join("input.log");
+        std::fs::write(&input, [0x82, 0xA0]).unwrap();
+        let sessions = root.join("sessions");
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::with_session_root(ingest.clone(), &sessions);
+
+        let sid = manager
+            .start_spec(ChannelSpec::File {
+                path: input.to_string_lossy().to_string(),
+                follow: false,
+            })
+            .await
+            .unwrap();
+        manager.wait(sid).await.unwrap().unwrap();
+
+        let restarted = manager
+            .restart_with_options(
+                sid,
+                SourceStartOptions {
+                    encoding: Some("shift_jis".to_string()),
+                    ..SourceStartOptions::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(restarted, sid);
+        manager.wait(sid).await.unwrap().unwrap();
+
+        let session_dirs: Vec<_> = std::fs::read_dir(&sessions)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_dir())
+            .collect();
+        assert_eq!(session_dirs.len(), 1);
+        let lines = std::fs::read_to_string(session_dirs[0].join("lines.jsonl")).unwrap();
+        assert!(lines.contains("\\uFFFD") || lines.contains("�"));
+        assert!(lines.contains("あ"));
+        let frames = std::fs::read_to_string(session_dirs[0].join("frames.jsonl")).unwrap();
+        assert!(frames.contains("utf8-text:utf-8"));
+        assert!(frames.contains("utf8-text:shift_jis"));
+
+        assert!(manager.remove(sid));
+        assert!(ingest.registry.get(&sid).is_none());
+    }
+
+    #[test]
+    fn serial_spec_for_port_uses_bulk_options() {
+        // REQ: FR-CLI-008
+        let spec = serial_spec_for_port(
+            "COM7",
+            &SerialPortOptions {
+                baud: 9_600,
+                data_bits: 7,
+                parity: "even".to_string(),
+                stop_bits: 2,
+                flow: "hardware".to_string(),
+            },
+        );
+
+        match spec {
+            ChannelSpec::Serial {
+                port,
+                baud,
+                data_bits,
+                parity,
+                stop_bits,
+                flow,
+            } => {
+                assert_eq!(port, "COM7");
+                assert_eq!(baud, 9_600);
+                assert_eq!(data_bits, 7);
+                assert_eq!(parity, "even");
+                assert_eq!(stop_bits, 2);
+                assert_eq!(flow, "hardware");
+            }
+            other => panic!("wrong: {other:?}"),
+        }
     }
 
     #[tokio::test]

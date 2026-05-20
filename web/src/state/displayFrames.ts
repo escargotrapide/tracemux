@@ -46,13 +46,20 @@ function trimmed(value: string | undefined): string | null {
   return next ? next : null;
 }
 
+export function friendlySourceName(value: string | undefined): string | null {
+  const name = trimmed(value);
+  if (!name) return null;
+  const match = /^(serial|tcp|udp|file|process|pipe|mock|syslog|mqtt|http-webhook|telnet|ssh|replay):(.+)$/i.exec(name);
+  return trimmed(match?.[2]) ?? name;
+}
+
 export function labelForSid(
   sid: string,
   sources: DisplaySourceLookup,
   aliases: DisplayAliasLookup = {},
 ): string {
   return trimmed(aliases[sid]?.label)
-    ?? trimmed(sources[sid]?.name)
+    ?? friendlySourceName(sources[sid]?.name)
     ?? sid.slice(0, 8);
 }
 
@@ -62,8 +69,8 @@ export function sourceDisplayName(
   aliases: DisplayAliasLookup = {},
 ): string {
   return trimmed(aliases[payload.sid]?.label)
-    ?? trimmed(payload.source)
-    ?? trimmed(sources[payload.sid]?.name)
+    ?? friendlySourceName(sources[payload.sid]?.name)
+    ?? friendlySourceName(payload.source)
     ?? payload.sid.slice(0, 8);
 }
 

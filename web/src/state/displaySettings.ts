@@ -128,7 +128,7 @@ function nsToDate(tsNs: bigint | number): Date {
 }
 
 function parseGmtOffsetMinutes(timezone: string): number | null {
-  const match = /^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/i.exec(timezone.trim());
+  const match = /^(?:GMT)?([+-])(\d{1,2})(?::?(\d{2}))?$/i.exec(timezone.trim());
   if (!match) return null;
   const signToken = match[1];
   const hourToken = match[2];

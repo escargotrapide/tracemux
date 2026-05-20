@@ -8,6 +8,7 @@
 //! * `GET /api/ai/verify` ? last `target/ai-verify.json` (see [`crate::ai_api`])
 //! * `GET /api/sessions/{sid}/range` ? historical raw.bin streaming (see [`crate::range`])
 //! * `GET /api/sessions/{sid}/export` ? authenticated session export
+//! * `/api/annotations` - authenticated server-owned UI annotations
 //! * `GET /api/detect`    ? transport kinds and host serial candidates
 //!
 //! WSS (`/ws`) and TLS termination remain in the critical-path
@@ -65,6 +66,14 @@ pub fn build() -> Router {
 /// Build the public router plus authenticated session export.
 pub fn build_with_exports(export_state: crate::export_api::ExportRouteState) -> Router {
     build().merge(crate::export_api::router(export_state))
+}
+
+/// Build the public router plus authenticated session export and annotations.
+pub fn build_with_exports_and_annotations(
+    export_state: crate::export_api::ExportRouteState,
+    annotation_state: crate::annotation_api::AnnotationRouteState,
+) -> Router {
+    build_with_exports(export_state).merge(crate::annotation_api::router(annotation_state))
 }
 
 async fn healthz() -> &'static str {

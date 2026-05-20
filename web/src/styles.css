@@ -217,7 +217,7 @@ button:hover {
   min-height: 80px;
   min-width: 120px;
   resize: both;
-  overflow: auto;
+  overflow: hidden;
 }
 .wl-tile-header {
   font-size: 10px;
@@ -230,13 +230,34 @@ button:hover {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
   position: relative;
 }
 .wl-tile-body .xterm {
+  width: 100%;
   height: 100%;
 }
+.wl-tile-body .xterm-screen {
+  width: 100% !important;
+}
 .wl-tile-body .xterm-viewport {
-  overflow-y: auto !important;
+  overflow-y: scroll !important;
   pointer-events: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--wl-fg-muted) var(--wl-bg);
+}
+.wl-tile-body .xterm-viewport::-webkit-scrollbar {
+  width: 12px;
+}
+.wl-tile-body .xterm-viewport::-webkit-scrollbar-track {
+  background: var(--wl-bg);
+}
+.wl-tile-body .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--wl-fg-muted);
+  border: 3px solid var(--wl-bg);
+  border-radius: 999px;
+}
+.wl-tile-body .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--wl-accent);
 }

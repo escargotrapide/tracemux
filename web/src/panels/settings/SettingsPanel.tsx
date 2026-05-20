@@ -4,8 +4,13 @@
 //
 // REQ: FR-UI-014
 
-import { createSignal, For } from "solid-js";
+import { createSignal, For, onMount } from "solid-js";
 import { t } from "~/i18n";
+import { pushToast } from "~/state";
+import {
+  loadAndApplyLogTypeAnnotations,
+  syncLogTypeNoteToServer,
+} from "~/state/annotationSync";
 import {
   deleteClassificationRule,
   orderedClassificationRules,
@@ -27,8 +32,15 @@ function numberValue(value: string): number {
   return Number(value);
 }
 
+type AnnotationSyncStatus = "idle" | "loading" | "syncing" | "synced" | "error";
+
+function annotationSyncLabel(status: AnnotationSyncStatus): string {
+  return t(`annotations.sync.${status}`);
+}
+
 export function SettingsPanel() {
   const [logTypeKey, setLogTypeKey] = createSignal("bytes");
+  const [logTypeSyncStatus, setLogTypeSyncStatus] = createSignal<AnnotationSyncStatus>("idle");
   const [ruleContains, setRuleContains] = createSignal("");
   const [ruleTag, setRuleTag] = createSignal("");
   const [ruleCaseSensitive, setRuleCaseSensitive] = createSignal(false);
@@ -36,6 +48,17 @@ export function SettingsPanel() {
     const key = normalizeLogTypeKey(logTypeKey());
     return key ? logTypeNotes[key]?.text ?? "" : "";
   };
+
+  onMount(() => {
+    setLogTypeSyncStatus("loading");
+    void loadAndApplyLogTypeAnnotations()
+      .then(() => setLogTypeSyncStatus("synced"))
+      .catch((err) => {
+        setLogTypeSyncStatus("error");
+        console.warn("E-UI-ANNOTATION-SYNC load log type notes failed", err);
+        pushToast({ level: "warn", message: t("settings.log_type_notes.sync_failed") });
+      });
+  });
 
   function addRule(): void {
     upsertClassificationRule({
@@ -47,6 +70,20 @@ export function SettingsPanel() {
     setRuleContains("");
     setRuleTag("");
     setRuleCaseSensitive(false);
+  }
+
+  function syncSelectedLogTypeNote(): void {
+    const key = normalizeLogTypeKey(logTypeKey());
+    const note = key ? logTypeNotes[key] : undefined;
+    if (!note) return;
+    setLogTypeSyncStatus("syncing");
+    void syncLogTypeNoteToServer(note)
+      .then(() => setLogTypeSyncStatus("synced"))
+      .catch((err) => {
+        setLogTypeSyncStatus("error");
+        console.warn("E-UI-ANNOTATION-SYNC save log type note failed", err);
+        pushToast({ level: "warn", message: t("settings.log_type_notes.sync_failed") });
+      });
   }
 
   return (
@@ -95,16 +132,25 @@ export function SettingsPanel() {
         </label>
         <label class="wl-settings-row">
           <span>{t("settings.timezone")}</span>
-          <select
+          <input
+            type="text"
+            list="wl-settings-timezones"
             value={displaySettings.timezone}
-            onChange={(ev) => updateDisplaySettings({ timezone: ev.currentTarget.value })}
-          >
-            <option value="local">{t("settings.timezone.local")}</option>
-            <option value="UTC">UTC</option>
-            <option value="Asia/Tokyo">Asia/Tokyo</option>
-            <option value="GMT+09:00">GMT+09:00</option>
-          </select>
+            onInput={(ev) => updateDisplaySettings({ timezone: ev.currentTarget.value })}
+            placeholder={t("settings.timezone.placeholder")}
+          />
         </label>
+        <datalist id="wl-settings-timezones">
+          <option value="local">{t("settings.timezone.local")}</option>
+          <option value="UTC" />
+          <option value="Asia/Tokyo" />
+          <option value="GMT+9" />
+          <option value="GMT+09:00" />
+          <option value="+09:00" />
+        </datalist>
+        <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+          {t("settings.timezone.help")}
+        </div>
       </section>
 
       <section class="wl-settings-section">
@@ -295,11 +341,20 @@ export function SettingsPanel() {
             const key = normalizeLogTypeKey(logTypeKey());
             if (key) updateLogTypeNote(key, ev.currentTarget.value);
           }}
+          onBlur={syncSelectedLogTypeNote}
           placeholder={t("settings.log_type_notes.placeholder")}
           style={{ width: "100%", "min-height": "86px", resize: "vertical" }}
         />
-        <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px", "margin-top": "4px" }}>
-          {t("settings.log_type_notes.help")}
+        <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px", "margin-top": "4px", display: "flex", gap: "8px", "align-items": "center", "flex-wrap": "wrap" }}>
+          <span>{t("settings.log_type_notes.help")}</span>
+          <button
+            type="button"
+            onClick={syncSelectedLogTypeNote}
+            disabled={logTypeSyncStatus() === "loading" || logTypeSyncStatus() === "syncing"}
+          >
+            {t("annotations.sync.now")}
+          </button>
+          <span>{annotationSyncLabel(logTypeSyncStatus())}</span>
         </div>
       </section>
     </div>

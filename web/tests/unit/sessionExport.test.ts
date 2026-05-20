@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  renderSessionExportFilename,
   sessionExportFilename,
   sessionExportUrl,
 } from "../../src/adapters/sessionExport";
@@ -33,5 +34,25 @@ describe("sessionExport", () => {
     expect(sessionExportFilename("sid", "text")).toBe("wanlogger-sid.txt");
     expect(sessionExportFilename("sid", "csv")).toBe("wanlogger-sid.csv");
     expect(sessionExportFilename("sid", "jsonl")).toBe("wanlogger-sid.jsonl");
+  });
+
+  it("renders safe custom download filenames", () => {
+    // REQ: FR-EXP-001
+    expect(
+      renderSessionExportFilename("{source}_{timestamp}.{ext}", {
+        sid: "sid",
+        format: "text",
+        sourceName: "serial:COM7/motor",
+        timestamp: "2026-05-20T01:02:03Z",
+      }),
+    ).toBe("serial-COM7-motor_2026-05-20T010203Z.txt");
+
+    expect(
+      renderSessionExportFilename("{source}_{format}", {
+        sid: "sid",
+        format: "csv",
+        sourceName: "COM7",
+      }),
+    ).toMatch(/^COM7_csv\.csv$/);
   });
 });

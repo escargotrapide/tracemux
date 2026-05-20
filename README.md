@@ -68,10 +68,39 @@ The web UI can start sources from URI-style specs such as
 `tcp://127.0.0.1:5555`. Source presets are browser-local and store only
 the source spec, never log data.
 
+For serial-heavy sessions, the UI can detect COM ports and open the
+checked ports in bulk. The server/CLI can also autostart serial ports at
+launch with `wanlogger serve --open-all-serial`; add repeated
+`--serial-port PORT` flags to restrict the set instead of opening every
+detected port.
+
+The UI also includes browser-local ergonomics for daily log work:
+
+- default, per-source, and per-channel display encodings for live byte
+  decoding, with an explicit restart action to apply a selected
+  per-source encoding to server-side decoded/persisted logs from that
+  point forward;
+- substring classification rules that surface as log-type/tag filters;
+- source/session notes and log-type notes stored only as local
+  annotations;
+- timezone display controls accepting values such as `local`, `UTC`,
+  `Asia/Tokyo`, `GMT+9`, or `+09:00`;
+- export download filename patterns using `{sid}`, `{source}`,
+  `{timestamp}`, `{format}`, and `{ext}` tokens.
+
+Captured log bytes and session-dir persistence remain server-owned; the
+browser stores preferences and annotations only.
+
 For hardware-free source testing, use the virtual counterparty tool documented
 in [`docs/dev/virtual-peer.md`](docs/dev/virtual-peer.md). Its TCP mode is the
 driver-free E2E path; its serial mode works with an existing COM port or a
 virtual COM pair.
+
+For remote COM sessions where one PC owns the COM port and another PC, human UI,
+or AI client needs to observe and send commands, see
+[`docs/dev/remote-com-ai.md`](docs/dev/remote-com-ai.md). It describes the
+current architecture-safe topology, protected connection options, persistence
+checks, and the remaining hardening work before direct LAN exposure.
 
 ## License
 

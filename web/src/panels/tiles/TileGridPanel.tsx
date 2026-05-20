@@ -22,7 +22,12 @@ import {
   sourceDisplayName,
 } from "~/state/displayFrames";
 import { sourceAliases } from "~/state/sourceAliases";
-import { sourceEncodings } from "~/state/sourceEncodings";
+import {
+  channelEncodingKey,
+  encodingForChannel,
+  sourceEncodings,
+  sourceEncodingKey,
+} from "~/state/sourceEncodings";
 import { sourceStartOptions } from "~/state/sourceStartOptions";
 import { observeVisibility, TILE_COUNT } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
@@ -31,6 +36,14 @@ import { t } from "~/i18n";
 interface TileBinding {
   sid: string;
   ch: number;
+}
+
+const BOTTOM_TOLERANCE_PX = 8;
+
+interface ScrollSnapshot {
+  follow: boolean;
+  rowsFromBottom: number | null;
+  pixelsFromBottom: number | null;
 }
 
 function deriveBindings(): TileBinding[] {
@@ -64,16 +77,72 @@ function Tile(props: TileBinding) {
     }
   }
 
+  function viewportElement(): HTMLElement | null {
+    return host?.querySelector<HTMLElement>(".xterm-viewport") ?? null;
+  }
+
+  function pixelsFromBottom(): number | null {
+    const viewport = viewportElement();
+    if (!viewport) return null;
+    return Math.max(0, viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight);
+  }
+
   function isAtBottom(): boolean {
+    const px = pixelsFromBottom();
+    if (px !== null) return px <= BOTTOM_TOLERANCE_PX;
     const active = term?.buffer.active;
     if (!active) return true;
     return active.viewportY >= active.baseY - 1;
   }
 
+  function rowsFromBottom(): number | null {
+    const active = term?.buffer.active;
+    if (!active) return null;
+    return Math.max(0, active.baseY - active.viewportY);
+  }
+
+  function captureScroll(forceFollow?: boolean): ScrollSnapshot {
+    return {
+      follow: forceFollow ?? isAtBottom(),
+      rowsFromBottom: rowsFromBottom(),
+      pixelsFromBottom: pixelsFromBottom(),
+    };
+  }
+
+  function scrollViewportToBottom(): void {
+    const viewport = viewportElement();
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
+  }
+
+  function restoreScroll(snapshot: ScrollSnapshot): void {
+    requestAnimationFrame(() => {
+      safeFit();
+      requestAnimationFrame(() => {
+        if (!term) return;
+        if (snapshot.follow) {
+          term.scrollToBottom();
+          scrollViewportToBottom();
+          return;
+        }
+        const viewport = viewportElement();
+        if (viewport && snapshot.pixelsFromBottom !== null) {
+          viewport.scrollTop = Math.max(
+            0,
+            viewport.scrollHeight - viewport.clientHeight - snapshot.pixelsFromBottom,
+          );
+          return;
+        }
+        if (snapshot.rowsFromBottom === null) return;
+        const active = term.buffer.active;
+        term.scrollToLine(Math.max(0, active.baseY - snapshot.rowsFromBottom));
+      });
+    });
+  }
+
   function writeRendered(text: string, newline: boolean): void {
     const follow = isAtBottom();
     const done = () => {
-      if (follow) term?.scrollToBottom();
+      if (follow) restoreScroll({ follow: true, rowsFromBottom: null, pixelsFromBottom: null });
     };
     if (newline) {
       term?.writeln(text, done);
@@ -84,25 +153,26 @@ function Tile(props: TileBinding) {
 
   function renderFrame(p: DataPayload, enforceLimit = true): void {
     const sourceLabel = sourceDisplayName(p, sourcesStore, sourceAliases);
-    const encoding = sourceEncodings[p.sid]?.encoding ?? sourceStartOptions.encoding;
+    const encoding = encodingForChannel(p.sid, p.ch, sourceStartOptions.encoding);
     const extraTags = clientClassificationTags(p, enabledClassificationRules(), encoding);
     const rendered = renderPayload(p, displaySettings, sourceLabel, { encoding, extraTags });
     renderedRecords += 1;
     if (enforceLimit && renderedRecords > displaySettings.tileMaxRecords) {
-      redrawFromBuffer();
+      redrawFromBuffer(isAtBottom());
       return;
     }
     writeRendered(rendered.text, rendered.newline);
   }
 
-  function redrawFromBuffer(): void {
+  function redrawFromBuffer(forceFollow?: boolean): void {
     if (!term) return;
+    const scroll = captureScroll(forceFollow);
     renderedRecords = 0;
     term.clear();
     for (const frame of getChannelFrames(props.sid, props.ch, displaySettings.tileMaxRecords)) {
       renderFrame(frame, false);
     }
-    term.scrollToBottom();
+    restoreScroll(scroll);
   }
 
   onMount(() => {
@@ -120,9 +190,9 @@ function Tile(props: TileBinding) {
     unsub = useChannel(props.sid, props.ch, (p: DataPayload) => {
       renderFrame(p);
     });
-    redrawFromBuffer();
+    redrawFromBuffer(true);
     unobserve = observeVisibility(host, { sid: props.sid, ch: props.ch });
-    resizeObs = new ResizeObserver(() => requestAnimationFrame(safeFit));
+    resizeObs = new ResizeObserver(() => restoreScroll(captureScroll()));
     resizeObs.observe(host);
   });
 
@@ -134,7 +204,8 @@ function Tile(props: TileBinding) {
     displaySettings.showSource;
     displaySettings.timezone;
     displaySettings.tileMaxRecords;
-    sourceEncodings[props.sid]?.encoding;
+    sourceEncodings[sourceEncodingKey(props.sid)]?.encoding;
+    sourceEncodings[channelEncodingKey(props.sid, props.ch)]?.encoding;
     sourceStartOptions.encoding;
     enabledClassificationRules();
     redrawFromBuffer();

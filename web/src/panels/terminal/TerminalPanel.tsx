@@ -34,13 +34,19 @@ import {
   clientClassificationTags,
   DEFAULT_DISPLAY_FILTER,
   labelForSid,
+  mergedTags,
   payloadMatchesFilter,
   renderPayload,
   sourceDisplayName,
   type DisplayFilter,
 } from "~/state/displayFrames";
 import { sourceAliases } from "~/state/sourceAliases";
-import { sourceEncodings } from "~/state/sourceEncodings";
+import {
+  channelEncodingKey,
+  encodingForChannel,
+  sourceEncodings,
+  sourceEncodingKey,
+} from "~/state/sourceEncodings";
 import { sourceStartOptions } from "~/state/sourceStartOptions";
 import { observeVisibility } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
@@ -53,6 +59,27 @@ export interface TerminalPanelProps {
 
 const encoder = new TextEncoder();
 const DATA_KINDS: DataPayload["kind"][] = ["bytes", "datagram", "frame", "record"];
+const LOG_TYPE_ALL = "all";
+const LOG_TYPE_CUSTOM = "custom";
+
+type LogTypeSelection = typeof LOG_TYPE_ALL | typeof LOG_TYPE_CUSTOM | `kind:${DataPayload["kind"]}` | `tag:${string}`;
+
+function kindSelection(kind: DataPayload["kind"]): LogTypeSelection {
+  return `kind:${kind}`;
+}
+
+function tagSelection(tag: string): LogTypeSelection {
+  return `tag:${tag}`;
+}
+
+function logTypeLabel(selection: LogTypeSelection): string {
+  if (selection === LOG_TYPE_ALL) return t("terminal.filter_all");
+  if (selection === LOG_TYPE_CUSTOM) return t("terminal.log_type_custom");
+  if (selection.startsWith("kind:")) {
+    return `${t("terminal.log_type_kind")}: ${selection.slice("kind:".length)}`;
+  }
+  return `${t("terminal.log_type_tag")}: ${selection.slice("tag:".length)}`;
+}
 
 export function TerminalPanel(props: TerminalPanelProps) {
   let host!: HTMLDivElement;
@@ -71,6 +98,8 @@ export function TerminalPanel(props: TerminalPanelProps) {
   );
   const [filterTag, setFilterTag] = createSignal(DEFAULT_DISPLAY_FILTER.tagQuery);
   const [filterSource, setFilterSource] = createSignal(DEFAULT_DISPLAY_FILTER.sourceQuery);
+  const [logTypeSelection, setLogTypeSelection] = createSignal<LogTypeSelection>(LOG_TYPE_ALL);
+  const [bufferVersion, setBufferVersion] = createSignal(0);
 
   const sidOptions = createMemo(() => Object.values(sourcesStore));
   const chOptions = createMemo(() => {
@@ -87,6 +116,47 @@ export function TerminalPanel(props: TerminalPanelProps) {
     tagQuery: filterTag(),
     sourceQuery: filterSource(),
   }));
+  const logTypeOptions = createMemo(() => {
+    bufferVersion();
+    const options = new Map<LogTypeSelection, string>();
+    options.set(LOG_TYPE_ALL, logTypeLabel(LOG_TYPE_ALL));
+    for (const kind of DATA_KINDS) {
+      const selection = kindSelection(kind);
+      options.set(selection, logTypeLabel(selection));
+    }
+    for (const frame of getChannelFrames(sid(), ch(), displaySettings.terminalMaxRecords)) {
+      const encoding = encodingForChannel(frame.sid, frame.ch, sourceStartOptions.encoding);
+      const tags = mergedTags(
+        frame,
+        clientClassificationTags(frame, enabledClassificationRules(), encoding),
+      );
+      for (const tag of tags) {
+        const selection = tagSelection(tag);
+        options.set(selection, logTypeLabel(selection));
+      }
+    }
+    if (logTypeSelection() === LOG_TYPE_CUSTOM) {
+      options.set(LOG_TYPE_CUSTOM, logTypeLabel(LOG_TYPE_CUSTOM));
+    }
+    return [...options.entries()].map(([value, label]) => ({ value, label }));
+  });
+
+  function applyLogTypeSelection(selection: LogTypeSelection): void {
+    setLogTypeSelection(selection);
+    if (selection === LOG_TYPE_ALL) {
+      setFilterKind("all");
+      setFilterTag("");
+      return;
+    }
+    if (selection === LOG_TYPE_CUSTOM) return;
+    if (selection.startsWith("kind:")) {
+      setFilterKind(selection.slice("kind:".length) as DataPayload["kind"]);
+      setFilterTag("");
+      return;
+    }
+    setFilterKind("all");
+    setFilterTag(selection.slice("tag:".length));
+  }
 
   function isAtBottom(): boolean {
     const active = term?.buffer.active;
@@ -108,7 +178,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
 
   function renderFrame(p: DataPayload, enforceLimit = true): void {
     const sourceLabel = sourceDisplayName(p, sourcesStore, sourceAliases);
-    const encoding = sourceEncodings[p.sid]?.encoding ?? sourceStartOptions.encoding;
+    const encoding = encodingForChannel(p.sid, p.ch, sourceStartOptions.encoding);
     const extraTags = clientClassificationTags(p, enabledClassificationRules(), encoding);
     if (!payloadMatchesFilter(p, activeFilter(), sourceLabel, extraTags)) return;
     const rendered = renderPayload(p, displaySettings, sourceLabel, { encoding, extraTags });
@@ -136,6 +206,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
     if (!hasActiveSource()) return;
     unsub = useChannel(sid(), ch(), (p: DataPayload) => {
       renderFrame(p);
+      setBufferVersion((value) => value + 1);
     });
   }
 
@@ -268,7 +339,8 @@ export function TerminalPanel(props: TerminalPanelProps) {
     displaySettings.showSource;
     displaySettings.timezone;
     displaySettings.terminalMaxRecords;
-    sourceEncodings[sid()]?.encoding;
+    sourceEncodings[sourceEncodingKey(sid())]?.encoding;
+    sourceEncodings[channelEncodingKey(sid(), ch())]?.encoding;
     sourceStartOptions.encoding;
     enabledClassificationRules();
     redrawFromBuffer();
@@ -341,10 +413,25 @@ export function TerminalPanel(props: TerminalPanelProps) {
           </For>
         </select>
         <label>
+          {t("terminal.log_type_switch")} {" "}
+          <select
+            value={logTypeSelection()}
+            onChange={(e) => applyLogTypeSelection(e.currentTarget.value as LogTypeSelection)}
+            aria-label={t("terminal.log_type_switch")}
+          >
+            <For each={logTypeOptions()}>
+              {(option) => <option value={option.value}>{option.label}</option>}
+            </For>
+          </select>
+        </label>
+        <label>
           {t("terminal.filter_kind")} {" "}
           <select
             value={filterKind()}
-            onChange={(e) => setFilterKind(e.currentTarget.value as DisplayFilter["kind"])}
+            onChange={(e) => {
+              setFilterKind(e.currentTarget.value as DisplayFilter["kind"]);
+              setLogTypeSelection(LOG_TYPE_CUSTOM);
+            }}
             aria-label={t("terminal.filter_kind")}
           >
             <option value="all">{t("terminal.filter_all")}</option>
@@ -356,7 +443,10 @@ export function TerminalPanel(props: TerminalPanelProps) {
         <input
           type="search"
           value={filterTag()}
-          onInput={(e) => setFilterTag(e.currentTarget.value)}
+          onInput={(e) => {
+            setFilterTag(e.currentTarget.value);
+            setLogTypeSelection(e.currentTarget.value.trim() ? LOG_TYPE_CUSTOM : LOG_TYPE_ALL);
+          }}
           placeholder={t("terminal.filter_tag_placeholder")}
           aria-label={t("terminal.filter_tag")}
           style={{ width: "120px" }}

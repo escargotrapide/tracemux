@@ -585,7 +585,14 @@ async fn restart_source_ctl(
         Ok(sid) => sid,
         Err(reply) => return queue_envelope(out_tx, &reply, peer).await,
     };
-    match source_manager.restart(sid).await {
+    let start_options = match start_options_from_payload(&env.payload) {
+        Ok(options) => options,
+        Err(message) => return queue_envelope(out_tx, &ctl_error(env.seq, message), peer).await,
+    };
+    match source_manager
+        .restart_with_options(sid, start_options)
+        .await
+    {
         Ok(sid) => {
             let reply = ctl_event(env.seq, "restarted", "source restarted", Some(sid));
             queue_envelope(out_tx, &reply, peer).await
@@ -1101,6 +1108,36 @@ mod tests {
         let r = handle_envelope(&env).expect("reply");
         assert_eq!(r.kind, FrameType::Pong);
         assert_eq!(r.seq, 42);
+    }
+
+    #[test]
+    fn restart_payload_accepts_lifecycle_start_options() {
+        // REQ: FR-WIRE-003
+        let payload = Value::Map(vec![
+            (
+                Value::String("action".into()),
+                Value::String("restart".into()),
+            ),
+            (
+                Value::String("encoding".into()),
+                Value::String("cp932".into()),
+            ),
+            (
+                Value::String("classifier".into()),
+                Value::Array(vec![Value::Map(vec![
+                    (
+                        Value::String("contains".into()),
+                        Value::String("ERROR".into()),
+                    ),
+                    (Value::String("tag".into()), Value::String("fault".into())),
+                    (Value::String("case_sensitive".into()), Value::Boolean(true)),
+                ])]),
+            ),
+        ]);
+
+        let options = start_options_from_payload(&payload).unwrap();
+        assert_eq!(options.encoding.as_deref(), Some("cp932"));
+        assert!(options.classifier.is_some());
     }
 
     #[test]

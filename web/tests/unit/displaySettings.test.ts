@@ -77,8 +77,14 @@ describe("display settings", () => {
   it("formats UTC and GMT offset timestamps", () => {
     // REQ: FR-UI-014
     expect(formatTimestampNs(0, { timezone: "UTC" })).toContain("UTC");
+    expect(formatTimestampNs(0, { timezone: "GMT+9" })).toMatch(
+      /1970-01-01.*09:00:00.*GMT\+9/,
+    );
     expect(formatTimestampNs(0, { timezone: "GMT+09:00" })).toMatch(
       /1970-01-01.*09:00:00.*GMT\+09:00/,
+    );
+    expect(formatTimestampNs(0, { timezone: "+09:00" })).toMatch(
+      /1970-01-01.*09:00:00.*\+09:00/,
     );
   });
 });

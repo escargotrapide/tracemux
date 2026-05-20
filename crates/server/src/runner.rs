@@ -132,7 +132,7 @@ fn frame_payload(frame: Frame) -> Bytes {
     }
 }
 
-fn encode_data_envelope(
+pub(crate) fn encode_data_envelope(
     sid: Uuid,
     ch: u32,
     seq: u64,

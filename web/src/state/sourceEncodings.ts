@@ -5,6 +5,7 @@ export const SOURCE_ENCODINGS_STORAGE_KEY = "wanlogger.sourceEncodings.v1";
 
 export interface SourceEncoding {
   sid: string;
+  ch?: number;
   encoding: string;
   updatedAt: number;
 }
@@ -18,16 +19,46 @@ function defaultStorage(): StorageLike | undefined {
   return window.localStorage;
 }
 
-function normalizeRecord(value: unknown, fallbackSid: string): SourceEncoding | null {
+function validChannel(value: unknown): number | undefined {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) return undefined;
+  return parsed;
+}
+
+export function sourceEncodingKey(sid: string): string {
+  return sid.trim();
+}
+
+export function channelEncodingKey(sid: string, ch: number): string {
+  return `${sourceEncodingKey(sid)}/${Math.max(0, Math.trunc(ch))}`;
+}
+
+function keyParts(key: string): Pick<SourceEncoding, "sid" | "ch"> {
+  const slash = key.lastIndexOf("/");
+  if (slash <= 0) return { sid: key.trim() };
+  const sid = key.slice(0, slash).trim();
+  const ch = validChannel(key.slice(slash + 1));
+  return ch === undefined ? { sid } : { sid, ch };
+}
+
+function recordKey(record: Pick<SourceEncoding, "sid" | "ch">): string {
+  return record.ch === undefined
+    ? sourceEncodingKey(record.sid)
+    : channelEncodingKey(record.sid, record.ch);
+}
+
+function normalizeRecord(value: unknown, fallbackKey: string): SourceEncoding | null {
   if (!value || typeof value !== "object") return null;
   const input = value as Partial<SourceEncoding>;
-  const sid = typeof input.sid === "string" && input.sid.trim() ? input.sid.trim() : fallbackSid;
+  const fallback = keyParts(fallbackKey);
+  const sid = typeof input.sid === "string" && input.sid.trim() ? input.sid.trim() : fallback.sid;
   if (!sid) return null;
+  const ch = input.ch === undefined ? fallback.ch : validChannel(input.ch);
   const encoding = normalizeEncoding(input.encoding);
   const updatedAt = typeof input.updatedAt === "number" && Number.isFinite(input.updatedAt)
     ? Math.max(0, Math.trunc(input.updatedAt))
     : 0;
-  return { sid, encoding, updatedAt };
+  return ch === undefined ? { sid, encoding, updatedAt } : { sid, ch, encoding, updatedAt };
 }
 
 export function normalizeSourceEncodings(value: unknown): SourceEncodings {
@@ -35,7 +66,7 @@ export function normalizeSourceEncodings(value: unknown): SourceEncodings {
   const out: SourceEncodings = {};
   for (const [sid, raw] of Object.entries(value as Record<string, unknown>)) {
     const record = normalizeRecord(raw, sid);
-    if (record && record.encoding !== DEFAULT_SOURCE_ENCODING) out[record.sid] = record;
+    if (record && record.encoding !== DEFAULT_SOURCE_ENCODING) out[recordKey(record)] = record;
   }
   return out;
 }
@@ -65,8 +96,17 @@ const [sourceEncodingsStore, setSourceEncodingsStore] = createStore<SourceEncodi
 
 export const sourceEncodings = sourceEncodingsStore;
 
-export function encodingForSource(sid: string): string {
-  return sourceEncodingsStore[sid]?.encoding ?? DEFAULT_SOURCE_ENCODING;
+export function encodingForSource(sid: string, fallback = DEFAULT_SOURCE_ENCODING): string {
+  return sourceEncodingsStore[sourceEncodingKey(sid)]?.encoding ?? fallback;
+}
+
+export function encodingForChannel(
+  sid: string,
+  ch: number,
+  fallback = DEFAULT_SOURCE_ENCODING,
+): string {
+  return sourceEncodingsStore[channelEncodingKey(sid, ch)]?.encoding
+    ?? encodingForSource(sid, fallback);
 }
 
 export function updateSourceEncoding(
@@ -80,14 +120,46 @@ export function updateSourceEncoding(
     deleteSourceEncoding(sid, storage);
     return null;
   }
-  setSourceEncodingsStore(record.sid, record);
-  saveSourceEncodings({ ...sourceEncodingsStore, [record.sid]: record }, storage);
+  const key = recordKey(record);
+  setSourceEncodingsStore(key, record);
+  saveSourceEncodings({ ...sourceEncodingsStore, [key]: record }, storage);
+  return record;
+}
+
+export function updateChannelEncoding(
+  sid: string,
+  ch: number,
+  encoding: string,
+  storage = defaultStorage(),
+  now = Date.now(),
+): SourceEncoding | null {
+  const key = channelEncodingKey(sid, ch);
+  const record = normalizeRecord({ sid, ch, encoding, updatedAt: now }, key);
+  if (!record || record.encoding === encodingForSource(sid)) {
+    deleteChannelEncoding(sid, ch, storage);
+    return null;
+  }
+  setSourceEncodingsStore(key, record);
+  saveSourceEncodings({ ...sourceEncodingsStore, [key]: record }, storage);
   return record;
 }
 
 export function deleteSourceEncoding(sid: string, storage = defaultStorage()): void {
-  setSourceEncodingsStore(sid, undefined as unknown as SourceEncoding);
+  const key = sourceEncodingKey(sid);
+  setSourceEncodingsStore(key, undefined as unknown as SourceEncoding);
   const next = { ...sourceEncodingsStore };
-  delete next[sid];
+  delete next[key];
+  saveSourceEncodings(next, storage);
+}
+
+export function deleteChannelEncoding(
+  sid: string,
+  ch: number,
+  storage = defaultStorage(),
+): void {
+  const key = channelEncodingKey(sid, ch);
+  setSourceEncodingsStore(key, undefined as unknown as SourceEncoding);
+  const next = { ...sourceEncodingsStore };
+  delete next[key];
   saveSourceEncodings(next, storage);
 }

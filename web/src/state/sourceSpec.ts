@@ -85,6 +85,8 @@ export function parseSourceSpec(input: string): SourceSpec {
       return { kind: "process", argv: parseProcessArgv(body, query) };
     case "mock":
       return { kind: "mock", tag: decodePart(body) };
+    case "remote":
+      return { kind: "remote", url: decodePart(body) };
     case "serial":
       return {
         kind: "serial",

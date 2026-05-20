@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   SOURCE_ENCODINGS_STORAGE_KEY,
+  channelEncodingKey,
+  encodingForChannel,
   encodingForSource,
   loadSourceEncodings,
   normalizeSourceEncodings,
   saveSourceEncodings,
+  updateChannelEncoding,
   updateSourceEncoding,
 } from "../../src/state/sourceEncodings";
 
@@ -26,11 +29,13 @@ describe("source encodings", () => {
     expect(
       normalizeSourceEncodings({
         sid1: { encoding: " Shift_JIS ", updatedAt: 3 },
+        "sid1/1": { encoding: " euc-jp ", updatedAt: 4 },
         sid2: { encoding: "utf-8" },
         bad: null,
       }),
     ).toEqual({
       sid1: { sid: "sid1", encoding: "shift_jis", updatedAt: 3 },
+      "sid1/1": { sid: "sid1", ch: 1, encoding: "euc-jp", updatedAt: 4 },
     });
   });
 
@@ -51,6 +56,22 @@ describe("source encodings", () => {
       storage,
     );
     expect(loadSourceEncodings(storage)).toEqual(saved);
+  });
+
+  it("supports channel-level overrides with source fallback", () => {
+    // REQ: FR-UI-014
+    const storage = new FakeStorage();
+    updateSourceEncoding("sid1", "cp932", storage, 10);
+    const record = updateChannelEncoding("sid1", 1, "shift_jis", storage, 11);
+
+    expect(record).toEqual({ sid: "sid1", ch: 1, encoding: "shift_jis", updatedAt: 11 });
+    expect(loadSourceEncodings(storage)[channelEncodingKey("sid1", 1)]?.encoding).toBe("shift_jis");
+    expect(encodingForSource("sid1")).toBe("cp932");
+    expect(encodingForChannel("sid1", 0)).toBe("cp932");
+    expect(encodingForChannel("sid1", 1)).toBe("shift_jis");
+
+    expect(updateChannelEncoding("sid1", 1, "cp932", storage)).toBeNull();
+    expect(loadSourceEncodings(storage)[channelEncodingKey("sid1", 1)]).toBeUndefined();
   });
 
   it("ignores malformed stored data", () => {
