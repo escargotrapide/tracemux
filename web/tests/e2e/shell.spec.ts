@@ -162,3 +162,48 @@ test("tile xterm viewport remains mouse-scrollable", async ({ page }) => {
   expect(styles.bodyOverflowY).not.toBe("hidden");
   expect(styles.pointerEvents).not.toBe("none");
 });
+
+test("source detail export button calls the HTTP export API", async ({ page }) => {
+  // REQ: FR-EXP-001
+  let exportUrl = "";
+  await page.route("http://127.0.0.1:9000/api/sessions/**/export?**", async (route) => {
+    exportUrl = route.request().url();
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+      body: "2024-01-01T09:00:00+09:00\tvirt-peer-e2e\n",
+    });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 2,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "11111111-1111-4111-8111-111111111111",
+          name: "Export Source",
+          kind: "tcp",
+          status: "stopped",
+          channels: [0],
+          bytes_in: 42,
+          persistent: true,
+          session_dir: "C:/tmp/wanlogger-session",
+        },
+      ],
+    },
+  });
+
+  await expect(page.getByRole("cell", { name: "Export Source" })).toBeVisible();
+  await page.getByRole("button", { name: "Details" }).click();
+  await page.getByLabel("Export timezone").fill("GMT+9");
+  await page.getByRole("button", { name: "Download text" }).click();
+
+  await expect.poll(() => exportUrl).toContain("/api/sessions/11111111-1111-4111-8111-111111111111/export");
+  expect(exportUrl).toContain("format=text");
+  expect(exportUrl).toContain("tz=GMT%2B9");
+  await expect(page.getByText("Export download requested")).toBeVisible();
+});
