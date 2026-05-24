@@ -17,11 +17,16 @@ param(
 
 $ErrorActionPreference = 'Continue'
 
+# Keep the default gate runnable on machines without host packet-capture SDKs.
+# `pcap-capture` is verified explicitly on configured environments because it
+# links Npcap/libpcap (`wpcap.lib` on Windows).
+$ciSafeFeatures = 'serial,metrics,desktop,headless'
+
 $steps = @(
     @{ name = 'encoding-check'; cmd = 'pwsh'; words = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-encoding.ps1') }
     @{ name = 'fmt-check';      cmd = 'cargo'; words = @('fmt', '--all', '--', '--check') }
-    @{ name = 'clippy';         cmd = 'cargo'; words = @('clippy', '--workspace', '--all-targets', '--all-features', '--', '-D', 'warnings') }
-    @{ name = 'test';           cmd = 'cargo'; words = @('test', '--workspace', '--all-features') }
+    @{ name = 'clippy';         cmd = 'cargo'; words = @('clippy', '--workspace', '--all-targets', '--features', $ciSafeFeatures, '--', '-D', 'warnings') }
+    @{ name = 'test';           cmd = 'cargo'; words = @('test', '--workspace', '--features', $ciSafeFeatures) }
     @{ name = 'rtm';            cmd = 'pwsh'; words = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/gen-rtm.ps1') }
 )
 if ($IncludeOptional) {

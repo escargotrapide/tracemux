@@ -8,15 +8,22 @@
 //! * `serial://COM3?baud=115200&data=8&parity=none&stop=1&flow=none`
 //! * `process:///bin/sh?args=-c%20echo%20hi` (semi-colon separates)
 //! * `mock://tag`
+//! * `pcap://Ethernet?snaplen=65535&promisc=1&filter=tcp%20port%20502`
 //! * `remote://wss%3A%2F%2Fedge%3A9000%2Fws%3Fsid%3D...%26ch%3D0`
 //!
 //! The output is a [`ChannelSpec`] from `wanlogger-core`.
 //!
 //! Boxed `Source` factory is provided by [`open`].
 
+// REQ: FR-CLI-PCAP
+
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Result};
+use wanlogger_core::source::pcap::{
+    PcapConfig, PcapPublishMode, PcapSaveMode, DEFAULT_SNAPLEN, DEFAULT_TIMEOUT_MS,
+};
 use wanlogger_core::source::{ChannelSpec, Source};
 
 /// Parse a URI-style spec string into a [`ChannelSpec`].
@@ -45,6 +52,7 @@ pub fn parse(spec: &str) -> Result<ChannelSpec> {
         "udp" => ChannelSpec::Udp {
             bind: body.to_string(),
         },
+        "pcap" => parse_pcap(body, &query)?,
         "serial" => ChannelSpec::Serial {
             port: body.to_string(),
             baud: parse_num(&query, "baud", 115_200)?,
@@ -87,13 +95,18 @@ pub fn parse(spec: &str) -> Result<ChannelSpec> {
 /// this build.
 pub fn open(spec: &ChannelSpec) -> Result<Box<dyn Source>> {
     use wanlogger_core::source::{
-        file::FileSource, mock::MockSource, process::ProcessSource, serial::SerialSource,
-        tcp::TcpSource, udp::UdpSource,
+        file::FileSource, mock::MockSource, pcap::PcapConfig, pcap::PcapSource,
+        process::ProcessSource, serial::SerialSource, tcp::TcpSource, udp::UdpSource,
     };
     Ok(match spec.clone() {
         ChannelSpec::File { path, follow } => Box::new(FileSource::new(path, follow)),
         ChannelSpec::Tcp { addr } => Box::new(TcpSource::new(addr)),
         ChannelSpec::Udp { bind } => Box::new(UdpSource::new(bind)),
+        ChannelSpec::Pcap { .. } => {
+            let config = PcapConfig::from_channel_spec(spec)
+                .ok_or_else(|| anyhow!("expected pcap channel spec"))?;
+            Box::new(PcapSource::new(config))
+        }
         ChannelSpec::Serial {
             port,
             baud,
@@ -131,6 +144,73 @@ where
             .map_err(|e| anyhow!("query param `{key}`: {e}")),
         None => Ok(dflt),
     }
+}
+
+fn parse_optional_num<T: std::str::FromStr>(
+    q: &HashMap<String, String>,
+    key: &str,
+) -> Result<Option<T>>
+where
+    T::Err: std::fmt::Display,
+{
+    match q.get(key) {
+        Some(v) if !v.is_empty() => v
+            .parse::<T>()
+            .map(Some)
+            .map_err(|e| anyhow!("query param `{key}`: {e}")),
+        _ => Ok(None),
+    }
+}
+
+fn parse_bool(q: &HashMap<String, String>, key: &str, dflt: bool) -> bool {
+    q.get(key)
+        .map_or(dflt, |v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
+}
+
+fn parse_bool_alias(q: &HashMap<String, String>, keys: &[&str], dflt: bool) -> bool {
+    keys.iter()
+        .find_map(|key| q.get(*key))
+        .map_or(dflt, |v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
+}
+
+fn query_optional_string(q: &HashMap<String, String>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| q.get(*key))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn parse_pcap(body: &str, query: &HashMap<String, String>) -> Result<ChannelSpec> {
+    let interface = pct_decode(body).trim().to_string();
+    let mut config = PcapConfig::new(interface);
+    config.display_name = query_optional_string(query, &["display_name", "display"]);
+    config.promiscuous = parse_bool_alias(query, &["promiscuous", "promisc"], false);
+    config.snaplen = parse_num(query, "snaplen", DEFAULT_SNAPLEN)?;
+    config.buffer_bytes =
+        parse_optional_num(query, "buffer_bytes")?.or(parse_optional_num(query, "buffer")?);
+    config.timeout_ms = if query.contains_key("timeout_ms") {
+        parse_num(query, "timeout_ms", DEFAULT_TIMEOUT_MS)?
+    } else {
+        parse_num(query, "timeout", DEFAULT_TIMEOUT_MS)?
+    };
+    config.immediate = parse_bool(query, "immediate", false);
+    config.filter = query_optional_string(query, &["filter"]);
+    config.save_mode = query_optional_string(query, &["save_mode", "save"])
+        .as_deref()
+        .map(str::parse::<PcapSaveMode>)
+        .transpose()
+        .map_err(anyhow::Error::msg)?
+        .unwrap_or_default();
+    config.pcapng_path =
+        query_optional_string(query, &["pcapng_path", "pcapng"]).map(PathBuf::from);
+    config.publish_mode = query_optional_string(query, &["publish_mode", "publish"])
+        .as_deref()
+        .map(str::parse::<PcapPublishMode>)
+        .transpose()
+        .map_err(anyhow::Error::msg)?
+        .unwrap_or_default();
+    config.validate()?;
+    Ok(config.into_channel_spec())
 }
 
 fn parse_argv(body: &str, q: &HashMap<String, String>) -> Result<Vec<String>> {
@@ -187,6 +267,7 @@ pub fn render(spec: &ChannelSpec) -> String {
         }
         ChannelSpec::Tcp { addr } => format!("tcp://{addr}"),
         ChannelSpec::Udp { bind } => format!("udp://{bind}"),
+        ChannelSpec::Pcap { .. } => render_pcap(spec),
         ChannelSpec::Serial {
             port,
             baud,
@@ -221,6 +302,7 @@ pub fn kind_tag(spec: &ChannelSpec) -> &'static str {
         ChannelSpec::File { .. } => "file",
         ChannelSpec::Tcp { .. } => "tcp",
         ChannelSpec::Udp { .. } => "udp",
+        ChannelSpec::Pcap { .. } => "pcap",
         ChannelSpec::Serial { .. } => "serial",
         ChannelSpec::Process { .. } => "process",
         ChannelSpec::Pipe { .. } => "pipe",
@@ -247,6 +329,7 @@ pub fn iface_tag(spec: &ChannelSpec) -> String {
         ChannelSpec::Udp { bind }
         | ChannelSpec::Syslog { bind }
         | ChannelSpec::HttpWebhook { bind, .. } => sanitize(bind),
+        ChannelSpec::Pcap { interface, .. } => sanitize(interface),
         ChannelSpec::File { path, .. } | ChannelSpec::Pipe { path } => {
             let last = std::path::Path::new(path)
                 .file_name()
@@ -282,6 +365,40 @@ fn pct_encode(s: &str) -> String {
         }
     }
     out
+}
+
+fn render_pcap(spec: &ChannelSpec) -> String {
+    let Some(config) = PcapConfig::from_channel_spec(spec) else {
+        return "unsupported://pcap".to_string();
+    };
+    let mut query = vec![
+        format!("snaplen={}", config.snaplen),
+        format!("promisc={}", u8::from(config.promiscuous)),
+        format!("timeout_ms={}", config.timeout_ms),
+        format!("immediate={}", u8::from(config.immediate)),
+        format!("save={}", config.save_mode),
+        format!("publish={}", config.publish_mode),
+    ];
+    if let Some(display_name) = config.display_name {
+        query.push(format!("display_name={}", pct_encode(&display_name)));
+    }
+    if let Some(buffer_bytes) = config.buffer_bytes {
+        query.push(format!("buffer_bytes={buffer_bytes}"));
+    }
+    if let Some(filter) = config.filter {
+        query.push(format!("filter={}", pct_encode(&filter)));
+    }
+    if let Some(path) = config.pcapng_path {
+        query.push(format!(
+            "pcapng_path={}",
+            pct_encode(&path.display().to_string())
+        ));
+    }
+    format!(
+        "pcap://{}?{}",
+        pct_encode(&config.interface),
+        query.join("&")
+    )
 }
 
 fn sanitize(s: &str) -> String {
@@ -379,6 +496,57 @@ mod tests {
             ),
             other => panic!("wrong: {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_pcap_spec_with_defaults_and_options() {
+        let s = parse(
+            "pcap://Ethernet%200?snaplen=9000&promisc=1&filter=tcp%20port%20502&publish=sampled",
+        )
+        .unwrap();
+        match &s {
+            ChannelSpec::Pcap {
+                interface,
+                promiscuous,
+                snaplen,
+                filter,
+                save_mode,
+                publish_mode,
+                ..
+            } => {
+                assert_eq!(interface, "Ethernet 0");
+                assert!(*promiscuous);
+                assert_eq!(*snaplen, 9_000);
+                assert_eq!(filter.as_deref(), Some("tcp port 502"));
+                assert_eq!(*save_mode, PcapSaveMode::Session);
+                assert_eq!(*publish_mode, PcapPublishMode::Sampled);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        assert_eq!(kind_tag(&s), "pcap");
+        assert_eq!(iface_tag(&s), "Ethernet-0");
+    }
+
+    #[test]
+    fn parse_pcap_rejects_invalid_numeric_values() {
+        assert!(parse("pcap://eth0?snaplen=0").is_err());
+        assert!(parse("pcap://eth0?buffer_bytes=0").is_err());
+        assert!(parse("pcap://eth0?snaplen=abc").is_err());
+    }
+
+    #[test]
+    fn open_pcap_constructs_source_metadata() {
+        let s = parse("pcap://eth0?filter=udp&publish=stats-only").unwrap();
+        let source = open(&s).unwrap();
+        let meta = source.metadata();
+
+        assert_eq!(meta.kind, "pcap");
+        assert_eq!(meta.iface, "eth0");
+        assert_eq!(meta.tags.get("filter").map(String::as_str), Some("udp"));
+        assert_eq!(
+            meta.tags.get("publish_mode").map(String::as_str),
+            Some("stats-only")
+        );
     }
 
     #[test]

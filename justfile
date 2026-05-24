@@ -5,6 +5,7 @@
 
 set windows-shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
 set shell := ["bash", "-cu"]
+ci-safe-features := "serial,metrics,desktop,headless"
 
 default:
     @just --list
@@ -26,7 +27,7 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-targets --features {{ci-safe-features}} -- -D warnings
 
 # Reject non-UTF-8 / CRLF text files (see AGENTS.md pitfalls).
 [windows]
@@ -48,7 +49,7 @@ encoding-fix:
 # ---- Test -----------------------------------------------------------------
 
 test:
-    cargo test --workspace --all-features
+    cargo test --workspace --features {{ci-safe-features}}
 
 # ---- Security -------------------------------------------------------------
 

@@ -25,6 +25,7 @@ pub mod importer;
 pub mod log;
 pub mod logsink;
 pub mod metrics;
+pub mod packet_summary;
 pub mod secret;
 pub mod session;
 pub mod session_name;

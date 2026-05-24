@@ -26,7 +26,13 @@ import {
   type SourceSortKey,
   type SourceStatusFilter,
 } from "~/state/sourceFilters";
-import { detectSources, serialSpecForPort } from "~/state/sourceDiscovery";
+import {
+  detectSources,
+  pcapSpecForInterface,
+  serialSpecForPort,
+  type PcapInterfaceInfo,
+  type PcapPublishMode,
+} from "~/state/sourceDiscovery";
 import { sourceAliases, updateSourceAlias } from "~/state/sourceAliases";
 import {
   channelEncodingKey,
@@ -64,7 +70,8 @@ function onAction(sid: string, action: "stop" | "restart" | "remove"): void {
 }
 
 function onRestartWithServerEncoding(sid: string): void {
-  const encoding = sourceEncodings[sourceEncodingKey(sid)]?.encoding ?? sourceStartOptions.encoding;
+  const encoding = sourceEncodings[sourceEncodingKey(sid)]?.encoding
+    ?? sourceTextEncodingFallback(sid);
   try {
     sendCtl(sid, "restart", undefined, {
       ...(startCtlOptions() as Record<string, unknown>),
@@ -95,7 +102,11 @@ function onOpenNewTerminal(sid: string, channels: number[]): void {
   pushToast({ level: "info", message: t("sources.open_terminal.new_requested") });
 }
 
-const EXPORT_FORMATS: SessionExportFormat[] = ["text", "csv", "jsonl"];
+function sourceTextEncodingFallback(sid: string): string {
+  return sourcesStore[sid]?.encoding ?? sourceStartOptions.encoding;
+}
+
+const EXPORT_FORMATS: SessionExportFormat[] = ["text", "csv", "jsonl", "pcapng"];
 type AnnotationSyncStatus = "idle" | "loading" | "syncing" | "synced" | "error";
 
 function annotationSyncLabel(status: AnnotationSyncStatus): string {
@@ -114,6 +125,12 @@ export function SourcesPanel() {
   const [selectedSerialPorts, setSelectedSerialPorts] = createSignal<string[]>([]);
   const [serialDetecting, setSerialDetecting] = createSignal(false);
   const [serialBaud, setSerialBaud] = createSignal(115_200);
+  const [pcapInterfaces, setPcapInterfaces] = createSignal<PcapInterfaceInfo[]>([]);
+  const [selectedPcapDevice, setSelectedPcapDevice] = createSignal("");
+  const [pcapSnaplen, setPcapSnaplen] = createSignal(65_535);
+  const [pcapPromiscuous, setPcapPromiscuous] = createSignal(false);
+  const [pcapFilter, setPcapFilter] = createSignal("");
+  const [pcapPublishMode, setPcapPublishMode] = createSignal<PcapPublishMode>("stats-only");
   const [exportTimezone, setExportTimezone] = createSignal("");
   const [exporting, setExporting] = createSignal<string | null>(null);
   const [loadedNotesSid, setLoadedNotesSid] = createSignal<string | null>(null);
@@ -183,6 +200,11 @@ export function SourcesPanel() {
       const report = await detectSources();
       setSerialCandidates(report.serial_candidates);
       setSelectedSerialPorts(report.serial_candidates);
+      setPcapInterfaces(report.pcap_interfaces);
+      setSelectedPcapDevice((prev) => {
+        if (report.pcap_interfaces.some((iface) => iface.device === prev)) return prev;
+        return report.pcap_interfaces[0]?.device ?? "";
+      });
       pushToast({
         level: report.serial_candidates.length > 0 ? "info" : "warn",
         message:
@@ -200,6 +222,26 @@ export function SourcesPanel() {
     }
   }
 
+
+  function selectedPcapInterface(): PcapInterfaceInfo | undefined {
+    const device = selectedPcapDevice();
+    return pcapInterfaces().find((iface) => iface.device === device);
+  }
+
+  function onUseSelectedPcap(): void {
+    const iface = selectedPcapInterface();
+    if (!iface) {
+      pushToast({ level: "warn", message: t("sources.pcap.select_required") });
+      return;
+    }
+    setSpecInput(pcapSpecForInterface(iface, {
+      snaplen: pcapSnaplen(),
+      promiscuous: pcapPromiscuous(),
+      filter: pcapFilter(),
+      publishMode: pcapPublishMode(),
+    }));
+    pushToast({ level: "info", message: t("sources.pcap.spec_applied") });
+  }
   function toggleSerialPort(port: string, checked: boolean): void {
     setSelectedSerialPorts((prev) => {
       if (checked) return [...new Set([...prev, port])].sort();
@@ -445,6 +487,64 @@ export function SourcesPanel() {
             </For>
           </div>
         </Show>
+        <Show when={pcapInterfaces().length > 0}>
+          <div class="wl-pcap-candidates" aria-label={t("sources.pcap.candidates")}>
+            <label>
+              {t("sources.pcap.interface")} {" "}
+              <select
+                value={selectedPcapDevice()}
+                onChange={(ev) => setSelectedPcapDevice(ev.currentTarget.value)}
+              >
+                <For each={pcapInterfaces()}>
+                  {(iface) => (
+                    <option value={iface.device}>
+                      {iface.display_name ? `${iface.display_name} (${iface.device})` : iface.device}
+                    </option>
+                  )}
+                </For>
+              </select>
+            </label>
+            <label>
+              {t("sources.pcap.snaplen")} {" "}
+              <input
+                type="number"
+                min="1"
+                value={pcapSnaplen()}
+                onInput={(ev) => setPcapSnaplen(Number(ev.currentTarget.value))}
+              />
+            </label>
+            <label style={{ display: "inline-flex", gap: "4px", "align-items": "center" }}>
+              <input
+                type="checkbox"
+                checked={pcapPromiscuous()}
+                onChange={(ev) => setPcapPromiscuous(ev.currentTarget.checked)}
+              />
+              <span>{t("sources.pcap.promisc")}</span>
+            </label>
+            <label>
+              {t("sources.pcap.publish")} {" "}
+              <select
+                value={pcapPublishMode()}
+                onChange={(ev) => setPcapPublishMode(ev.currentTarget.value as PcapPublishMode)}
+              >
+                <option value="stats-only">stats-only</option>
+                <option value="sampled">sampled</option>
+                <option value="full">full</option>
+              </select>
+            </label>
+            <input
+              type="text"
+              value={pcapFilter()}
+              onInput={(ev) => setPcapFilter(ev.currentTarget.value)}
+              placeholder={t("sources.pcap.filter_placeholder")}
+              aria-label={t("sources.pcap.filter")}
+            />
+            <button type="button" onClick={onUseSelectedPcap}>
+              {t("sources.pcap.use_spec")}
+            </button>
+            <span style={{ color: "var(--wl-fg-muted)" }}>{t("sources.pcap.help")}</span>
+          </div>
+        </Show>
       </div>
       <div
         style={{
@@ -636,9 +736,10 @@ export function SourcesPanel() {
                     type="text"
                     list="wl-source-encoding-options"
                     aria-label={t("sources.detail.encoding")}
-                    value={sourceEncodings[sourceEncodingKey(source().sid)]?.encoding ?? sourceStartOptions.encoding}
+                    value={sourceEncodings[sourceEncodingKey(source().sid)]?.encoding
+                      ?? sourceTextEncodingFallback(source().sid)}
                     onInput={(ev) => updateSourceEncoding(source().sid, ev.currentTarget.value)}
-                    placeholder={sourceStartOptions.encoding}
+                    placeholder={sourceTextEncodingFallback(source().sid)}
                     style={{ flex: 1 }}
                   />
                   <button
@@ -664,9 +765,14 @@ export function SourcesPanel() {
                           type="text"
                           list="wl-source-encoding-options"
                           aria-label={`${t("sources.detail.channel_encoding")} ch ${channel}`}
-                          value={encodingForChannel(source().sid, channel, sourceStartOptions.encoding)}
+                          value={encodingForChannel(
+                            source().sid,
+                            channel,
+                            sourceTextEncodingFallback(source().sid),
+                          )}
                           onInput={(ev) => updateChannelEncoding(source().sid, channel, ev.currentTarget.value)}
-                          placeholder={sourceEncodings[sourceEncodingKey(source().sid)]?.encoding ?? sourceStartOptions.encoding}
+                          placeholder={sourceEncodings[sourceEncodingKey(source().sid)]?.encoding
+                            ?? sourceTextEncodingFallback(source().sid)}
                           style={{ flex: 1 }}
                         />
                         <Show when={sourceEncodings[channelEncodingKey(source().sid, channel)]?.encoding}>

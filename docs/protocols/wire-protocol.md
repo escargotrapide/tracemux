@@ -219,13 +219,18 @@ Server-to-client lifecycle acknowledgements also use `ctl` payloads:
   bytes_in: 1234,
   persistent?: boolean,
   session_dir?: "wanlogger-sessions/wanlogger_serial_COM7_...",
+  decoder?: "utf8-text:shift_jis",
+  encoding?: "shift_jis",
 }
 ```
 
 `persistent` and `session_dir` are advisory UI metadata. They describe
 whether the server is writing a session-dir for the source and, if so,
-the server-local path. Clients MUST NOT persist log bytes directly based
-on these fields; they are display/navigation hints only.
+the server-local path. `decoder` is the effective server-side decoder
+label for this source lifetime when known. `encoding` is present only
+for text decoders and names the character encoding portion clients may
+use for live raw-byte display. Clients MUST NOT persist log bytes
+directly based on these fields; they are display/navigation hints only.
 
 Lifecycle wire/validation errors use `E-2001`; source-open failures use
 `E-1101`.

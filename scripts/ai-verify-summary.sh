@@ -9,6 +9,7 @@ set -uo pipefail
 
 REPORT_PATH="${REPORT_PATH:-target/ai-verify.json}"
 INCLUDE_OPTIONAL="${INCLUDE_OPTIONAL:-0}"
+CI_SAFE_FEATURES="serial,metrics,desktop,headless"
 
 mkdir -p "$(dirname "$REPORT_PATH")"
 
@@ -22,8 +23,8 @@ declare -a NAMES=(
 declare -a CMDS=(
   "bash scripts/check-encoding.sh"
   "cargo fmt --all -- --check"
-  "cargo clippy --workspace --all-targets --all-features -- -D warnings"
-  "cargo test --workspace --all-features"
+  "cargo clippy --workspace --all-targets --features ${CI_SAFE_FEATURES} -- -D warnings"
+  "cargo test --workspace --features ${CI_SAFE_FEATURES}"
   "bash scripts/gen-rtm.sh"
 )
 

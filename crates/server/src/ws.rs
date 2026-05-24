@@ -33,6 +33,9 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use wanlogger_core::classify::{ClassificationRule, LogClassifier};
+use wanlogger_core::source::pcap::{
+    PcapPublishMode, PcapSaveMode, DEFAULT_SNAPLEN, DEFAULT_TIMEOUT_MS,
+};
 use wanlogger_core::{source::ChannelSpec, ErrorId, WanloggerError};
 
 use crate::audit::{AuditEvent, AuditKind, AuditLog, AuditResult};
@@ -479,6 +482,18 @@ async fn list_sources_ctl(
                                 Value::String(session_dir.to_string_lossy().to_string().into()),
                             ));
                         }
+                        if let Some(decoder) = source.decoder {
+                            row.push((
+                                Value::String("decoder".into()),
+                                Value::String(decoder.into()),
+                            ));
+                        }
+                        if let Some(encoding) = source.encoding {
+                            row.push((
+                                Value::String("encoding".into()),
+                                Value::String(encoding.into()),
+                            ));
+                        }
                         Value::Map(row)
                     })
                     .collect(),
@@ -874,6 +889,66 @@ fn optional_bool(value: &Value, key: &str, default: bool) -> Result<bool, String
     }
 }
 
+fn optional_bool_any(value: &Value, keys: &[&str], default: bool) -> Result<bool, String> {
+    for key in keys {
+        if map_get(value, key).is_some() {
+            return optional_bool(value, key, default);
+        }
+    }
+    Ok(default)
+}
+
+fn optional_str(value: &Value, key: &str) -> Result<Option<String>, String> {
+    match map_get(value, key) {
+        Some(Value::String(s)) => Ok(s.as_str().map(str::trim).and_then(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        })),
+        Some(_) => Err(format!("spec.{key} string is required")),
+        None => Ok(None),
+    }
+}
+
+fn optional_str_any(value: &Value, keys: &[&str]) -> Result<Option<String>, String> {
+    for key in keys {
+        if map_get(value, key).is_some() {
+            return optional_str(value, key);
+        }
+    }
+    Ok(None)
+}
+
+fn optional_u32(value: &Value, key: &str, default: u32) -> Result<u32, String> {
+    match map_get(value, key) {
+        Some(v) => v
+            .as_u64()
+            .ok_or_else(|| format!("spec.{key} integer is required"))
+            .and_then(|n| u32::try_from(n).map_err(|_| format!("spec.{key} is out of range"))),
+        None => Ok(default),
+    }
+}
+
+fn optional_u32_any(value: &Value, keys: &[&str], default: u32) -> Result<u32, String> {
+    for key in keys {
+        if map_get(value, key).is_some() {
+            return optional_u32(value, key, default);
+        }
+    }
+    Ok(default)
+}
+
+fn optional_u32_option_any(value: &Value, keys: &[&str]) -> Result<Option<u32>, String> {
+    for key in keys {
+        if map_get(value, key).is_some() {
+            return optional_u32(value, key, 0).map(Some);
+        }
+    }
+    Ok(None)
+}
+
 fn required_u32(value: &Value, key: &str) -> Result<u32, String> {
     let Some(v) = map_get(value, key) else {
         return Err(format!("spec.{key} integer is required"));
@@ -981,6 +1056,33 @@ fn channel_spec_from_value(value: &Value) -> Result<ChannelSpec, String> {
         "udp" => Ok(ChannelSpec::Udp {
             bind: required_str(value, "bind")?,
         }),
+        "pcap" => {
+            let save_mode = optional_str_any(value, &["save_mode", "save"])?
+                .as_deref()
+                .map(str::parse::<PcapSaveMode>)
+                .transpose()?;
+            let publish_mode = optional_str_any(value, &["publish_mode", "publish"])?
+                .as_deref()
+                .map(str::parse::<PcapPublishMode>)
+                .transpose()?;
+            Ok(ChannelSpec::Pcap {
+                interface: required_str(value, "interface")?,
+                display_name: optional_str_any(value, &["display_name", "display"])?,
+                promiscuous: optional_bool_any(value, &["promiscuous", "promisc"], false)?,
+                snaplen: optional_u32(value, "snaplen", DEFAULT_SNAPLEN)?,
+                buffer_bytes: optional_u32_option_any(value, &["buffer_bytes", "buffer"])?,
+                timeout_ms: optional_u32_any(
+                    value,
+                    &["timeout_ms", "timeout"],
+                    DEFAULT_TIMEOUT_MS,
+                )?,
+                immediate: optional_bool(value, "immediate", false)?,
+                filter: optional_str(value, "filter")?,
+                save_mode: save_mode.unwrap_or_default(),
+                pcapng_path: optional_str_any(value, &["pcapng_path", "pcapng"])?,
+                publish_mode: publish_mode.unwrap_or_default(),
+            })
+        }
         "file" => Ok(ChannelSpec::File {
             path: required_str(value, "path")?,
             follow: optional_bool(value, "follow", false)?,
@@ -1138,6 +1240,49 @@ mod tests {
         let options = start_options_from_payload(&payload).unwrap();
         assert_eq!(options.encoding.as_deref(), Some("cp932"));
         assert!(options.classifier.is_some());
+    }
+
+    #[test]
+    fn channel_spec_accepts_pcap_maps() {
+        let value = Value::Map(vec![
+            (Value::String("kind".into()), Value::String("pcap".into())),
+            (
+                Value::String("interface".into()),
+                Value::String("Ethernet 0".into()),
+            ),
+            (Value::String("promisc".into()), Value::Boolean(true)),
+            (Value::String("snaplen".into()), Value::Integer(9000.into())),
+            (
+                Value::String("filter".into()),
+                Value::String("tcp port 502".into()),
+            ),
+            (
+                Value::String("publish".into()),
+                Value::String("sampled".into()),
+            ),
+        ]);
+
+        let spec = channel_spec_from_value(&value).unwrap();
+
+        match spec {
+            ChannelSpec::Pcap {
+                interface,
+                promiscuous,
+                snaplen,
+                filter,
+                save_mode,
+                publish_mode,
+                ..
+            } => {
+                assert_eq!(interface, "Ethernet 0");
+                assert!(promiscuous);
+                assert_eq!(snaplen, 9_000);
+                assert_eq!(filter.as_deref(), Some("tcp port 502"));
+                assert_eq!(save_mode, PcapSaveMode::Session);
+                assert_eq!(publish_mode, PcapPublishMode::Sampled);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
     }
 
     #[test]

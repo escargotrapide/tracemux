@@ -24,13 +24,15 @@ use wanlogger_core::session_name::{
 use wanlogger_core::sink::Sink;
 use wanlogger_core::source::{
     file::FileSource, http_webhook::HttpWebhookSource, mock::MockSource, mqtt::MqttSource,
-    pipe::PipeSource, process::ProcessSource, replay::ReplaySource, serial::SerialSource,
-    syslog::SyslogSource, tcp::TcpSource, udp::UdpSource, ChannelSpec, Source,
+    pcap::PcapConfig, pcap::PcapSource, pipe::PipeSource, process::ProcessSource,
+    replay::ReplaySource, serial::SerialSource, syslog::SyslogSource, tcp::TcpSource,
+    udp::UdpSource, ChannelSpec, Source,
 };
 use wanlogger_core::time::{system::SystemTimeSource, TimeSource};
 use wanlogger_core::{ErrorId, WanloggerError};
 
 use crate::ingest::Ingest;
+use crate::pcap_runner::run_pcap_once_notify;
 use crate::remote_mirror::{self, RemoteTarget};
 use crate::runner::{run_source_once_notify, RunnerStats};
 
@@ -64,6 +66,10 @@ pub struct SourceSnapshot {
     pub bytes_in: u64,
     /// Session-dir path when this source is being persisted on disk.
     pub session_dir: Option<PathBuf>,
+    /// Effective decoder label used by the server pipeline.
+    pub decoder: Option<String>,
+    /// Text encoding label when the effective decoder is text-based.
+    pub encoding: Option<String>,
 }
 
 /// Optional per-start pipeline settings for a source.
@@ -78,6 +84,12 @@ pub struct SourceStartOptions {
     pub encoding: Option<String>,
     /// Session-dir name pattern used when a new session-dir is created.
     pub session_name_pattern: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SourcePipelineMetadata {
+    decoder: Option<String>,
+    encoding: Option<String>,
 }
 
 /// Serial-port parameters used for detected/bulk startup.
@@ -146,6 +158,7 @@ struct SourceEntry {
     spec: Option<ChannelSpec>,
     session_dir: Option<PathBuf>,
     start_options: SourceStartOptions,
+    pipeline: SourcePipelineMetadata,
     handle: Option<JoinHandle<anyhow::Result<RunnerStats>>>,
     sink: Option<SharedSink>,
 }
@@ -156,6 +169,7 @@ impl fmt::Debug for SourceEntry {
             .field("spec", &self.spec)
             .field("session_dir", &self.session_dir)
             .field("start_options", &self.start_options)
+            .field("pipeline", &self.pipeline)
             .field(
                 "running",
                 &self.handle.as_ref().is_some_and(|h| !h.is_finished()),
@@ -169,6 +183,7 @@ struct SourceRegistration {
     spec: Option<ChannelSpec>,
     session_dir: Option<PathBuf>,
     start_options: SourceStartOptions,
+    pipeline: SourcePipelineMetadata,
     sink: Option<Box<dyn Sink>>,
 }
 
@@ -178,6 +193,7 @@ impl SourceRegistration {
             spec: None,
             session_dir: None,
             start_options: SourceStartOptions::default(),
+            pipeline: SourcePipelineMetadata::default(),
             sink: None,
         }
     }
@@ -481,6 +497,10 @@ impl SourceManager {
                 self.start_udp_spec(sid, spec, time, session_dir, start_options)
                     .await
             }
+            ChannelSpec::Pcap { .. } => {
+                self.start_pcap_spec(sid, spec, time, session_dir, start_options)
+                    .await
+            }
             ChannelSpec::Process { .. } => {
                 self.start_process_spec(sid, spec, time, session_dir, start_options)
                     .await
@@ -595,6 +615,108 @@ impl SourceManager {
             time,
             session_dir,
             Some(Box::new(sink)),
+            start_options,
+        )
+        .await
+    }
+
+    async fn start_pcap_spec(
+        &self,
+        sid: Uuid,
+        spec: ChannelSpec,
+        time: SystemTimeSource,
+        session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
+    ) -> anyhow::Result<Uuid> {
+        let config = PcapConfig::from_channel_spec(&spec)
+            .ok_or_else(|| anyhow::anyhow!("start_pcap_spec called with non-pcap spec"))?;
+        self.start_pcap_source_with_sid(
+            sid,
+            spec,
+            PcapSource::new(config),
+            time,
+            session_dir,
+            start_options,
+        )
+        .await
+    }
+
+    async fn start_pcap_source_with_sid(
+        &self,
+        sid: Uuid,
+        spec: ChannelSpec,
+        source: PcapSource,
+        time: SystemTimeSource,
+        session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
+    ) -> anyhow::Result<Uuid> {
+        let ingest = self.ingest.clone();
+        let host = local_host_label();
+        let task_session_dir = session_dir.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let handle = tokio::spawn(async move {
+            run_pcap_once_notify(
+                ingest,
+                source,
+                &time,
+                task_session_dir,
+                Some(tx),
+                Some(sid),
+                host,
+            )
+            .await
+        });
+        let sid = match rx.await {
+            Ok(sid) => sid,
+            Err(_) => match handle.await {
+                Ok(Err(err)) => {
+                    return Err(err).context("pcap source exited before session registration");
+                }
+                Ok(Ok(stats)) => {
+                    return Err(anyhow::anyhow!(
+                        "pcap source completed before session registration: {}",
+                        stats.sid
+                    ));
+                }
+                Err(err) => {
+                    return Err(anyhow::anyhow!(
+                        "pcap source task join failed before session registration: {err}"
+                    ));
+                }
+            },
+        };
+        self.sources.lock().insert(
+            sid,
+            SourceEntry {
+                spec: Some(spec),
+                session_dir,
+                start_options,
+                pipeline: SourcePipelineMetadata {
+                    decoder: Some("pcap-packet".to_string()),
+                    encoding: None,
+                },
+                handle: Some(handle),
+                sink: None,
+            },
+        );
+        Ok(sid)
+    }
+
+    #[cfg(test)]
+    async fn start_pcap_source_for_test(
+        &self,
+        spec: ChannelSpec,
+        source: PcapSource,
+    ) -> anyhow::Result<Uuid> {
+        let sid = Uuid::new_v4();
+        let start_options = SourceStartOptions::default();
+        let session_dir = self.session_dir_for(&spec, None, &start_options);
+        self.start_pcap_source_with_sid(
+            sid,
+            spec,
+            source,
+            SystemTimeSource::new(Uuid::new_v4()),
+            session_dir,
             start_options,
         )
         .await
@@ -731,6 +853,10 @@ impl SourceManager {
                 spec: Some(spec),
                 session_dir,
                 start_options,
+                pipeline: SourcePipelineMetadata {
+                    decoder: Some(decoder_label.to_string()),
+                    encoding: None,
+                },
                 handle: Some(handle),
                 sink: Some(shared_sink(Box::new(sink))),
             },
@@ -761,6 +887,10 @@ impl SourceManager {
             .unwrap_or_else(|| self.classifier());
         let decoder_label = format!("utf8-text:{encoding}");
         let logsink = Self::log_sink_for(sid, &spec, session_dir.as_deref(), &decoder_label)?;
+        let pipeline = SourcePipelineMetadata {
+            decoder: Some(decoder_label.clone()),
+            encoding: Some(encoding.clone()),
+        };
         self.start_source_with_sid(
             sid,
             source,
@@ -772,6 +902,7 @@ impl SourceManager {
                 spec: Some(spec),
                 session_dir,
                 start_options,
+                pipeline,
                 sink,
             },
         )
@@ -909,6 +1040,7 @@ impl SourceManager {
                 spec: registration.spec,
                 session_dir: registration.session_dir,
                 start_options: registration.start_options,
+                pipeline: registration.pipeline,
                 handle: Some(handle),
                 sink: registration.sink.map(shared_sink),
             },
@@ -1042,6 +1174,11 @@ impl SourceManager {
             let session_dir = sources
                 .get(&sid)
                 .and_then(|entry| entry.session_dir.clone());
+            let pipeline = sources
+                .get(&sid)
+                .map_or_else(SourcePipelineMetadata::default, |entry| {
+                    entry.pipeline.clone()
+                });
             let bytes_in = self
                 .ingest
                 .stats(&sid)
@@ -1057,6 +1194,8 @@ impl SourceManager {
                 channels: vec![0],
                 bytes_in,
                 session_dir,
+                decoder: pipeline.decoder,
+                encoding: pipeline.encoding,
             });
         }
         out.sort_by_key(|s| s.sid);
@@ -1134,6 +1273,7 @@ fn kind_tag(spec: &ChannelSpec) -> &'static str {
         ChannelSpec::File { .. } => "file",
         ChannelSpec::Tcp { .. } => "tcp",
         ChannelSpec::Udp { .. } => "udp",
+        ChannelSpec::Pcap { .. } => "pcap",
         ChannelSpec::Serial { .. } => "serial",
         ChannelSpec::Process { .. } => "process",
         ChannelSpec::Pipe { .. } => "pipe",
@@ -1158,6 +1298,7 @@ fn iface_tag(spec: &ChannelSpec) -> String {
         ChannelSpec::Udp { bind }
         | ChannelSpec::Syslog { bind }
         | ChannelSpec::HttpWebhook { bind, .. } => sanitize(bind),
+        ChannelSpec::Pcap { interface, .. } => sanitize(interface),
         ChannelSpec::File { path, .. } | ChannelSpec::Pipe { path } => {
             let last = std::path::Path::new(path)
                 .file_name()
@@ -1414,6 +1555,14 @@ mod tests {
         let frames = std::fs::read_to_string(session.join("frames.jsonl")).unwrap();
         assert!(frames.contains("utf8-text:shift_jis"));
 
+        let snapshot = manager
+            .list_sources()
+            .into_iter()
+            .find(|source| source.sid == sid)
+            .unwrap();
+        assert_eq!(snapshot.decoder.as_deref(), Some("utf8-text:shift_jis"));
+        assert_eq!(snapshot.encoding.as_deref(), Some("shift_jis"));
+
         let resumed = manager.resume(sid).await.unwrap();
         assert_eq!(resumed, sid);
         manager.wait(sid).await.unwrap().unwrap();
@@ -1636,6 +1785,8 @@ mod tests {
         assert_eq!(list[0].channels, vec![0]);
         assert_eq!(list[0].bytes_in, 5);
         assert_eq!(list[0].session_dir, None);
+        assert_eq!(list[0].decoder, None);
+        assert_eq!(list[0].encoding, None);
     }
 
     #[tokio::test]
@@ -1654,15 +1805,163 @@ mod tests {
         assert_eq!(running[0].sid, sid);
         assert_eq!(running[0].status, SourceStatus::Running);
         assert_eq!(running[0].session_dir, None);
+        assert_eq!(running[0].decoder.as_deref(), Some("utf8-text:utf-8"));
+        assert_eq!(running[0].encoding.as_deref(), Some("utf-8"));
 
         assert!(manager.stop(sid));
         let stopped = manager.list_sources();
         assert_eq!(stopped.len(), 1);
         assert_eq!(stopped[0].sid, sid);
         assert_eq!(stopped[0].status, SourceStatus::Stopped);
+        assert_eq!(stopped[0].decoder.as_deref(), Some("utf8-text:utf-8"));
+        assert_eq!(stopped[0].encoding.as_deref(), Some("utf-8"));
 
         assert!(manager.remove(sid));
         assert!(manager.list_sources().is_empty());
         assert!(ingest.registry.get(&sid).is_none());
+    }
+
+    #[tokio::test]
+    async fn start_spec_pcap_reports_backend_unavailable_without_registering() {
+        // REQ: FR-CLI-PCAP
+        // REQ: NFR-PORT-PCAP
+
+        let root = tempdir();
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::with_session_root(ingest.clone(), root.join("sessions"));
+
+        let err = manager
+            .start_spec(ChannelSpec::Pcap {
+                interface: "eth0".to_string(),
+                display_name: None,
+                promiscuous: false,
+                snaplen: wanlogger_core::source::pcap::DEFAULT_SNAPLEN,
+                buffer_bytes: None,
+                timeout_ms: wanlogger_core::source::pcap::DEFAULT_TIMEOUT_MS,
+                immediate: false,
+                filter: None,
+                save_mode: wanlogger_core::source::pcap::PcapSaveMode::Session,
+                pcapng_path: None,
+                publish_mode: wanlogger_core::source::pcap::PcapPublishMode::StatsOnly,
+            })
+            .await
+            .unwrap_err();
+
+        assert!(err
+            .chain()
+            .any(|cause| cause.to_string().contains("E-1101")));
+        assert!(manager.active_ids().is_empty());
+        assert!(ingest.registry.ids().is_empty());
+    }
+
+    #[tokio::test]
+    async fn start_fake_pcap_direct_pcapng_error_does_not_register_session() {
+        // REQ: NFR-REL-PCAP
+
+        let root = tempdir();
+        let sessions = root.join("sessions");
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::with_session_root(ingest.clone(), &sessions);
+        let mut config = wanlogger_core::source::pcap::PcapConfig::new("fake0");
+        config.save_mode = wanlogger_core::source::pcap::PcapSaveMode::Pcapng;
+        config.pcapng_path = Some(root.clone());
+        let spec = config.clone().into_channel_spec();
+        let packet = wanlogger_core::source::pcap::PcapPacket::new(
+            1,
+            1_700_000_000_123_456_789,
+            18,
+            wanlogger_core::packet_summary::LINKTYPE_ETHERNET,
+            0,
+            ethernet_packet(),
+        );
+        let source = wanlogger_core::source::pcap::PcapSource::with_backend(
+            config,
+            wanlogger_core::source::pcap::FakePcapBackend::new([packet]),
+        );
+
+        let err = manager
+            .start_pcap_source_for_test(spec, source)
+            .await
+            .unwrap_err();
+
+        assert!(err
+            .chain()
+            .any(|cause| cause.to_string().contains("creating direct pcapng")));
+        assert!(manager.active_ids().is_empty());
+        assert!(ingest.registry.ids().is_empty());
+    }
+
+    #[tokio::test]
+    async fn start_fake_pcap_source_writes_packet_session_dir() {
+        // REQ: FR-LOG-PCAP
+        // REQ: FR-EXP-PCAPNG
+
+        let root = tempdir();
+        let sessions = root.join("sessions");
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::with_session_root(ingest.clone(), &sessions);
+        let mut config = wanlogger_core::source::pcap::PcapConfig::new("fake0");
+        config.filter = Some("ether proto 0x88b5".to_string());
+        let spec = config.clone().into_channel_spec();
+        let packet = wanlogger_core::source::pcap::PcapPacket::new(
+            1,
+            1_700_000_000_123_456_789,
+            18,
+            wanlogger_core::packet_summary::LINKTYPE_ETHERNET,
+            0,
+            ethernet_packet(),
+        );
+        let source = wanlogger_core::source::pcap::PcapSource::with_backend(
+            config,
+            wanlogger_core::source::pcap::FakePcapBackend::new([packet.clone()]),
+        );
+
+        let sid = manager
+            .start_pcap_source_for_test(spec, source)
+            .await
+            .unwrap();
+        let stats = manager.wait(sid).await.unwrap().unwrap();
+
+        assert_eq!(stats.raw_frames, 1);
+        assert_eq!(stats.decoded_records, 1);
+        let session_dir = manager.session_dir_for_sid(sid).unwrap();
+        assert_eq!(
+            std::fs::read(session_dir.join("raw.bin")).unwrap(),
+            packet.data
+        );
+
+        let index_body = std::fs::read_to_string(session_dir.join("index.jsonl")).unwrap();
+        let index: wanlogger_core::log::index::IndexEntry =
+            serde_json::from_str(index_body.trim()).unwrap();
+        assert_eq!(index.kind, wanlogger_core::log::index::Kind::Datagram);
+        assert_eq!(
+            index.schema_id.as_deref(),
+            Some(wanlogger_core::exporter::pcapng::PCAP_PACKET_SCHEMA_ID)
+        );
+        assert_ne!(index.ts_origin, index.ts_ingest);
+
+        let frames_body = std::fs::read_to_string(session_dir.join("frames.jsonl")).unwrap();
+        let frame: wanlogger_core::log::frames::FrameEntry =
+            serde_json::from_str(frames_body.trim()).unwrap();
+        assert_eq!(frame.record.fields["raw_off"], index.off);
+        assert_eq!(frame.record.fields["raw_len"], index.len);
+        assert_eq!(frame.record.fields["linktype"], packet.linktype);
+        assert_eq!(frame.record.fields["interface"], "fake0");
+        assert_eq!(frame.record.fields["protocol"], "ethertype:0x88b5");
+
+        let dst = root.join("fake.pcapng");
+        wanlogger_core::exporter::pcapng::export(&session_dir, &dst).unwrap();
+        assert!(std::fs::metadata(dst).unwrap().len() > 0);
+
+        let ingest_stats = ingest.stats(&sid).unwrap();
+        assert_eq!(ingest_stats.frames_in, 1);
+        assert_eq!(ingest_stats.bytes_logged, u64::from(packet.captured_len));
+    }
+
+    fn ethernet_packet() -> Vec<u8> {
+        vec![
+            0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x88, 0xb5, 1,
+            2, 3, 4,
+        ]
     }
 }

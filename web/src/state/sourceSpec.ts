@@ -25,6 +25,10 @@ function parseBoolean(query: Map<string, string>, key: string): boolean {
   return value === "1" || value === "true" || value === "yes";
 }
 
+function parseBooleanAny(query: Map<string, string>, keys: string[]): boolean {
+  return keys.some((key) => parseBoolean(query, key));
+}
+
 function parseNumber(
   query: Map<string, string>,
   key: string,
@@ -41,6 +45,50 @@ function parseNumber(
 
 function stripLeadingSlash(value: string): string {
   return value.replace(/^\/+/, "");
+}
+
+function optionalString(query: Map<string, string>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = query.get(key)?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function optionalNumber(query: Map<string, string>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    if (query.has(key)) return parseNumber(query, key, 0);
+  }
+  return undefined;
+}
+
+function parsePcapSpec(body: string, query: Map<string, string>): SourceSpec {
+  const interfaceName = decodePart(body).trim();
+  if (!interfaceName) throw new Error("pcap interface is required");
+  const snaplen = parseNumber(query, "snaplen", 65_535);
+  if (snaplen <= 0) throw new Error("query parameter snaplen must be a positive integer");
+  const bufferBytes = optionalNumber(query, ["buffer_bytes", "buffer"]);
+  if (bufferBytes !== undefined && bufferBytes <= 0) {
+    throw new Error("query parameter buffer_bytes must be a positive integer");
+  }
+  const spec: SourceSpec = {
+    kind: "pcap",
+    interface: interfaceName,
+    promiscuous: parseBooleanAny(query, ["promiscuous", "promisc"]),
+    snaplen,
+    timeout_ms: optionalNumber(query, ["timeout_ms", "timeout"]) ?? 1_000,
+    immediate: parseBoolean(query, "immediate"),
+    save_mode: optionalString(query, ["save_mode", "save"]) ?? "session",
+    publish_mode: optionalString(query, ["publish_mode", "publish"]) ?? "stats-only",
+  };
+  const displayName = optionalString(query, ["display_name", "display"]);
+  if (displayName) spec.display_name = displayName;
+  if (bufferBytes !== undefined) spec.buffer_bytes = bufferBytes;
+  const filter = optionalString(query, ["filter"]);
+  if (filter) spec.filter = filter;
+  const pcapngPath = optionalString(query, ["pcapng_path", "pcapng"]);
+  if (pcapngPath) spec.pcapng_path = pcapngPath;
+  return spec;
 }
 
 function parseProcessArgv(body: string, query: Map<string, string>): string[] {
@@ -79,6 +127,8 @@ export function parseSourceSpec(input: string): SourceSpec {
       return { kind: "tcp", addr: decodePart(body) };
     case "udp":
       return { kind: "udp", bind: decodePart(body) };
+    case "pcap":
+      return parsePcapSpec(body, query);
     case "pipe":
       return { kind: "pipe", path: decodePart(stripLeadingSlash(body)) };
     case "process":

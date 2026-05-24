@@ -140,6 +140,31 @@ pub enum ChannelSpec {
         /// Bind address.
         bind: String,
     },
+    /// Packet capture source backed by Npcap/libpcap when available.
+    Pcap {
+        /// Capture interface identifier.
+        interface: String,
+        /// Operator-friendly display name.
+        display_name: Option<String>,
+        /// Whether promiscuous mode should be requested.
+        promiscuous: bool,
+        /// Maximum captured bytes per packet.
+        snaplen: u32,
+        /// Capture buffer size in bytes, if supported by the backend.
+        buffer_bytes: Option<u32>,
+        /// Capture read timeout in milliseconds.
+        timeout_ms: u32,
+        /// Whether immediate mode should be requested.
+        immediate: bool,
+        /// Optional BPF filter string.
+        filter: Option<String>,
+        /// Persistence mode requested for the capture.
+        save_mode: pcap::PcapSaveMode,
+        /// Optional direct pcapng output path for `pcapng` / `both` save modes.
+        pcapng_path: Option<String>,
+        /// UI publish policy.
+        publish_mode: pcap::PcapPublishMode,
+    },
     /// Local file (tail mode).
     File {
         /// Path.
@@ -268,6 +293,7 @@ pub mod http_webhook;
 pub mod journald_stub;
 pub mod mock;
 pub mod mqtt;
+pub mod pcap;
 pub mod pipe;
 pub mod process;
 pub mod remote_stub;

@@ -20,6 +20,7 @@ default = []
 desktop = []
 metrics = ["wanlogger-core/metrics", "wanlogger-server/metrics"]
 serial = ["wanlogger-core/serial", "wanlogger-server/serial"]
+pcap-capture = ["wanlogger-core/pcap-capture", "wanlogger-server/pcap-capture"]
 headless = []
 
 [dependencies]

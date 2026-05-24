@@ -15,6 +15,7 @@ workspace = true
 default = []
 metrics = ["wanlogger-core/metrics"]
 serial = ["wanlogger-core/serial"]
+pcap-capture = ["wanlogger-core/pcap-capture"]
 
 [dependencies]
 wanlogger-core = { path = "../core" }

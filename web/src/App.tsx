@@ -17,6 +17,7 @@ import {
 import { t, locale, setLocale } from "~/i18n";
 import { SourcesPanel } from "~/panels/sources/SourcesPanel";
 import { MetricsPanel } from "./panels/metrics/MetricsPanel";
+import { PacketCapturePanel } from "~/panels/packetCapture/PacketCapturePanel";
 import { TerminalPanel } from "~/panels/terminal/TerminalPanel";
 import { TileGridPanel } from "~/panels/tiles/TileGridPanel";
 import { SettingsPanel } from "~/panels/settings/SettingsPanel";
@@ -50,6 +51,7 @@ class SolidPanel implements IContentRenderer {
 const components: Record<string, () => IContentRenderer> = {
   sources: () => new SolidPanel(() => SourcesPanel()),
   metrics: () => new SolidPanel(() => MetricsPanel()),
+  packetCapture: () => new SolidPanel(() => PacketCapturePanel()),
   tiles: () => new SolidPanel(() => TileGridPanel()),
   settings: () => new SolidPanel(() => SettingsPanel()),
   terminal: () =>
@@ -126,6 +128,12 @@ export function App() {
       position: { referencePanel: "sources", direction: "right" },
     });
     api.addPanel({
+      id: "packetCapture",
+      component: "packetCapture",
+      title: t("panel.packetCapture"),
+      position: { referencePanel: "metrics", direction: "below" },
+    });
+    api.addPanel({
       id: "terminal",
       component: "terminal",
       title: t("panel.terminal"),
@@ -142,7 +150,7 @@ export function App() {
       id: "settings",
       component: "settings",
       title: t("panel.settings"),
-      position: { referencePanel: "metrics", direction: "below" },
+      position: { referencePanel: "packetCapture", direction: "below" },
     });
   });
 

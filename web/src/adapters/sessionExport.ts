@@ -1,6 +1,6 @@
 import { resolveWanloggerHttpUrl, resolveWanloggerToken } from "~/adapters/wss";
 
-export type SessionExportFormat = "text" | "csv" | "jsonl";
+export type SessionExportFormat = "text" | "csv" | "jsonl" | "pcapng";
 
 export interface SessionExportOptions {
   format: SessionExportFormat;

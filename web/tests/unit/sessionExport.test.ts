@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+// REQ: FR-EXP-PCAPNG
 import {
   renderSessionExportFilename,
   sessionExportFilename,
@@ -34,6 +35,7 @@ describe("sessionExport", () => {
     expect(sessionExportFilename("sid", "text")).toBe("wanlogger-sid.txt");
     expect(sessionExportFilename("sid", "csv")).toBe("wanlogger-sid.csv");
     expect(sessionExportFilename("sid", "jsonl")).toBe("wanlogger-sid.jsonl");
+    expect(sessionExportFilename("sid", "pcapng")).toBe("wanlogger-sid.pcapng");
   });
 
   it("renders safe custom download filenames", () => {

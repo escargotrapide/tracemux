@@ -18,6 +18,7 @@ Categories:
 - **FR-WIRE-…** WSS wire protocol
 - **FR-CLI-…**  CLI subcommands
 - **FR-UI-…**   UI panels
+- **FR-MET-…**  metrics payloads
 - **FR-SEC-…**  security
 - **FR-AI-…**   AI workflow
 - **NFR-PERF-…** performance
@@ -311,7 +312,9 @@ WSS `ctl` lifecycle actions support optional start-option fields:
 them to the new source. `restart` may include the same fields without a
 new `spec`; supplied fields update that source's stored lifecycle
 options, while omitted fields keep the previous values for future
-`resume` / `restart` actions.
+`resume` / `restart` actions. Source-list snapshots expose the effective
+server-side decoder metadata for the source lifetime, including a
+text `encoding` field when the decoder is text-based.
 
 ### FR-CLI-008  Serve serial bulk startup
 `wanlogger serve --open-all-serial` starts serial sources automatically
@@ -326,8 +329,10 @@ for the remaining ports.
 `wanlogger.v1` WSS subprotocol, subscribes to a target `--sid` and
 `--ch`, decodes inbound `data` frames, and emits one JSONL row per frame
 using schema `wanlogger/watch-frame/v1`. Binary bodies are represented
-losslessly as lowercase hex plus length, with UTF-8 text included when
-the bytes are valid UTF-8.
+losslessly as lowercase hex plus length. `--encoding auto` discovers the
+target source's text encoding from the server source snapshot; an
+explicit `--encoding LABEL` overrides discovery. Text is included when
+the bytes decode without replacement under the selected encoding.
 
 ### FR-REMOTE-001  Remote WSS mirror
 A server-started `remote` channel spec connects to another wanlogger
@@ -340,3 +345,106 @@ the edge `ts_origin` and producing `node_id`, stamps a new central
 Bearer credentials for the edge server must be supplied by indirection
 such as `token_env` or `token_secret`, not by embedding the token value in
 the persisted source spec.
+
+### FR-SRC-PCAP  Packet capture source
+`wanlogger` provides a source-only packet capture transport for link-layer
+packets. The native backend is compiled only with the `pcap-capture` feature
+and uses Npcap/libpcap; driver-free builds use a deterministic fake backend for
+tests and return a clear source-open error for live pcap sources. The pcap
+source accepts interface id, display name, promiscuous mode, snaplen, optional
+capture buffer size, timeout, immediate mode, optional BPF filter, storage mode,
+optional pcapng path, and UI publish mode. It does not implement write-back.
+
+### FR-SRC-PCAP-DETECT  Packet interface discovery
+The server can discover packet capture interfaces and expose a minimal additive
+detect payload for UI selection. Records include stable device identifiers and
+may include display names, descriptions, addresses, and flags when policy
+allows. Default builds without `pcap-capture` return an empty pcap interface
+list rather than failing discovery.
+
+### FR-LOG-PCAP  Packet session-dir persistence
+Packet capture sessions that use `save=session` or `save=both` persist captured
+packet bytes in the server-owned session-dir. Each stored packet writes bytes to
+`raw.bin`, a `kind = "datagram"` row to `index.jsonl`, and structured metadata
+with schema id `wanlogger.pcap.packet.v1` to `frames.jsonl`. The metadata
+includes sequence number, captured length, original length, link type,
+interface id, raw offset, and raw length. `ts_origin` comes from the pcap packet
+timestamp and `ts_ingest` comes from the wanlogger server.
+
+### FR-EXP-PCAPNG  pcapng export and direct writing
+`wanlogger export pcapng <session-dir> <dst>` and the authenticated server
+export endpoint can render packet-shaped session-dirs as pcapng. The output
+contains a Section Header Block, Interface Description Blocks for captured
+link-type/interface combinations, and Enhanced Packet Blocks whose timestamps
+derive from `ts_origin` and whose lengths preserve captured and original packet
+lengths. Live pcap capture also supports direct pcapng output through
+`save=pcapng` and concurrent session-dir plus pcapng output through
+`save=both`.
+
+### FR-DEC-PACKET-SUMMARY  Packet summary parser
+The server can produce lightweight, bounded packet summaries for common
+Ethernet/IP traffic without implementing full Wireshark-style dissection or TCP
+stream reassembly. Summaries cover Ethernet II, VLAN ids, IPv4, IPv6, TCP, UDP,
+ICMP, and ICMPv6 when present. Malformed or truncated packets return summary
+errors instead of panicking; unsupported protocols preserve raw packet bytes and
+use a generic protocol label when possible.
+
+### FR-CLI-PCAP  CLI pcap source specs
+CLI paths that accept source specs can parse URI-style pcap specs such as
+`pcap://Ethernet?snaplen=65535&promisc=1&filter=tcp%20port%20502`. Parsed specs
+round-trip through `ChannelSpec::Pcap` and render filesystem-safe kind/interface
+tags. Without the native capture feature or required OS driver, opening a pcap
+source fails with a clear `E-1101` source-open error and does not register a
+partially opened session.
+
+### FR-UI-PCAP  Packet capture UI
+The web UI provides packet capture controls and packet views while preserving
+server-owned persistence. Operators can select discovered interfaces, enter a
+BPF filter, set snaplen and promiscuous mode, choose a UI publish mode, export
+persisted pcap sessions as pcapng, and inspect a bounded packet list/detail/hex
+view when packet publication is enabled. Browser packet state must remain
+bounded and must not persist packet bytes except through explicit user-initiated
+downloads.
+
+### FR-MET-PCAP  Packet capture metrics
+The server publishes packet capture metrics that can be rendered without
+streaming raw packet data to the browser. Metrics include packet count, byte
+count, kernel/backend drop count when available, application drop count,
+capture queue depth, writer queue depth, packet rate, byte rate, and the last
+packet-origin timestamp when known.
+
+### NFR-PERF-PCAP  Medium-to-high rate packet capture
+Packet capture separates persistence from UI fan-out so a slow browser cannot
+block packet storage. High-rate captures should use BPF filters, snaplen, and
+`publish=stats-only` or `publish=sampled`; full packet publication is an
+operator opt-in. Browser packet lists are bounded, and overload must surface via
+explicit counters rather than silent loss.
+
+### NFR-REL-PCAP  Packet capture error handling
+Missing native drivers, missing permissions, invalid interfaces, invalid BPF
+filters, and pcapng writer failures are reported as public errors. Startup
+failures before all required writers are ready must not register a live source
+session. Completed or stopped captures leave durable artifacts readable for the
+storage mode that was selected.
+
+### NFR-SEC-PCAP  Packet capture security and privacy
+Packet capture must not weaken existing authentication, server-owned
+persistence, or privacy boundaries. UI clients never persist packet bytes
+locally except through explicit browser downloads. HTTP export remains
+authenticated unless loopback no-auth policy applies. Interface discovery is
+kept minimal because interface names and addresses can leak host network
+information, and pcap source specs must not embed secrets.
+
+### NFR-PORT-PCAP  Packet capture portability
+Windows x64 live capture is based on Npcap, Linux live capture is based on
+libpcap, and macOS live capture is treated as best-effort until manually
+validated. Normal CI and the default AI verification gate run without live
+capture drivers by leaving `pcap-capture` disabled and using fake-backend tests.
+
+### NFR-MAINT-PCAP  Packet capture dependency and review policy
+Packet capture dependencies remain isolated and compatible with repository
+policy: pcapng uses `pcap-file`, packet summaries use `etherparse`, and native
+capture uses optional `pcap` behind `pcap-capture`. Driver/SDK-dependent checks
+are explicit local/manual checks, `openssl-sys` remains banned, and critical
+path changes such as `Cargo.lock`, core source traits, and protocol-facing
+behavior require human review.

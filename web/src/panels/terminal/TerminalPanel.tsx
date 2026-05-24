@@ -125,7 +125,8 @@ export function TerminalPanel(props: TerminalPanelProps) {
       options.set(selection, logTypeLabel(selection));
     }
     for (const frame of getChannelFrames(sid(), ch(), displaySettings.terminalMaxRecords)) {
-      const encoding = encodingForChannel(frame.sid, frame.ch, sourceStartOptions.encoding);
+      const fallback = sourcesStore[frame.sid]?.encoding ?? sourceStartOptions.encoding;
+      const encoding = encodingForChannel(frame.sid, frame.ch, fallback);
       const tags = mergedTags(
         frame,
         clientClassificationTags(frame, enabledClassificationRules(), encoding),
@@ -178,7 +179,8 @@ export function TerminalPanel(props: TerminalPanelProps) {
 
   function renderFrame(p: DataPayload, enforceLimit = true): void {
     const sourceLabel = sourceDisplayName(p, sourcesStore, sourceAliases);
-    const encoding = encodingForChannel(p.sid, p.ch, sourceStartOptions.encoding);
+    const fallback = sourcesStore[p.sid]?.encoding ?? sourceStartOptions.encoding;
+    const encoding = encodingForChannel(p.sid, p.ch, fallback);
     const extraTags = clientClassificationTags(p, enabledClassificationRules(), encoding);
     if (!payloadMatchesFilter(p, activeFilter(), sourceLabel, extraTags)) return;
     const rendered = renderPayload(p, displaySettings, sourceLabel, { encoding, extraTags });
@@ -341,6 +343,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
     displaySettings.terminalMaxRecords;
     sourceEncodings[sourceEncodingKey(sid())]?.encoding;
     sourceEncodings[channelEncodingKey(sid(), ch())]?.encoding;
+    sourcesStore[sid()]?.encoding;
     sourceStartOptions.encoding;
     enabledClassificationRules();
     redrawFromBuffer();

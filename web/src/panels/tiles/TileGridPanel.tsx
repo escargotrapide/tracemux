@@ -153,7 +153,8 @@ function Tile(props: TileBinding) {
 
   function renderFrame(p: DataPayload, enforceLimit = true): void {
     const sourceLabel = sourceDisplayName(p, sourcesStore, sourceAliases);
-    const encoding = encodingForChannel(p.sid, p.ch, sourceStartOptions.encoding);
+    const fallback = sourcesStore[p.sid]?.encoding ?? sourceStartOptions.encoding;
+    const encoding = encodingForChannel(p.sid, p.ch, fallback);
     const extraTags = clientClassificationTags(p, enabledClassificationRules(), encoding);
     const rendered = renderPayload(p, displaySettings, sourceLabel, { encoding, extraTags });
     renderedRecords += 1;
@@ -206,6 +207,7 @@ function Tile(props: TileBinding) {
     displaySettings.tileMaxRecords;
     sourceEncodings[sourceEncodingKey(props.sid)]?.encoding;
     sourceEncodings[channelEncodingKey(props.sid, props.ch)]?.encoding;
+    sourcesStore[props.sid]?.encoding;
     sourceStartOptions.encoding;
     enabledClassificationRules();
     redrawFromBuffer();

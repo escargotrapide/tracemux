@@ -15,6 +15,7 @@ workspace = true
 default = []
 metrics = []
 serial = ["dep:tokio-serial", "dep:serialport"]
+pcap-capture = ["dep:pcap"]
 visa-vxi11 = []
 visa-nivisa = []
 
@@ -26,6 +27,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 rmp-serde = { workspace = true }
+etherparse = { workspace = true }
+pcap-file = { workspace = true }
+pcap = { workspace = true, optional = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

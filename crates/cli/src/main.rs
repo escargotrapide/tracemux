@@ -158,6 +158,9 @@ struct WatchArgs {
     /// Target channel.
     #[arg(long, default_value_t = 0)]
     ch: u32,
+    /// Encoding for binary body text projection (`auto` uses the server source snapshot).
+    #[arg(long, default_value = "auto")]
+    encoding: String,
     /// Exit after this many data frames.
     #[arg(long)]
     max_frames: Option<u64>,
@@ -364,6 +367,7 @@ async fn run_watch(args: WatchArgs) -> anyhow::Result<()> {
         token: args.token,
         sid: args.sid,
         ch: args.ch,
+        encoding: args.encoding,
         max_frames: args.max_frames,
     })
     .await

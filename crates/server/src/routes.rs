@@ -17,6 +17,7 @@
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;
+use wanlogger_core::detect::pcap::PcapInterfaceInfo;
 
 /// Public version metadata returned by `/api/version`.
 #[derive(Debug, Clone, Serialize)]
@@ -36,9 +37,13 @@ pub struct DetectReport {
     pub kinds: &'static [&'static str],
     /// Best-effort serial-port candidates such as `COM7` or `/dev/ttyUSB0`.
     pub serial_candidates: Vec<String>,
+    /// Packet-capture interfaces. Empty until the pcap backend is enabled.
+    pub pcap_interfaces: Vec<PcapInterfaceInfo>,
 }
 
-const DETECT_KINDS: &[&str] = &["file", "tcp", "udp", "serial", "process", "pipe", "mock"];
+const DETECT_KINDS: &[&str] = &[
+    "file", "tcp", "udp", "serial", "pcap", "process", "pipe", "mock",
+];
 
 impl VersionInfo {
     /// Compile-time snapshot.
@@ -94,6 +99,7 @@ pub fn detect_report() -> DetectReport {
     DetectReport {
         kinds: DETECT_KINDS,
         serial_candidates: wanlogger_core::detect::serial::list(),
+        pcap_interfaces: wanlogger_core::detect::pcap::list(),
     }
 }
 
@@ -118,6 +124,14 @@ mod tests {
         // REQ: FR-UI-016
         let report = detect_report();
         assert!(report.kinds.contains(&"serial"));
+    }
+
+    #[test]
+    fn detect_report_includes_pcap_schema() {
+        let report = detect_report();
+
+        assert!(report.kinds.contains(&"pcap"));
+        assert!(report.pcap_interfaces.is_empty());
     }
 
     #[tokio::test]

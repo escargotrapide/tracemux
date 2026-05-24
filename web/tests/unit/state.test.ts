@@ -370,6 +370,8 @@ describe("state frame handler", () => {
             last_ts_ms: 42,
             persistent: true,
             session_dir: "C:/logs/session-a",
+            decoder: "utf8-text:shift_jis",
+            encoding: "shift_jis",
           },
         ],
       },
@@ -386,6 +388,8 @@ describe("state frame handler", () => {
       bytesIn: 12,
       persistent: true,
       sessionDir: "C:/logs/session-a",
+      decoder: "utf8-text:shift_jis",
+      encoding: "shift_jis",
     });
   });
 

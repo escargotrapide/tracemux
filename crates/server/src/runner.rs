@@ -140,6 +140,18 @@ pub(crate) fn encode_data_envelope(
     body: &Bytes,
     source_label: &str,
 ) -> anyhow::Result<Vec<u8>> {
+    encode_data_envelope_with_kind(sid, ch, seq, ts, body, source_label, "bytes")
+}
+
+pub(crate) fn encode_data_envelope_with_kind(
+    sid: Uuid,
+    ch: u32,
+    seq: u64,
+    ts: &DualTimestamp,
+    body: &Bytes,
+    source_label: &str,
+    kind: &str,
+) -> anyhow::Result<Vec<u8>> {
     let payload = Value::Map(vec![
         (
             Value::String("ts_origin".into()),
@@ -177,7 +189,7 @@ pub(crate) fn encode_data_envelope(
         ),
         (Value::String("ch".into()), Value::from(ch)),
         (Value::String("dir".into()), Value::String("in".into())),
-        (Value::String("kind".into()), Value::String("bytes".into())),
+        (Value::String("kind".into()), Value::String(kind.into())),
         (Value::String("body".into()), Value::Binary(body.to_vec())),
         (
             Value::String("source".into()),

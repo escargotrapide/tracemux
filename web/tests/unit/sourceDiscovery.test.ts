@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { detectSources, serialSpecForPort } from "../../src/state/sourceDiscovery";
+// REQ: FR-SRC-PCAP-DETECT
+// REQ: FR-UI-PCAP
+// REQ: NFR-SEC-PCAP
+import { detectSources, pcapSpecForInterface, serialSpecForPort } from "../../src/state/sourceDiscovery";
 
 describe("source discovery", () => {
   it("normalizes detect API results", async () => {
@@ -8,6 +11,12 @@ describe("source discovery", () => {
       JSON.stringify({
         kinds: ["serial", 1, "tcp"],
         serial_candidates: ["COM7", 42, "COM3"],
+        pcap_interfaces: [
+          { device: "eth1", display_name: "Zeta", addresses: ["10.0.0.2", 5], flags: ["up"] },
+          { device: "eth0", display_name: "Alpha", description: "primary", flags: ["up", "loopback"] },
+          { device: "eth0", display_name: "Duplicate" },
+          { display_name: "missing device" },
+        ],
       }),
       { status: 200 },
     ));
@@ -15,6 +24,21 @@ describe("source discovery", () => {
     await expect(detectSources(fetchImpl)).resolves.toEqual({
       kinds: ["serial", "tcp"],
       serial_candidates: ["COM3", "COM7"],
+      pcap_interfaces: [
+        {
+          device: "eth0",
+          display_name: "Alpha",
+          description: "primary",
+          addresses: [],
+          flags: ["loopback", "up"],
+        },
+        {
+          device: "eth1",
+          display_name: "Zeta",
+          addresses: ["10.0.0.2"],
+          flags: ["up"],
+        },
+      ],
     });
   });
 
@@ -31,6 +55,17 @@ describe("source discovery", () => {
     );
     expect(serialSpecForPort("/dev/ttyUSB0")).toBe(
       "serial:///dev/ttyUSB0?baud=115200&data=8&parity=none&stop=1&flow=none",
+    );
+  });
+
+  it("builds pcap source specs", () => {
+    expect(
+      pcapSpecForInterface(
+        { device: "Ethernet 0", display_name: "Corp LAN", addresses: [], flags: [] },
+        { snaplen: 9000, promiscuous: true, filter: "tcp port 502", publishMode: "sampled" },
+      ),
+    ).toBe(
+      "pcap://Ethernet%200?snaplen=9000&promisc=1&save=session&publish=sampled&display_name=Corp+LAN&filter=tcp+port+502",
     );
   });
 });

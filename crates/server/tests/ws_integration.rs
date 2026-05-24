@@ -715,6 +715,8 @@ async fn ctl_start_file_source_persists_session_dir() {
         payload_str(row, "session_dir"),
         Some(dir.to_string_lossy().as_ref())
     );
+    assert_eq!(payload_str(row, "decoder"), Some("utf8-text:utf-8"));
+    assert_eq!(payload_str(row, "encoding"), Some("utf-8"));
     assert!(manager.remove(sid));
 }
 
@@ -798,6 +800,27 @@ async fn ctl_start_file_source_accepts_start_options() {
     assert!(std::fs::read_to_string(session.join("frames.jsonl"))
         .unwrap()
         .contains("utf8-text:shift_jis"));
+
+    let list = Envelope::new(
+        FrameType::Ctl,
+        43,
+        value_map(vec![("action", value_str("list"))]),
+    );
+    socket
+        .send(Message::Binary(encode(&list).unwrap()))
+        .await
+        .unwrap();
+    let msg = socket.next().await.expect("ctl frame").expect("ctl ok");
+    let Message::Binary(bytes) = msg else {
+        panic!("expected binary ctl, got {msg:?}");
+    };
+    let listed = decode(&bytes).expect("decode sources");
+    let sources = value_get(&listed.payload, "sources")
+        .and_then(Value::as_array)
+        .expect("sources array");
+    let row = &sources[0];
+    assert_eq!(payload_str(row, "decoder"), Some("utf8-text:shift_jis"));
+    assert_eq!(payload_str(row, "encoding"), Some("shift_jis"));
     assert!(manager.remove(sid));
 }
 

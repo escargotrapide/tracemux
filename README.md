@@ -74,6 +74,14 @@ launch with `wanlogger serve --open-all-serial`; add repeated
 `--serial-port PORT` flags to restrict the set instead of opening every
 detected port.
 
+Packet capture is available as an MVP. Driver-free builds include the pcap
+source model, pcapng exporter, fake-backend tests, interface discovery schema,
+metrics payloads, and bounded packet-list UI. Live Npcap/libpcap capture is
+feature-gated behind `pcap-capture` so normal CI and development machines do
+not need packet-capture SDKs or elevated capture privileges. See
+[`docs/dev/packet-capture-live-setup.md`](docs/dev/packet-capture-live-setup.md)
+for Windows/Npcap, Linux/libpcap, macOS, and direct pcapng setup notes.
+
 The UI also includes browser-local ergonomics for daily log work:
 
 - default, per-source, and per-channel display encodings for live byte

@@ -120,3 +120,48 @@ fn fixture_write_bytes() {
         .with_ch(0);
     check("write_bytes", &env);
 }
+
+// REQ: FR-WIRE-001
+// REQ: FR-WIRE-003
+#[test]
+fn fixture_sources_with_decoder_metadata() {
+    let row = Value::Map(vec![
+        (
+            Value::String("sid".into()),
+            Value::String("00000000-0000-4000-8000-000000000001".into()),
+        ),
+        (Value::String("name".into()), Value::String("COM7".into())),
+        (Value::String("kind".into()), Value::String("serial".into())),
+        (
+            Value::String("status".into()),
+            Value::String("running".into()),
+        ),
+        (
+            Value::String("channels".into()),
+            Value::Array(vec![Value::from(0_u64)]),
+        ),
+        (Value::String("bytes_in".into()), Value::from(12_u64)),
+        (Value::String("persistent".into()), Value::Boolean(true)),
+        (
+            Value::String("decoder".into()),
+            Value::String("utf8-text:shift_jis".into()),
+        ),
+        (
+            Value::String("encoding".into()),
+            Value::String("shift_jis".into()),
+        ),
+    ]);
+    let payload = Value::Map(vec![
+        (
+            Value::String("event".into()),
+            Value::String("sources".into()),
+        ),
+        (
+            Value::String("message".into()),
+            Value::String("sources listed".into()),
+        ),
+        (Value::String("sources".into()), Value::Array(vec![row])),
+    ]);
+    let env = Envelope::new(FrameType::Ctl, 8, payload);
+    check("sources_with_decoder_metadata", &env);
+}

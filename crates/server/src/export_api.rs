@@ -17,7 +17,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use wanlogger_core::exporter::{csv, jsonl, text};
+use wanlogger_core::exporter::{csv, jsonl, pcapng, text};
 
 use crate::auth::{is_loopback_allowed, BearerVerifier};
 use crate::source_manager::SourceManager;
@@ -65,6 +65,7 @@ enum ExportFormat {
     Text,
     Csv,
     Jsonl,
+    Pcapng,
 }
 
 #[derive(Debug, Serialize)]
@@ -131,6 +132,9 @@ async fn export_session(
         ExportFormat::Text => text::export_with_timezone(&session_dir, &dst, timezone.as_deref()),
         ExportFormat::Csv => csv::export_with_timezone(&session_dir, &dst, timezone.as_deref()),
         ExportFormat::Jsonl => jsonl::export_with_timezone(&session_dir, &dst, timezone.as_deref()),
+        ExportFormat::Pcapng => {
+            pcapng::export_with_timezone(&session_dir, &dst, timezone.as_deref())
+        }
     })
     .await
     .map_err(|e| ExportApiError {
@@ -210,10 +214,13 @@ impl ExportFormat {
             "text" => Ok(Self::Text),
             "csv" => Ok(Self::Csv),
             "jsonl" => Ok(Self::Jsonl),
+            "pcapng" => Ok(Self::Pcapng),
             other => Err(ExportApiError {
                 status: StatusCode::BAD_REQUEST,
                 error_id: "E-1001",
-                message: format!("unsupported export format `{other}`; use text, csv, or jsonl"),
+                message: format!(
+                    "unsupported export format `{other}`; use text, csv, jsonl, or pcapng"
+                ),
             }),
         }
     }
@@ -223,6 +230,7 @@ impl ExportFormat {
             Self::Text => "txt",
             Self::Csv => "csv",
             Self::Jsonl => "jsonl",
+            Self::Pcapng => "pcapng",
         }
     }
 
@@ -231,6 +239,7 @@ impl ExportFormat {
             Self::Text => "text/plain; charset=utf-8",
             Self::Csv => "text/csv; charset=utf-8",
             Self::Jsonl => "application/x-ndjson; charset=utf-8",
+            Self::Pcapng => "application/vnd.tcpdump.pcapng",
         }
     }
 }
@@ -282,7 +291,13 @@ impl IntoResponse for ExportArtifact {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wanlogger_core::decoder::Record;
+    use wanlogger_core::exporter::pcapng::PCAP_PACKET_SCHEMA_ID;
+    use wanlogger_core::log::frames::{FrameEntry, FramesWriter};
+    use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
+    use wanlogger_core::log::raw::RawWriter;
     use wanlogger_core::source::ChannelSpec;
+    use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
 
     #[test]
     fn auth_allows_loopback_no_auth() {
@@ -340,6 +355,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exports_known_session_dir_as_pcapng() {
+        let root = std::env::temp_dir().join(format!("wanlogger-export-api-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let input = root.join("in.txt");
+        std::fs::write(&input, b"seed\n").unwrap();
+        let ingest = Arc::new(crate::ingest::Ingest::new());
+        let manager = Arc::new(SourceManager::with_session_root(
+            ingest,
+            root.join("sessions"),
+        ));
+        let sid = manager
+            .start_spec(ChannelSpec::File {
+                path: input.to_string_lossy().to_string(),
+                follow: false,
+            })
+            .await
+            .unwrap();
+        manager.wait(sid).await.unwrap().unwrap();
+        let session_dir = manager.session_dir_for_sid(sid).unwrap();
+        write_synthetic_pcap_session(&session_dir, sid);
+
+        let state = ExportRouteState::new(manager, Arc::new(BearerVerifier::new()), true);
+        let artifact = export_session(
+            &state,
+            &sid.to_string(),
+            ExportQuery {
+                format: "pcapng".to_string(),
+                tz: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(artifact.filename.ends_with(".pcapng"));
+        assert_eq!(artifact.content_type, "application/vnd.tcpdump.pcapng");
+        assert!(artifact.body.starts_with(&0x0A0D_0D0Au32.to_le_bytes()));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
     async fn rejects_unknown_format() {
         let ingest = Arc::new(crate::ingest::Ingest::new());
         let manager = Arc::new(SourceManager::with_session_root(
@@ -358,5 +413,69 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.status, StatusCode::BAD_REQUEST);
+    }
+
+    fn write_synthetic_pcap_session(dir: &Path, sid: Uuid) {
+        for name in ["raw.bin", "index.jsonl", "frames.jsonl", "lines.jsonl"] {
+            let _ = std::fs::remove_file(dir.join(name));
+        }
+        let packet = ethernet_packet();
+        let mut raw = RawWriter::create(dir).unwrap();
+        let (off, len) = raw.append(&packet).unwrap();
+        raw.flush().unwrap();
+
+        let ts = sample_ts();
+        let mut entry = IndexEntry::from_envelope(&ts, sid, Dir::In, Kind::Datagram, off, len);
+        entry.source = Some("pcap:eth0".to_string());
+        entry.schema_id = Some(PCAP_PACKET_SCHEMA_ID.to_string());
+        let mut index = IndexWriter::create(dir).unwrap();
+        index.append(&entry).unwrap();
+        index.flush().unwrap();
+
+        let mut frames = FramesWriter::create(dir).unwrap();
+        frames
+            .append(&FrameEntry {
+                ts: entry.ts_ingest,
+                decoder: "pcap".to_string(),
+                record: Record {
+                    schema_id: Some(PCAP_PACKET_SCHEMA_ID.to_string()),
+                    level: None,
+                    text: None,
+                    fields: serde_json::json!({
+                        "raw_off": off,
+                        "raw_len": len,
+                        "captured_len": len,
+                        "original_len": len,
+                        "linktype": 1,
+                        "interface_id": 0,
+                        "interface": "eth0"
+                    }),
+                    tags: vec!["pcap".to_string()],
+                    correlation_id: None,
+                },
+            })
+            .unwrap();
+        frames.flush().unwrap();
+    }
+
+    fn sample_ts() -> DualTimestamp {
+        DualTimestamp {
+            ts_origin_ns: 1_700_000_000_123_456_789,
+            ts_ingest_ns: 1_700_000_000_223_456_789,
+            mono_ns: 42,
+            boot_id: Uuid::nil(),
+            node_id: Uuid::nil(),
+            clock_offset_ms: 0,
+            clock_quality: ClockQuality::BestEffort,
+            drift_ppm: 0.0,
+            clock_source: ClockSource::Imported,
+        }
+    }
+
+    fn ethernet_packet() -> Vec<u8> {
+        vec![
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x08, 0x00,
+            0x45, 0x00, 0x00, 0x14,
+        ]
     }
 }
