@@ -160,7 +160,8 @@ siblings of `spec`. `restart` MAY include the same fields without
 | Field | Type | Effect |
 | ----- | ---- | ------ |
 | `encoding` | string | Text encoding label for the source's decoder, e.g. `utf-8`, `shift_jis`, `cp932`. Unknown labels fall back to UTF-8 at the codec layer. |
-| `classifier` | array | Substring classification rules. Each item is `{ contains: string, tag: string, case_sensitive?: bool }`. Matching tags are added to decoded persisted records. |
+| `classifier` | array | Classification rules. Each item is either `{ contains: string, tag: string, case_sensitive?: bool }` or `{ regex: string, tag: string, case_sensitive?: bool }`. Matching tags are added to decoded persisted records. Invalid regex rules are rejected. |
+| `detection_mode` | string | Content detection mode: `configured`, `auto`, `suggest`, or `off`. `auto` may apply a high-confidence detected encoding; `suggest` reports candidates only. |
 | `session_name_pattern` | string | Session-dir naming pattern for this start, using the same tokens as the server `--name-pattern` option. |
 
 These fields override server defaults for this logical source lifetime
@@ -176,7 +177,11 @@ Example:
   action: "start",
   spec: { kind: "file", path: "C:/logs/app.log", follow: true },
   encoding: "shift_jis",
-  classifier: [{ contains: "ERROR", tag: "fault" }],
+  detection_mode: "suggest",
+  classifier: [
+    { contains: "ERROR", tag: "fault" },
+    { regex: "E-[0-9]{4}", tag: "error-id" }
+  ],
   session_name_pattern: "{prefix}_{kind}_{iface}_{unix_ns}"
 }
 ```
@@ -221,6 +226,20 @@ Server-to-client lifecycle acknowledgements also use `ctl` payloads:
   session_dir?: "wanlogger-sessions/wanlogger_serial_COM7_...",
   decoder?: "utf8-text:shift_jis",
   encoding?: "shift_jis",
+  detection_mode?: "configured" | "auto" | "suggest" | "off",
+  detection?: {
+    mode: "auto",
+    sample_bytes: 4096,
+    configured_encoding: "utf-8",
+    effective_encoding: "shift_jis",
+    sampled_encoding: "shift_jis",
+    encoding_candidates: [
+      { label: "shift_jis", confidence: 96, had_errors: false, evidence: ["decode-clean"] }
+    ],
+    log_type_candidates: [
+      { tag: "error-id", kind: "regex", pattern: "E-[0-9]{4}", count: 2, confidence: 85 }
+    ]
+  }
 }
 ```
 
@@ -229,8 +248,11 @@ whether the server is writing a session-dir for the source and, if so,
 the server-local path. `decoder` is the effective server-side decoder
 label for this source lifetime when known. `encoding` is present only
 for text decoders and names the character encoding portion clients may
-use for live raw-byte display. Clients MUST NOT persist log bytes
-directly based on these fields; they are display/navigation hints only.
+use for live raw-byte display. `detection_mode` and `detection` are
+advisory metadata from bounded server-side startup sampling. Clients MAY
+display or accept suggestions by issuing a later `restart`, but MUST NOT
+persist log bytes directly based on these fields; they are
+display/navigation hints only.
 
 Lifecycle wire/validation errors use `E-2001`; source-open failures use
 `E-1101`.

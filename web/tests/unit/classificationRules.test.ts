@@ -32,6 +32,7 @@ describe("classification rules", () => {
     });
 
     expect(rules.fault).toMatchObject({
+      matchKind: "contains",
       contains: "ERROR",
       tag: "fault",
       caseSensitive: true,
@@ -56,7 +57,7 @@ describe("classification rules", () => {
     expect(classifyText(`prefix ${rule.contains} suffix`, [rule])).toEqual(["fault"]);
 
     const saved = saveClassificationRules(
-      { warn: { id: "warn", contains: "warn", tag: "warning", caseSensitive: false, enabled: true, updatedAt: 1 } },
+      { warn: { id: "warn", matchKind: "contains", contains: "warn", tag: "warning", caseSensitive: false, enabled: true, updatedAt: 1 } },
       storage,
     );
     expect(loadClassificationRules(storage)).toEqual(saved);
@@ -64,14 +65,28 @@ describe("classification rules", () => {
 
   it("deduplicates wire tags and honors case sensitivity", () => {
     const rules = [
-      { id: "a", contains: "ERR", tag: "fault", caseSensitive: true, enabled: true, updatedAt: 1 },
-      { id: "b", contains: "err", tag: "fault", caseSensitive: false, enabled: true, updatedAt: 2 },
+      { id: "a", matchKind: "contains" as const, contains: "ERR", tag: "fault", caseSensitive: true, enabled: true, updatedAt: 1 },
+      { id: "b", matchKind: "contains" as const, contains: "err", tag: "fault", caseSensitive: false, enabled: true, updatedAt: 2 },
     ];
 
     expect(classifyText("err", rules)).toEqual(["fault"]);
     expect(wireClassificationRules(rules)).toEqual([
       { contains: "ERR", tag: "fault", case_sensitive: true },
       { contains: "err", tag: "fault" },
+    ]);
+  });
+
+  it("supports regex rules for local and wire classification", () => {
+    const rule = upsertClassificationRule({
+      matchKind: "regex",
+      contains: "E-[0-9]{4}",
+      tag: "error-id",
+      enabled: true,
+    }, undefined, 11);
+
+    expect(classifyText("failed with e-2001", [rule])).toEqual(["error-id"]);
+    expect(wireClassificationRules([rule])).toEqual([
+      { regex: "E-[0-9]{4}", tag: "error-id" },
     ]);
   });
 

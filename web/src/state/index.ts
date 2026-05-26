@@ -11,6 +11,8 @@ import {
   type ConnState,
   type CtlPayload,
   type DataPayload,
+  type DetectionMode,
+  type DetectionReportPayload,
   type Frame,
   type MetricsPayload,
   type SourceSyncPayload,
@@ -33,6 +35,8 @@ export interface SourceInfo {
   sessionDir?: string | undefined;
   decoder?: string | undefined;
   encoding?: string | undefined;
+  detectionMode?: DetectionMode | undefined;
+  detection?: DetectionReportPayload | undefined;
 }
 
 export interface ChannelKey {
@@ -208,6 +212,8 @@ function syncSources(items: SourceSyncPayload[]): void {
       sessionDir: item.session_dir ?? existing?.sessionDir,
       decoder: item.decoder ?? existing?.decoder,
       encoding: item.encoding ?? existing?.encoding,
+      detectionMode: item.detection_mode ?? existing?.detectionMode,
+      detection: item.detection ?? existing?.detection,
     });
   }
   for (const sid of Object.keys(sources)) {

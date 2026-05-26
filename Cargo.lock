@@ -2846,6 +2846,7 @@ dependencies = [
  "parking_lot",
  "pcap",
  "pcap-file",
+ "regex",
  "rmp-serde",
  "serde",
  "serde_json",

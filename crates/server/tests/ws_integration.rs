@@ -758,16 +758,23 @@ async fn ctl_start_file_source_accepts_start_options() {
                 ]),
             ),
             ("encoding", value_str("shift_jis")),
+            ("detection_mode", value_str("suggest")),
             (
                 "session_name_pattern",
                 value_str("{prefix}-{kind}-{iface}-ws"),
             ),
             (
                 "classifier",
-                Value::Array(vec![value_map(vec![
-                    ("contains", value_str("あ")),
-                    ("tag", value_str("jp")),
-                ])]),
+                Value::Array(vec![
+                    value_map(vec![
+                        ("contains", value_str("あ")),
+                        ("tag", value_str("jp")),
+                    ]),
+                    value_map(vec![
+                        ("regex", value_str("E-[0-9]{3}")),
+                        ("tag", value_str("err-id")),
+                    ]),
+                ]),
             ),
         ]),
     );
@@ -821,6 +828,13 @@ async fn ctl_start_file_source_accepts_start_options() {
     let row = &sources[0];
     assert_eq!(payload_str(row, "decoder"), Some("utf8-text:shift_jis"));
     assert_eq!(payload_str(row, "encoding"), Some("shift_jis"));
+    assert_eq!(payload_str(row, "detection_mode"), Some("suggest"));
+    let detection = value_get(row, "detection").expect("detection report");
+    assert_eq!(payload_str(detection, "mode"), Some("suggest"));
+    assert_eq!(
+        payload_str(detection, "sampled_encoding"),
+        Some("shift_jis")
+    );
     assert!(manager.remove(sid));
 }
 

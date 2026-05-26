@@ -67,6 +67,33 @@ export interface MetricsPayload {
   [key: string]: unknown;
 }
 
+export type DetectionMode = "configured" | "auto" | "suggest" | "off";
+
+export interface EncodingCandidatePayload {
+  label: string;
+  confidence: number;
+  had_errors?: boolean;
+  evidence?: string[];
+}
+
+export interface LogTypeCandidatePayload {
+  tag: string;
+  kind: "contains" | "regex";
+  pattern: string;
+  count: number;
+  confidence: number;
+}
+
+export interface DetectionReportPayload {
+  mode: DetectionMode;
+  sample_bytes: number;
+  configured_encoding: string;
+  effective_encoding: string;
+  sampled_encoding: string;
+  encoding_candidates?: EncodingCandidatePayload[];
+  log_type_candidates?: LogTypeCandidatePayload[];
+}
+
 export interface CtlPayload {
   event:
     | "sources"
@@ -102,6 +129,8 @@ export interface SourceSyncPayload {
   session_dir?: string;
   decoder?: string;
   encoding?: string;
+  detection_mode?: DetectionMode;
+  detection?: DetectionReportPayload;
 }
 
 export type ConnState =

@@ -33,6 +33,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use wanlogger_core::classify::{ClassificationRule, LogClassifier};
+use wanlogger_core::detect::content::{ContentDetectionReport, DetectionMode};
 use wanlogger_core::source::pcap::{
     PcapPublishMode, PcapSaveMode, DEFAULT_SNAPLEN, DEFAULT_TIMEOUT_MS,
 };
@@ -494,6 +495,18 @@ async fn list_sources_ctl(
                                 Value::String(encoding.into()),
                             ));
                         }
+                        if let Some(detection_mode) = source.detection_mode {
+                            row.push((
+                                Value::String("detection_mode".into()),
+                                Value::String(detection_mode.as_str().into()),
+                            ));
+                        }
+                        if let Some(detection) = source.detection {
+                            row.push((
+                                Value::String("detection".into()),
+                                detection_report_value(&detection),
+                            ));
+                        }
                         Value::Map(row)
                     })
                     .collect(),
@@ -506,6 +519,106 @@ async fn list_sources_ctl(
         peer,
     )
     .await
+}
+
+fn detection_report_value(report: &ContentDetectionReport) -> Value {
+    Value::Map(vec![
+        (
+            Value::String("mode".into()),
+            Value::String(report.mode.as_str().into()),
+        ),
+        (
+            Value::String("sample_bytes".into()),
+            Value::from(report.sample_bytes as u64),
+        ),
+        (
+            Value::String("configured_encoding".into()),
+            Value::String(report.configured_encoding.clone().into()),
+        ),
+        (
+            Value::String("effective_encoding".into()),
+            Value::String(report.effective_encoding.clone().into()),
+        ),
+        (
+            Value::String("sampled_encoding".into()),
+            Value::String(report.sampled_encoding.clone().into()),
+        ),
+        (
+            Value::String("encoding_candidates".into()),
+            Value::Array(
+                report
+                    .encoding_candidates
+                    .iter()
+                    .map(|candidate| {
+                        Value::Map(vec![
+                            (
+                                Value::String("label".into()),
+                                Value::String(candidate.label.clone().into()),
+                            ),
+                            (
+                                Value::String("confidence".into()),
+                                Value::from(u64::from(candidate.confidence)),
+                            ),
+                            (
+                                Value::String("had_errors".into()),
+                                Value::Boolean(candidate.had_errors),
+                            ),
+                            (
+                                Value::String("evidence".into()),
+                                Value::Array(
+                                    candidate
+                                        .evidence
+                                        .iter()
+                                        .map(|item| Value::String(item.clone().into()))
+                                        .collect(),
+                                ),
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        (
+            Value::String("log_type_candidates".into()),
+            Value::Array(
+                report
+                    .log_type_candidates
+                    .iter()
+                    .map(|candidate| {
+                        Value::Map(vec![
+                            (
+                                Value::String("tag".into()),
+                                Value::String(candidate.tag.clone().into()),
+                            ),
+                            (
+                                Value::String("kind".into()),
+                                Value::String(match_kind_token(candidate.kind).into()),
+                            ),
+                            (
+                                Value::String("pattern".into()),
+                                Value::String(candidate.pattern.clone().into()),
+                            ),
+                            (
+                                Value::String("count".into()),
+                                Value::from(candidate.count as u64),
+                            ),
+                            (
+                                Value::String("confidence".into()),
+                                Value::from(u64::from(candidate.confidence)),
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+fn match_kind_token(kind: wanlogger_core::classify::ClassificationMatchKind) -> &'static str {
+    match kind {
+        wanlogger_core::classify::ClassificationMatchKind::Contains => "contains",
+        wanlogger_core::classify::ClassificationMatchKind::Regex => "regex",
+    }
 }
 
 async fn start_source_ctl(
@@ -1000,9 +1113,19 @@ fn optional_payload_str(value: &Value, key: &str) -> Result<Option<String>, Stri
 fn start_options_from_payload(value: &Value) -> Result<SourceStartOptions, String> {
     Ok(SourceStartOptions {
         encoding: optional_payload_str(value, "encoding")?,
+        detection_mode: detection_mode_from_payload(value)?,
         session_name_pattern: optional_payload_str(value, "session_name_pattern")?,
         classifier: classifier_from_payload(value)?,
     })
+}
+
+fn detection_mode_from_payload(value: &Value) -> Result<Option<DetectionMode>, String> {
+    let Some(raw) = optional_payload_str(value, "detection_mode")? else {
+        return Ok(None);
+    };
+    DetectionMode::parse(&raw)
+        .map(Some)
+        .ok_or_else(|| "start.detection_mode must be configured, auto, suggest, or off".to_string())
 }
 
 fn classifier_from_payload(value: &Value) -> Result<Option<LogClassifier>, String> {
@@ -1014,29 +1137,66 @@ fn classifier_from_payload(value: &Value) -> Result<Option<LogClassifier>, Strin
     };
     let mut rules = Vec::new();
     for item in items {
-        let contains = classifier_rule_str(item, "contains")?;
         let tag = classifier_rule_str(item, "tag")?;
-        if contains.trim().is_empty() || tag.trim().is_empty() {
-            continue;
-        }
         let case_sensitive = match map_get(item, "case_sensitive") {
             Some(Value::Boolean(b)) => *b,
             Some(_) => return Err("start.classifier[].case_sensitive bool is required".to_string()),
             None => false,
         };
-        rules.push(ClassificationRule::contains_with_case(
-            contains,
-            tag,
-            case_sensitive,
-        ));
+        let contains = classifier_rule_optional_str(item, "contains")?;
+        let regex = classifier_rule_optional_str(item, "regex")?;
+        let Some(rule) = classifier_rule(contains, regex, tag, case_sensitive)? else {
+            continue;
+        };
+        if !rule.is_valid() {
+            return Err("start.classifier[].regex is not a valid regular expression".to_string());
+        }
+        rules.push(rule);
     }
     Ok(Some(LogClassifier::from_rules(rules)))
+}
+
+fn classifier_rule(
+    contains: Option<String>,
+    regex: Option<String>,
+    tag: String,
+    case_sensitive: bool,
+) -> Result<Option<ClassificationRule>, String> {
+    if tag.trim().is_empty() {
+        return Ok(None);
+    }
+    match (contains, regex) {
+        (Some(_), Some(_)) => {
+            Err("start.classifier[] must specify only one of contains or regex".to_string())
+        }
+        (Some(contains), None) if !contains.trim().is_empty() => Ok(Some(
+            ClassificationRule::contains_with_case(contains, tag, case_sensitive),
+        )),
+        (None, Some(regex)) if !regex.trim().is_empty() => Ok(Some(
+            ClassificationRule::regex_with_case(regex, tag, case_sensitive),
+        )),
+        _ => Ok(None),
+    }
 }
 
 fn classifier_rule_str(value: &Value, key: &str) -> Result<String, String> {
     map_str(value, key)
         .map(ToString::to_string)
         .ok_or_else(|| format!("start.classifier[].{key} string is required"))
+}
+
+fn classifier_rule_optional_str(value: &Value, key: &str) -> Result<Option<String>, String> {
+    match map_get(value, key) {
+        Some(Value::String(s)) => Ok(s.as_str().map(str::trim).and_then(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        })),
+        Some(_) => Err(format!("start.classifier[].{key} string is required")),
+        None => Ok(None),
+    }
 }
 
 fn channel_spec_from_value(value: &Value) -> Result<ChannelSpec, String> {
@@ -1226,20 +1386,51 @@ mod tests {
             ),
             (
                 Value::String("classifier".into()),
-                Value::Array(vec![Value::Map(vec![
-                    (
-                        Value::String("contains".into()),
-                        Value::String("ERROR".into()),
-                    ),
-                    (Value::String("tag".into()), Value::String("fault".into())),
-                    (Value::String("case_sensitive".into()), Value::Boolean(true)),
-                ])]),
+                Value::Array(vec![
+                    Value::Map(vec![
+                        (
+                            Value::String("contains".into()),
+                            Value::String("ERROR".into()),
+                        ),
+                        (Value::String("tag".into()), Value::String("fault".into())),
+                        (Value::String("case_sensitive".into()), Value::Boolean(true)),
+                    ]),
+                    Value::Map(vec![
+                        (
+                            Value::String("regex".into()),
+                            Value::String("E-[0-9]{4}".into()),
+                        ),
+                        (
+                            Value::String("tag".into()),
+                            Value::String("error-id".into()),
+                        ),
+                    ]),
+                ]),
+            ),
+            (
+                Value::String("detection_mode".into()),
+                Value::String("suggest".into()),
             ),
         ]);
 
         let options = start_options_from_payload(&payload).unwrap();
         assert_eq!(options.encoding.as_deref(), Some("cp932"));
+        assert_eq!(options.detection_mode, Some(DetectionMode::Suggest));
         assert!(options.classifier.is_some());
+    }
+
+    #[test]
+    fn classifier_payload_rejects_invalid_regex() {
+        let payload = Value::Map(vec![(
+            Value::String("classifier".into()),
+            Value::Array(vec![Value::Map(vec![
+                (Value::String("regex".into()), Value::String("[".into())),
+                (Value::String("tag".into()), Value::String("bad".into())),
+            ])]),
+        )]);
+
+        let err = start_options_from_payload(&payload).unwrap_err();
+        assert!(err.contains("valid regular expression"));
     }
 
     #[test]

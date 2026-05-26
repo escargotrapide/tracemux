@@ -4,18 +4,24 @@
 //! operations (`start`, `stop`, `resume`, `restart`, `remove`, `wait`)
 //! separate from the frozen core traits and wire schema.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use async_trait::async_trait;
 use bytes::Bytes;
 use parking_lot::{Mutex, RwLock};
 use tokio::task::JoinHandle;
+use tokio::time::{timeout, Duration};
 use uuid::Uuid;
 use wanlogger_core::classify::{ClassifyingDecoder, LogClassifier};
 use wanlogger_core::decoder::{utf8_text::Utf8TextDecoder, Decoder};
+use wanlogger_core::detect::content::{
+    detect_content, ContentDetectionReport, ContentDetectionSettings, DetectionMode,
+    DEFAULT_MAX_SAMPLE_BYTES,
+};
 use wanlogger_core::framer::{passthrough::PassthroughFramer, Framer};
 use wanlogger_core::logsink::{fanout::FanoutLogSink, file::FileLogSink, LogSink};
 use wanlogger_core::session_name::{
@@ -26,7 +32,7 @@ use wanlogger_core::source::{
     file::FileSource, http_webhook::HttpWebhookSource, mock::MockSource, mqtt::MqttSource,
     pcap::PcapConfig, pcap::PcapSource, pipe::PipeSource, process::ProcessSource,
     replay::ReplaySource, serial::SerialSource, syslog::SyslogSource, tcp::TcpSource,
-    udp::UdpSource, ChannelSpec, Source,
+    udp::UdpSource, ChannelMeta, ChannelSpec, ControlEvt, Frame, Source,
 };
 use wanlogger_core::time::{system::SystemTimeSource, TimeSource};
 use wanlogger_core::{ErrorId, WanloggerError};
@@ -37,6 +43,7 @@ use crate::remote_mirror::{self, RemoteTarget};
 use crate::runner::{run_source_once_notify, RunnerStats};
 
 type SharedSink = Arc<tokio::sync::Mutex<Box<dyn Sink>>>;
+const DETECTION_SAMPLE_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// UI-facing source lifecycle status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +77,10 @@ pub struct SourceSnapshot {
     pub decoder: Option<String>,
     /// Text encoding label when the effective decoder is text-based.
     pub encoding: Option<String>,
+    /// Content-detection mode used for this source lifetime.
+    pub detection_mode: Option<DetectionMode>,
+    /// Content-detection report for this source lifetime.
+    pub detection: Option<ContentDetectionReport>,
 }
 
 /// Optional per-start pipeline settings for a source.
@@ -82,6 +93,8 @@ pub struct SourceStartOptions {
     pub classifier: Option<LogClassifier>,
     /// Text encoding label passed to `Utf8TextDecoder`.
     pub encoding: Option<String>,
+    /// Content-detection mode for this source start.
+    pub detection_mode: Option<DetectionMode>,
     /// Session-dir name pattern used when a new session-dir is created.
     pub session_name_pattern: Option<String>,
 }
@@ -90,6 +103,8 @@ pub struct SourceStartOptions {
 struct SourcePipelineMetadata {
     decoder: Option<String>,
     encoding: Option<String>,
+    detection_mode: Option<DetectionMode>,
+    detection: Option<ContentDetectionReport>,
 }
 
 /// Serial-port parameters used for detected/bulk startup.
@@ -150,6 +165,7 @@ pub struct SourceManager {
     session_root: Option<PathBuf>,
     classifier: RwLock<LogClassifier>,
     encoding: RwLock<String>,
+    detection_mode: RwLock<DetectionMode>,
     session_name_pattern: RwLock<String>,
     sources: Mutex<HashMap<Uuid, SourceEntry>>,
 }
@@ -199,6 +215,64 @@ impl SourceRegistration {
     }
 }
 
+struct PrefetchedSource<S> {
+    inner: S,
+    prefetched: VecDeque<Frame>,
+    opened: bool,
+}
+
+impl<S> PrefetchedSource<S> {
+    fn unopened(inner: S) -> Self {
+        Self {
+            inner,
+            prefetched: VecDeque::new(),
+            opened: false,
+        }
+    }
+
+    fn opened(inner: S, prefetched: VecDeque<Frame>) -> Self {
+        Self {
+            inner,
+            prefetched,
+            opened: true,
+        }
+    }
+}
+
+#[async_trait]
+impl<S> Source for PrefetchedSource<S>
+where
+    S: Source,
+{
+    async fn open(&mut self) -> wanlogger_core::Result<()> {
+        if !self.opened {
+            self.inner.open().await?;
+            self.opened = true;
+        }
+        Ok(())
+    }
+
+    async fn recv(&mut self) -> wanlogger_core::Result<Option<Frame>> {
+        if let Some(frame) = self.prefetched.pop_front() {
+            return Ok(Some(frame));
+        }
+        self.inner.recv().await
+    }
+
+    async fn recv_ctl(&mut self) -> wanlogger_core::Result<Option<ControlEvt>> {
+        self.inner.recv_ctl().await
+    }
+
+    fn metadata(&self) -> ChannelMeta {
+        self.inner.metadata()
+    }
+
+    async fn close(&mut self) -> wanlogger_core::Result<()> {
+        self.opened = false;
+        self.inner.close().await
+    }
+}
+
 impl SourceManager {
     /// Construct with shared ingest state.
     #[must_use]
@@ -208,6 +282,7 @@ impl SourceManager {
             session_root: None,
             classifier: RwLock::new(LogClassifier::new()),
             encoding: RwLock::new("utf-8".to_string()),
+            detection_mode: RwLock::new(DetectionMode::Configured),
             session_name_pattern: RwLock::new(DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()),
             sources: Mutex::new(HashMap::new()),
         }
@@ -221,6 +296,7 @@ impl SourceManager {
             session_root: Some(session_root.into()),
             classifier: RwLock::new(LogClassifier::new()),
             encoding: RwLock::new("utf-8".to_string()),
+            detection_mode: RwLock::new(DetectionMode::Configured),
             session_name_pattern: RwLock::new(DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()),
             sources: Mutex::new(HashMap::new()),
         }
@@ -238,6 +314,7 @@ impl SourceManager {
             session_root: Some(session_root.into()),
             classifier: RwLock::new(classifier),
             encoding: RwLock::new("utf-8".to_string()),
+            detection_mode: RwLock::new(DetectionMode::Configured),
             session_name_pattern: RwLock::new(DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()),
             sources: Mutex::new(HashMap::new()),
         }
@@ -256,6 +333,7 @@ impl SourceManager {
             session_root: Some(session_root.into()),
             classifier: RwLock::new(classifier),
             encoding: RwLock::new(encoding.into()),
+            detection_mode: RwLock::new(DetectionMode::Configured),
             session_name_pattern: RwLock::new(DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()),
             sources: Mutex::new(HashMap::new()),
         }
@@ -275,6 +353,7 @@ impl SourceManager {
             session_root: Some(session_root.into()),
             classifier: RwLock::new(classifier),
             encoding: RwLock::new(encoding.into()),
+            detection_mode: RwLock::new(DetectionMode::Configured),
             session_name_pattern: RwLock::new(session_name_pattern.into()),
             sources: Mutex::new(HashMap::new()),
         }
@@ -300,6 +379,17 @@ impl SourceManager {
     #[must_use]
     pub fn encoding(&self) -> String {
         self.encoding.read().clone()
+    }
+
+    /// Replace the content-detection mode used for subsequently started sources.
+    pub fn set_detection_mode(&self, detection_mode: DetectionMode) {
+        *self.detection_mode.write() = detection_mode;
+    }
+
+    /// Snapshot the content-detection mode used for newly started sources.
+    #[must_use]
+    pub fn detection_mode(&self) -> DetectionMode {
+        *self.detection_mode.read()
     }
 
     /// Replace the session-dir name pattern used for subsequently started sources.
@@ -694,6 +784,8 @@ impl SourceManager {
                 pipeline: SourcePipelineMetadata {
                     decoder: Some("pcap-packet".to_string()),
                     encoding: None,
+                    detection_mode: Some(DetectionMode::Off),
+                    detection: None,
                 },
                 handle: Some(handle),
                 sink: None,
@@ -856,6 +948,8 @@ impl SourceManager {
                 pipeline: SourcePipelineMetadata {
                     decoder: Some(decoder_label.to_string()),
                     encoding: None,
+                    detection_mode: Some(DetectionMode::Off),
+                    detection: None,
                 },
                 handle: Some(handle),
                 sink: Some(shared_sink(Box::new(sink))),
@@ -877,7 +971,7 @@ impl SourceManager {
     where
         S: Source + Send + 'static,
     {
-        let encoding = start_options
+        let configured_encoding = start_options
             .encoding
             .clone()
             .unwrap_or_else(|| self.encoding());
@@ -885,11 +979,21 @@ impl SourceManager {
             .classifier
             .clone()
             .unwrap_or_else(|| self.classifier());
+        let detection_mode = self.detection_mode_for(&start_options);
+        let (source, detection) = self
+            .prefetch_for_detection(source, detection_mode, &configured_encoding, &classifier)
+            .await?;
+        let encoding = detection.as_ref().map_or_else(
+            || configured_encoding.clone(),
+            |report| report.effective_encoding.clone(),
+        );
         let decoder_label = format!("utf8-text:{encoding}");
         let logsink = Self::log_sink_for(sid, &spec, session_dir.as_deref(), &decoder_label)?;
         let pipeline = SourcePipelineMetadata {
             decoder: Some(decoder_label.clone()),
             encoding: Some(encoding.clone()),
+            detection_mode: Some(detection_mode),
+            detection,
         };
         self.start_source_with_sid(
             sid,
@@ -907,6 +1011,53 @@ impl SourceManager {
             },
         )
         .await
+    }
+
+    async fn prefetch_for_detection<S>(
+        &self,
+        mut source: S,
+        detection_mode: DetectionMode,
+        configured_encoding: &str,
+        classifier: &LogClassifier,
+    ) -> anyhow::Result<(PrefetchedSource<S>, Option<ContentDetectionReport>)>
+    where
+        S: Source + Send + 'static,
+    {
+        if !matches!(detection_mode, DetectionMode::Auto | DetectionMode::Suggest) {
+            return Ok((PrefetchedSource::unopened(source), None));
+        }
+
+        source.open().await?;
+        let mut prefetched = VecDeque::new();
+        let mut sample = Vec::new();
+        while sample.len() < DEFAULT_MAX_SAMPLE_BYTES {
+            let next = timeout(DETECTION_SAMPLE_TIMEOUT, source.recv()).await;
+            let frame = match next {
+                Ok(Ok(Some(frame))) => frame,
+                Ok(Ok(None)) | Err(_) => break,
+                Ok(Err(err)) => return Err(err.into()),
+            };
+            if let Some(bytes) = frame_bytes(&frame) {
+                let remaining = DEFAULT_MAX_SAMPLE_BYTES.saturating_sub(sample.len());
+                sample.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
+            }
+            prefetched.push_back(frame);
+        }
+
+        let settings = ContentDetectionSettings {
+            mode: detection_mode,
+            configured_encoding: configured_encoding.to_string(),
+            classifier: classifier.clone(),
+            ..ContentDetectionSettings::default()
+        };
+        let report = detect_content(&sample, &settings);
+        Ok((PrefetchedSource::opened(source, prefetched), Some(report)))
+    }
+
+    fn detection_mode_for(&self, start_options: &SourceStartOptions) -> DetectionMode {
+        start_options
+            .detection_mode
+            .unwrap_or_else(|| self.detection_mode())
     }
 
     fn session_dir_for(
@@ -1196,6 +1347,8 @@ impl SourceManager {
                 session_dir,
                 decoder: pipeline.decoder,
                 encoding: pipeline.encoding,
+                detection_mode: pipeline.detection_mode,
+                detection: pipeline.detection,
             });
         }
         out.sort_by_key(|s| s.sid);
@@ -1225,7 +1378,19 @@ fn merge_start_options(
     SourceStartOptions {
         classifier: overrides.classifier.or(base.classifier),
         encoding: overrides.encoding.or(base.encoding),
+        detection_mode: overrides.detection_mode.or(base.detection_mode),
         session_name_pattern: overrides.session_name_pattern.or(base.session_name_pattern),
+    }
+}
+
+fn frame_bytes(frame: &Frame) -> Option<&Bytes> {
+    match frame {
+        Frame::Bytes(bytes) => Some(bytes),
+        Frame::Datagram { data, .. }
+        | Frame::Ssh { data, .. }
+        | Frame::Visa { data, .. }
+        | Frame::Other { data, .. } => Some(data),
+        _ => None,
     }
 }
 
@@ -1344,6 +1509,7 @@ fn local_host_label() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use wanlogger_core::classify::{ClassificationRule, LogClassifier};
+    use wanlogger_core::codec::encode_text;
     use wanlogger_core::decoder::passthrough::PassthroughDecoder;
     use wanlogger_core::framer::line::{Eol, LineFramer};
     use wanlogger_core::logsink::fanout::FanoutLogSink;
@@ -1518,6 +1684,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auto_detection_applies_encoding_and_reports_log_type() {
+        // REQ: FR-CLI-011
+        let root = tempdir();
+        let input = root.join("input.log");
+        let (sample, had_errors) = encode_text("E-1001 エラー\n", "shift_jis");
+        assert!(!had_errors);
+        std::fs::write(&input, sample).unwrap();
+        let sessions = root.join("sessions");
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::with_session_root(ingest.clone(), &sessions);
+        let classifier =
+            LogClassifier::from_rules(vec![ClassificationRule::regex(r"E-[0-9]{4}", "error-id")]);
+
+        let sid = manager
+            .start_spec_with_options(
+                ChannelSpec::File {
+                    path: input.to_string_lossy().to_string(),
+                    follow: false,
+                },
+                SourceStartOptions {
+                    classifier: Some(classifier),
+                    encoding: Some("utf-8".to_string()),
+                    detection_mode: Some(DetectionMode::Auto),
+                    session_name_pattern: None,
+                },
+            )
+            .await
+            .unwrap();
+        manager.wait(sid).await.unwrap().unwrap();
+
+        let session_dirs: Vec<_> = std::fs::read_dir(&sessions)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_dir())
+            .collect();
+        let lines = std::fs::read_to_string(session_dirs[0].join("lines.jsonl")).unwrap();
+        assert!(lines.contains("エラー"));
+
+        let snapshot = manager
+            .list_sources()
+            .into_iter()
+            .find(|source| source.sid == sid)
+            .unwrap();
+        assert_eq!(snapshot.encoding.as_deref(), Some("shift_jis"));
+        let detection = snapshot.detection.expect("detection report");
+        assert_eq!(detection.mode, DetectionMode::Auto);
+        assert_eq!(detection.effective_encoding, "shift_jis");
+        assert_eq!(detection.log_type_candidates[0].tag, "error-id");
+
+        assert!(manager.remove(sid));
+        assert!(ingest.registry.get(&sid).is_none());
+    }
+
+    #[tokio::test]
     async fn start_spec_with_options_overrides_defaults_and_reuses_on_resume() {
         // REQ: FR-CLI-005
         // REQ: FR-CLI-006
@@ -1539,6 +1759,7 @@ mod tests {
                 SourceStartOptions {
                     classifier: Some(classifier),
                     encoding: Some("shift_jis".to_string()),
+                    detection_mode: None,
                     session_name_pattern: Some("{prefix}-{kind}-{iface}-custom".to_string()),
                 },
             )

@@ -263,16 +263,27 @@ text payload with the selected character encoding before sending the
 wire `write` frame. File, hex, and stdin payloads remain raw bytes.
 
 ### FR-CLI-005  Log classification tags
-`wanlogger log` and `wanlogger serve` accept one or more substring
-classification rules and store matching log-type tags in persisted
-session-dir metadata. Matching is performed on decoded text and does
-not alter the original raw bytes.
+`wanlogger log` and `wanlogger serve` accept one or more substring or
+regular-expression classification rules and store matching log-type tags
+in persisted session-dir metadata. Matching is performed on decoded text
+and does not alter the original raw bytes.
 
 ### FR-CLI-006  Serve text encoding
 `wanlogger serve` accepts a default `--encoding` option for server-side
 decoded text records. Captured raw bytes remain lossless; only decoded
 `lines.jsonl` / `frames.jsonl` text and downstream classification use
 the selected encoding.
+
+### FR-CLI-011  Content detection mode
+`wanlogger serve` accepts `--detect-mode configured|auto|suggest|off`.
+For `auto` and `suggest`, the server samples bounded raw bytes at source
+startup without dropping them, scores supported text encodings, evaluates
+configured string/regular-expression log-type rules against decoded
+sample text, and exposes detection metadata in source snapshots. `auto`
+may apply a high-confidence encoding to the server-side decoder;
+`suggest` reports candidates without changing the configured encoding;
+`configured` preserves existing configured defaults; `off` disables
+content detection.
 
 ### FR-CLI-007  Session-dir name patterns
 `wanlogger log` and `wanlogger serve` accept a session-dir name pattern
@@ -320,13 +331,15 @@ while non-persistent sources are excluded from the bulk export set.
 
 ### FR-WIRE-003  Lifecycle start-option overrides
 WSS `ctl` lifecycle actions support optional start-option fields:
-`encoding`, `classifier`, and `session_name_pattern`. `start` applies
-them to the new source. `restart` may include the same fields without a
-new `spec`; supplied fields update that source's stored lifecycle
-options, while omitted fields keep the previous values for future
-`resume` / `restart` actions. Source-list snapshots expose the effective
-server-side decoder metadata for the source lifetime, including a
-text `encoding` field when the decoder is text-based.
+`encoding`, `classifier`, `detection_mode`, and
+`session_name_pattern`. `classifier` rules may use either `contains` or
+`regex` patterns. `start` applies them to the new source. `restart` may
+include the same fields without a new `spec`; supplied fields update
+that source's stored lifecycle options, while omitted fields keep the
+previous values for future `resume` / `restart` actions. Source-list
+snapshots expose the effective server-side decoder metadata for the
+source lifetime, including a text `encoding` field when the decoder is
+text-based and optional content-detection metadata when detection ran.
 
 ### FR-CLI-008  Serve serial bulk startup
 `wanlogger serve --open-all-serial` starts serial sources automatically

@@ -19,6 +19,7 @@ import {
   sourcesStore,
   sendCtl,
   pushToast,
+  type SourceInfo,
 } from "~/state";
 import {
   BUILTIN_SOURCE_PRESETS,
@@ -91,6 +92,23 @@ function onRestartWithServerEncoding(sid: string): void {
   }
 }
 
+function onRestartWithSuggestedEncoding(sid: string, encoding: string): void {
+  try {
+    updateSourceEncoding(sid, encoding);
+    sendCtl(sid, "restart", undefined, {
+      ...(startCtlOptions() as Record<string, unknown>),
+      detection_mode: "configured",
+      encoding,
+    });
+    pushToast({ level: "info", message: t("sources.detail.detected_encoding_requested") });
+  } catch (err) {
+    pushToast({
+      level: "error",
+      message: (err as Error).message ?? "ctl failed",
+    });
+  }
+}
+
 function statusLabel(status: string): string {
   return t(`sources.status.${status}`);
 }
@@ -109,6 +127,13 @@ function onOpenNewTerminal(sid: string, channels: number[]): void {
 
 function sourceTextEncodingFallback(sid: string): string {
   return sourcesStore[sid]?.encoding ?? sourceStartOptions.encoding;
+}
+
+function suggestedEncodingForSource(source: SourceInfo): string | null {
+  const candidate = source.detection?.encoding_candidates?.[0];
+  if (!candidate || candidate.confidence < 80) return null;
+  if (candidate.label === source.encoding) return null;
+  return candidate.label;
 }
 
 const EXPORT_FORMATS: SessionExportFormat[] = ["text", "csv", "jsonl", "pcapng"];
@@ -838,6 +863,49 @@ export function SourcesPanel() {
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {t("sources.detail.encoding_help")} {t("sources.detail.server_encoding_help")}
                 </div>
+              </dd>
+              <dt>{t("sources.detail.detection")}</dt>
+              <dd>
+                <Show
+                  when={source().detection}
+                  fallback={<span style={{ color: "var(--wl-fg-muted)" }}>-</span>}
+                >
+                  {(detection) => (
+                    <div style={{ display: "grid", gap: "6px" }}>
+                      <div>
+                        {t("sources.detail.detection_mode")}: {t(`settings.source_start.detection.${detection().mode}`)}
+                      </div>
+                      <Show when={suggestedEncodingForSource(source())}>
+                        {(encoding) => (
+                          <button
+                            type="button"
+                            onClick={() => onRestartWithSuggestedEncoding(source().sid, encoding())}
+                          >
+                            {t("sources.detail.detected_encoding_apply")}: {encoding()}
+                          </button>
+                        )}
+                      </Show>
+                      <Show when={(detection().encoding_candidates?.length ?? 0) > 0}>
+                        <div style={{ display: "flex", gap: "6px", "flex-wrap": "wrap" }}>
+                          <For each={detection().encoding_candidates?.slice(0, 3) ?? []}>
+                            {(candidate) => (
+                              <code>{candidate.label} {candidate.confidence}%</code>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                      <Show when={(detection().log_type_candidates?.length ?? 0) > 0}>
+                        <div style={{ display: "flex", gap: "6px", "flex-wrap": "wrap" }}>
+                          <For each={detection().log_type_candidates ?? []}>
+                            {(candidate) => (
+                              <span>{candidate.tag} ({candidate.kind}, {candidate.count})</span>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </div>
+                  )}
+                </Show>
               </dd>
               <dt>{t("sources.detail.channel_encodings")}</dt>
               <dd>

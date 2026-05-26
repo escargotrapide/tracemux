@@ -13,8 +13,10 @@ import {
 } from "~/state/annotationSync";
 import {
   deleteClassificationRule,
+  isValidRulePattern,
   orderedClassificationRules,
   upsertClassificationRule,
+  type ClassificationMatchKind,
 } from "~/state/classificationRules";
 import { displaySettings, updateDisplaySettings } from "~/state/displaySettings";
 import {
@@ -24,6 +26,8 @@ import {
 } from "~/state/logTypeNotes";
 import {
   sourceStartOptions,
+  type DetectionMode,
+  SUPPORTED_DETECTION_MODES,
   SUPPORTED_SOURCE_ENCODINGS,
   updateSourceStartOptions,
 } from "~/state/sourceStartOptions";
@@ -41,6 +45,7 @@ function annotationSyncLabel(status: AnnotationSyncStatus): string {
 export function SettingsPanel() {
   const [logTypeKey, setLogTypeKey] = createSignal("bytes");
   const [logTypeSyncStatus, setLogTypeSyncStatus] = createSignal<AnnotationSyncStatus>("idle");
+  const [ruleMatchKind, setRuleMatchKind] = createSignal<ClassificationMatchKind>("contains");
   const [ruleContains, setRuleContains] = createSignal("");
   const [ruleTag, setRuleTag] = createSignal("");
   const [ruleCaseSensitive, setRuleCaseSensitive] = createSignal(false);
@@ -61,12 +66,19 @@ export function SettingsPanel() {
   });
 
   function addRule(): void {
-    upsertClassificationRule({
-      contains: ruleContains(),
-      tag: ruleTag(),
-      caseSensitive: ruleCaseSensitive(),
-      enabled: true,
-    });
+    try {
+      upsertClassificationRule({
+        matchKind: ruleMatchKind(),
+        contains: ruleContains(),
+        tag: ruleTag(),
+        caseSensitive: ruleCaseSensitive(),
+        enabled: true,
+      });
+    } catch (err) {
+      pushToast({ level: "warn", message: (err as Error).message });
+      return;
+    }
+    setRuleMatchKind("contains");
     setRuleContains("");
     setRuleTag("");
     setRuleCaseSensitive(false);
@@ -170,6 +182,17 @@ export function SettingsPanel() {
           </For>
         </datalist>
         <label class="wl-settings-row">
+          <span>{t("settings.source_start.detection_mode")}</span>
+          <select
+            value={sourceStartOptions.detectionMode}
+            onChange={(ev) => updateSourceStartOptions({ detectionMode: ev.currentTarget.value as DetectionMode })}
+          >
+            <For each={SUPPORTED_DETECTION_MODES}>
+              {(mode) => <option value={mode}>{t(`settings.source_start.detection.${mode}`)}</option>}
+            </For>
+          </select>
+        </label>
+        <label class="wl-settings-row">
           <span>{t("settings.source_start.session_pattern")}</span>
           <input
             type="text"
@@ -193,8 +216,22 @@ export function SettingsPanel() {
 
       <section class="wl-settings-section">
         <h2>{t("settings.classification.title")}</h2>
+        <label class="wl-settings-row">
+          <span>{t("settings.classification.match_kind")}</span>
+          <select
+            value={ruleMatchKind()}
+            onChange={(ev) => setRuleMatchKind(ev.currentTarget.value as ClassificationMatchKind)}
+          >
+            <option value="contains">{t("settings.classification.kind.contains")}</option>
+            <option value="regex">{t("settings.classification.kind.regex")}</option>
+          </select>
+        </label>
         <div class="wl-settings-row">
-          <span>{t("settings.classification.contains")}</span>
+          <span>
+            {ruleMatchKind() === "regex"
+              ? t("settings.classification.regex")
+              : t("settings.classification.contains")}
+          </span>
           <input
             type="text"
             value={ruleContains()}
@@ -222,7 +259,7 @@ export function SettingsPanel() {
         <button
           type="button"
           onClick={addRule}
-          disabled={!ruleContains().trim() || !ruleTag().trim()}
+          disabled={!isValidRulePattern(ruleContains(), ruleMatchKind()) || !ruleTag().trim()}
         >
           {t("settings.classification.add")}
         </button>
@@ -233,6 +270,7 @@ export function SettingsPanel() {
           <thead>
             <tr style={{ color: "var(--wl-fg-muted)", "text-align": "left" }}>
               <th>{t("settings.classification.enabled")}</th>
+              <th>{t("settings.classification.match_kind")}</th>
               <th>{t("settings.classification.contains")}</th>
               <th>{t("settings.classification.tag")}</th>
               <th>{t("settings.classification.case")}</th>
@@ -251,6 +289,7 @@ export function SettingsPanel() {
                       onChange={(ev) => upsertClassificationRule({ ...rule, enabled: ev.currentTarget.checked })}
                     />
                   </td>
+                  <td>{t(`settings.classification.kind.${rule.matchKind}`)}</td>
                   <td><code>{rule.contains}</code></td>
                   <td>{rule.tag}</td>
                   <td>{rule.caseSensitive ? t("settings.classification.yes") : t("settings.classification.no")}</td>

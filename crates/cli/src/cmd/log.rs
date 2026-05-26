@@ -54,6 +54,8 @@ pub struct Options {
     pub encoding: String,
     /// Classifier rules in `contains=tag` form.
     pub classify: Vec<String>,
+    /// Regex classifier rules in `regex=tag` form.
+    pub classify_regex: Vec<String>,
 }
 
 /// Run the `log` subcommand.
@@ -63,7 +65,7 @@ pub struct Options {
 pub async fn run(options: Options) -> Result<()> {
     let s = spec::parse(&options.spec).context("parsing channel spec")?;
     let prefix = options.prefix.as_deref().unwrap_or("wanlogger");
-    let classifier = classifier_from_specs(&options.classify)?;
+    let classifier = classifier_from_specs(&options.classify, &options.classify_regex)?;
     let now = OffsetDateTime::now_utc();
     let stamp = format_session_stamp(now);
     let kind = spec::kind_tag(&s);
@@ -180,7 +182,10 @@ fn normalized_encoding(encoding: &str) -> String {
     }
 }
 
-pub(crate) fn classifier_from_specs(specs: &[String]) -> Result<LogClassifier> {
+pub(crate) fn classifier_from_specs(
+    specs: &[String],
+    regex_specs: &[String],
+) -> Result<LogClassifier> {
     let mut rules = Vec::new();
     for spec in specs {
         let Some((contains, tag)) = spec.split_once('=') else {
@@ -192,6 +197,21 @@ pub(crate) fn classifier_from_specs(specs: &[String]) -> Result<LogClassifier> {
             bail!("--classify requires non-empty CONTAINS and TAG: {spec}");
         }
         rules.push(ClassificationRule::contains(contains, tag));
+    }
+    for spec in regex_specs {
+        let Some((regex, tag)) = spec.split_once('=') else {
+            bail!("--classify-regex must use REGEX=TAG syntax: {spec}");
+        };
+        let regex = regex.trim();
+        let tag = tag.trim();
+        if regex.is_empty() || tag.is_empty() {
+            bail!("--classify-regex requires non-empty REGEX and TAG: {spec}");
+        }
+        let rule = ClassificationRule::regex(regex, tag);
+        if !rule.is_valid() {
+            bail!("--classify-regex contains an invalid regular expression: {regex}");
+        }
+        rules.push(rule);
     }
     Ok(LogClassifier::from_rules(rules))
 }
@@ -235,7 +255,7 @@ mod tests {
     fn classifier_specs_parse() {
         // REQ: FR-CLI-005
         let specs = vec!["ERROR=fault".to_string(), "WARN=warning".to_string()];
-        let classifier = classifier_from_specs(&specs).unwrap();
+        let classifier = classifier_from_specs(&specs, &[]).unwrap();
 
         assert_eq!(
             classifier.tags_for_text("warn and error"),
@@ -245,8 +265,20 @@ mod tests {
 
     #[test]
     fn classifier_specs_reject_invalid_input() {
-        assert!(classifier_from_specs(&["missing-equals".to_string()]).is_err());
-        assert!(classifier_from_specs(&["=tag".to_string()]).is_err());
-        assert!(classifier_from_specs(&["needle=".to_string()]).is_err());
+        assert!(classifier_from_specs(&["missing-equals".to_string()], &[]).is_err());
+        assert!(classifier_from_specs(&["=tag".to_string()], &[]).is_err());
+        assert!(classifier_from_specs(&["needle=".to_string()], &[]).is_err());
+        assert!(classifier_from_specs(&[], &["[=bad".to_string()]).is_err());
+    }
+
+    #[test]
+    fn classifier_specs_parse_regex() {
+        let specs = vec!["E-[0-9]{4}=error-id".to_string()];
+        let classifier = classifier_from_specs(&[], &specs).unwrap();
+
+        assert_eq!(
+            classifier.tags_for_text("failed with e-2001"),
+            vec!["error-id"]
+        );
     }
 }

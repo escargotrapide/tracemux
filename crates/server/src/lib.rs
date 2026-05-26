@@ -67,6 +67,15 @@ pub struct TlsServeConfig {
     pub dir: PathBuf,
 }
 
+/// Runtime options for `wanlogger serve` beyond startup source selection.
+#[derive(Debug, Clone, Default)]
+pub struct ServerRunOptions {
+    /// Default content detection mode for startup and WSS-started sources.
+    pub detection_mode: wanlogger_core::detect::content::DetectionMode,
+    /// Security settings for bearer tokens and TLS.
+    pub security: ServerSecurity,
+}
+
 impl ServerSecurity {
     fn bearer_verifier(&self) -> anyhow::Result<auth::BearerVerifier> {
         let mut verifier = auth::BearerVerifier::new();
@@ -213,10 +222,37 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_secur
     startup: StartupSources,
     security: ServerSecurity,
 ) -> anyhow::Result<()> {
+    run_with_session_root_classifier_encoding_pattern_startup_and_options(
+        bind,
+        no_auth,
+        session_root,
+        classifier,
+        encoding,
+        session_name_pattern,
+        startup,
+        ServerRunOptions {
+            security,
+            ..ServerRunOptions::default()
+        },
+    )
+    .await
+}
+
+/// Run the server with startup sources plus runtime options.
+pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_options(
+    bind: &str,
+    no_auth: bool,
+    session_root: impl Into<std::path::PathBuf>,
+    classifier: wanlogger_core::classify::LogClassifier,
+    encoding: impl Into<String>,
+    session_name_pattern: impl Into<String>,
+    startup: StartupSources,
+    options: ServerRunOptions,
+) -> anyhow::Result<()> {
     use std::sync::Arc;
     use tokio::net::TcpListener;
 
-    let auth = security.bearer_verifier()?;
+    let auth = options.security.bearer_verifier()?;
     let token_hashes = auth.len();
     let conns = Arc::new(ratelimit::ConnCounter::new(ratelimit::MAX_CONNS));
     let ingest = Arc::new(ingest::Ingest::new());
@@ -233,6 +269,7 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_secur
             session_name_pattern,
         ),
     );
+    source_manager.set_detection_mode(options.detection_mode);
     start_configured_sources(&source_manager, &startup).await;
     let export_state =
         export_api::ExportRouteState::new(source_manager.clone(), Arc::new(auth.clone()), no_auth);
@@ -247,7 +284,7 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_secur
     let app = routes::build_with_exports_and_annotations(export_state, annotation_state)
         .merge(ws::router(ws_state));
 
-    if let Some(tls_config) = security.tls {
+    if let Some(tls_config) = options.security.tls {
         let listener = std::net::TcpListener::bind(bind)
             .map_err(|e| anyhow::anyhow!("binding {bind}: {e}"))?;
         listener
@@ -334,6 +371,7 @@ fn source_manager_default_start_options(
     source_manager::SourceStartOptions {
         classifier: Some(source_manager.classifier()),
         encoding: Some(source_manager.encoding()),
+        detection_mode: Some(source_manager.detection_mode()),
         session_name_pattern: Some(source_manager.session_name_pattern()),
     }
 }

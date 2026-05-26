@@ -4,8 +4,11 @@ export const CLASSIFICATION_RULES_STORAGE_KEY = "wanlogger.classificationRules.v
 export const MAX_CLASSIFICATION_RULES = 200;
 export const MAX_CLASSIFICATION_TEXT_LENGTH = 160;
 
+export type ClassificationMatchKind = "contains" | "regex";
+
 export interface ClassificationRule {
   id: string;
+  matchKind: ClassificationMatchKind;
   contains: string;
   tag: string;
   caseSensitive: boolean;
@@ -16,7 +19,8 @@ export interface ClassificationRule {
 export type ClassificationRules = Record<string, ClassificationRule>;
 
 export interface WireClassificationRule {
-  contains: string;
+  contains?: string;
+  regex?: string;
   tag: string;
   case_sensitive?: boolean;
 }
@@ -49,18 +53,35 @@ function normalizeText(value: unknown): string {
     : "";
 }
 
+function normalizeMatchKind(value: unknown): ClassificationMatchKind {
+  return value === "regex" ? "regex" : "contains";
+}
+
+export function isValidRulePattern(pattern: string, matchKind: ClassificationMatchKind): boolean {
+  if (!pattern.trim()) return false;
+  if (matchKind === "contains") return true;
+  try {
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeRule(value: unknown, fallbackId: string): ClassificationRule | null {
   if (!value || typeof value !== "object") return null;
   const input = value as Partial<ClassificationRule>;
+  const matchKind = normalizeMatchKind(input.matchKind);
   const contains = normalizeText(input.contains);
   const tag = normalizeText(input.tag);
-  if (!contains || !tag) return null;
+  if (!contains || !tag || !isValidRulePattern(contains, matchKind)) return null;
   const id = normalizeText(input.id) || fallbackId || fallbackRuleId(contains, tag);
   const updatedAt = typeof input.updatedAt === "number" && Number.isFinite(input.updatedAt)
     ? Math.max(0, Math.trunc(input.updatedAt))
     : 0;
   return {
     id,
+    matchKind,
     contains,
     tag,
     caseSensitive: input.caseSensitive === true,
@@ -113,7 +134,7 @@ export function upsertClassificationRule(
   const id = normalizeText(patch.id) || fallbackRuleId(patch.contains ?? "", patch.tag ?? "");
   const rule = normalizeRule({ ...patch, id, updatedAt: now }, id);
   if (!rule) {
-    throw new Error("classification rule requires contains and tag");
+    throw new Error("classification rule requires a valid pattern and tag");
   }
   setClassificationRulesStore(rule.id, rule);
   saveClassificationRules({ ...classificationRulesStore, [rule.id]: rule }, storage);
@@ -149,20 +170,32 @@ export function classifyText(
   const out: string[] = [];
   const seen = new Set<string>();
   for (const rule of rules) {
-    const haystack = rule.caseSensitive ? text : text.toLowerCase();
-    const needle = rule.caseSensitive ? rule.contains : rule.contains.toLowerCase();
-    if (!needle || !haystack.includes(needle) || seen.has(rule.tag)) continue;
+    if (!ruleMatchesText(rule, text) || seen.has(rule.tag)) continue;
     seen.add(rule.tag);
     out.push(rule.tag);
   }
   return out;
 }
 
+function ruleMatchesText(rule: ClassificationRule, text: string): boolean {
+  if (!rule.contains) return false;
+  if (rule.matchKind === "regex") {
+    try {
+      return new RegExp(rule.contains, rule.caseSensitive ? "" : "i").test(text);
+    } catch {
+      return false;
+    }
+  }
+  const haystack = rule.caseSensitive ? text : text.toLowerCase();
+  const needle = rule.caseSensitive ? rule.contains : rule.contains.toLowerCase();
+  return haystack.includes(needle);
+}
+
 export function wireClassificationRules(
   rules: ClassificationRule[] = enabledClassificationRules(),
 ): WireClassificationRule[] {
   return rules.map((rule) => ({
-    contains: rule.contains,
+    ...(rule.matchKind === "regex" ? { regex: rule.contains } : { contains: rule.contains }),
     tag: rule.tag,
     ...(rule.caseSensitive ? { case_sensitive: true } : {}),
   }));

@@ -165,3 +165,100 @@ fn fixture_sources_with_decoder_metadata() {
     let env = Envelope::new(FrameType::Ctl, 8, payload);
     check("sources_with_decoder_metadata", &env);
 }
+
+// REQ: FR-WIRE-001
+// REQ: FR-WIRE-003
+#[test]
+fn fixture_sources_with_detection_metadata() {
+    let detection = Value::Map(vec![
+        (Value::String("mode".into()), Value::String("auto".into())),
+        (Value::String("sample_bytes".into()), Value::from(32_u64)),
+        (
+            Value::String("configured_encoding".into()),
+            Value::String("utf-8".into()),
+        ),
+        (
+            Value::String("effective_encoding".into()),
+            Value::String("shift_jis".into()),
+        ),
+        (
+            Value::String("sampled_encoding".into()),
+            Value::String("shift_jis".into()),
+        ),
+        (
+            Value::String("encoding_candidates".into()),
+            Value::Array(vec![Value::Map(vec![
+                (
+                    Value::String("label".into()),
+                    Value::String("shift_jis".into()),
+                ),
+                (Value::String("confidence".into()), Value::from(96_u64)),
+                (Value::String("had_errors".into()), Value::Boolean(false)),
+                (
+                    Value::String("evidence".into()),
+                    Value::Array(vec![Value::String("decode-clean".into())]),
+                ),
+            ])]),
+        ),
+        (
+            Value::String("log_type_candidates".into()),
+            Value::Array(vec![Value::Map(vec![
+                (
+                    Value::String("tag".into()),
+                    Value::String("error-id".into()),
+                ),
+                (Value::String("kind".into()), Value::String("regex".into())),
+                (
+                    Value::String("pattern".into()),
+                    Value::String("E-[0-9]{4}".into()),
+                ),
+                (Value::String("count".into()), Value::from(1_u64)),
+                (Value::String("confidence".into()), Value::from(70_u64)),
+            ])]),
+        ),
+    ]);
+    let row = Value::Map(vec![
+        (
+            Value::String("sid".into()),
+            Value::String("00000000-0000-4000-8000-000000000001".into()),
+        ),
+        (Value::String("name".into()), Value::String("COM7".into())),
+        (Value::String("kind".into()), Value::String("serial".into())),
+        (
+            Value::String("status".into()),
+            Value::String("running".into()),
+        ),
+        (
+            Value::String("channels".into()),
+            Value::Array(vec![Value::from(0_u64)]),
+        ),
+        (Value::String("bytes_in".into()), Value::from(12_u64)),
+        (Value::String("persistent".into()), Value::Boolean(true)),
+        (
+            Value::String("decoder".into()),
+            Value::String("utf8-text:shift_jis".into()),
+        ),
+        (
+            Value::String("encoding".into()),
+            Value::String("shift_jis".into()),
+        ),
+        (
+            Value::String("detection_mode".into()),
+            Value::String("auto".into()),
+        ),
+        (Value::String("detection".into()), detection),
+    ]);
+    let payload = Value::Map(vec![
+        (
+            Value::String("event".into()),
+            Value::String("sources".into()),
+        ),
+        (
+            Value::String("message".into()),
+            Value::String("sources listed".into()),
+        ),
+        (Value::String("sources".into()), Value::Array(vec![row])),
+    ]);
+    let env = Envelope::new(FrameType::Ctl, 9, payload);
+    check("sources_with_detection_metadata", &env);
+}

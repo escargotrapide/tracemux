@@ -3,6 +3,7 @@ import {
   DEFAULT_SOURCE_ENCODING,
   SOURCE_START_OPTIONS_STORAGE_KEY,
   loadSourceStartOptions,
+  normalizeDetectionMode,
   normalizeEncoding,
   normalizeSourceStartOptions,
   saveSourceStartOptions,
@@ -27,14 +28,18 @@ describe("source start options", () => {
     // REQ: FR-UI-008
     expect(normalizeEncoding(" Shift_JIS ")).toBe("shift_jis");
     expect(normalizeEncoding("  ")).toBe(DEFAULT_SOURCE_ENCODING);
+    expect(normalizeDetectionMode("AUTO")).toBe("auto");
+    expect(normalizeDetectionMode("nope")).toBe("configured");
     expect(
       normalizeSourceStartOptions({
         encoding: "CP932",
+        detectionMode: "suggest",
         sessionNamePattern: " {prefix}-{kind} ",
         sendClassificationRules: false,
       }),
     ).toEqual({
       encoding: "cp932",
+      detectionMode: "suggest",
       sessionNamePattern: "{prefix}-{kind}",
       sendClassificationRules: false,
     });
@@ -51,7 +56,7 @@ describe("source start options", () => {
     expect(loadSourceStartOptions(storage)).toEqual(options);
 
     const saved = saveSourceStartOptions(
-      { encoding: "utf-8", sessionNamePattern: "", sendClassificationRules: true },
+      { encoding: "utf-8", detectionMode: "configured", sessionNamePattern: "", sendClassificationRules: true },
       storage,
     );
     expect(loadSourceStartOptions(storage)).toEqual(saved);
@@ -61,11 +66,13 @@ describe("source start options", () => {
     expect(
       startCtlOptions({
         encoding: "shift_jis",
+        detectionMode: "auto",
         sessionNamePattern: "{prefix}-{kind}",
         sendClassificationRules: false,
       }),
     ).toEqual({
       encoding: "shift_jis",
+      detection_mode: "auto",
       session_name_pattern: "{prefix}-{kind}",
     });
   });

@@ -4,6 +4,10 @@
 //! replay | extcap | import | export | ai-verify | json-schema`.
 
 use clap::{Parser, Subcommand};
+use wanlogger_server::{
+    run_with_session_root_classifier_encoding_pattern_startup_and_options as run_server_with_options,
+    ServerRunOptions,
+};
 
 mod ai_verify;
 mod cmd;
@@ -78,9 +82,15 @@ struct ServeArgs {
     /// Default text encoding for server-side decoded records.
     #[arg(long, default_value = "utf-8")]
     encoding: String,
+    /// Content detection mode (`configured`, `auto`, `suggest`, `off`).
+    #[arg(long = "detect-mode", default_value = "configured")]
+    detect_mode: String,
     /// Add a server-side substring classifier as `contains=tag`.
     #[arg(long = "classify", value_name = "CONTAINS=TAG")]
     classify: Vec<String>,
+    /// Add a server-side regex classifier as `regex=tag`.
+    #[arg(long = "classify-regex", value_name = "REGEX=TAG")]
+    classify_regex: Vec<String>,
     /// Detect and open every serial/COM port when the server starts.
     #[arg(long)]
     open_all_serial: bool,
@@ -195,6 +205,9 @@ struct LogArgs {
     /// Add a substring classifier as `contains=tag`.
     #[arg(long = "classify", value_name = "CONTAINS=TAG")]
     classify: Vec<String>,
+    /// Add a regex classifier as `regex=tag`.
+    #[arg(long = "classify-regex", value_name = "REGEX=TAG")]
+    classify_regex: Vec<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -349,10 +362,14 @@ async fn run_cmd(cmd: Cmd) -> anyhow::Result<()> {
 }
 
 async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
-    let classifier = cmd::log::classifier_from_specs(&args.classify)?;
+    let classifier = cmd::log::classifier_from_specs(&args.classify, &args.classify_regex)?;
+    let detection_mode = wanlogger_core::detect::content::DetectionMode::parse(&args.detect_mode)
+        .ok_or_else(|| {
+        anyhow::anyhow!("--detect-mode must be configured, auto, suggest, or off")
+    })?;
     let startup = serve_startup_sources(&args);
     let security = serve_security(&args);
-    wanlogger_server::run_with_session_root_classifier_encoding_pattern_startup_and_security(
+    run_server_with_options(
         &args.bind,
         args.no_auth,
         args.session_root,
@@ -362,7 +379,10 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
             wanlogger_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()
         }),
         startup,
-        security,
+        ServerRunOptions {
+            detection_mode,
+            security,
+        },
     )
     .await
 }
@@ -410,6 +430,7 @@ async fn run_log(args: LogArgs) -> anyhow::Result<()> {
         name_pattern: args.name_pattern,
         encoding: args.encoding,
         classify: args.classify,
+        classify_regex: args.classify_regex,
     })
     .await
 }

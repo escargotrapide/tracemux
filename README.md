@@ -74,6 +74,15 @@ launch with `wanlogger serve --open-all-serial`; add repeated
 `--serial-port PORT` flags to restrict the set instead of opening every
 detected port.
 
+For mixed encodings or reused source presets, `wanlogger serve` can run
+bounded startup content detection with `--detect-mode auto`, `suggest`,
+`configured`, or `off`. Auto mode may apply a high-confidence detected
+text encoding to the server-side decoder; suggest mode leaves the
+configured encoding active and exposes candidates in source metadata.
+Substring rules from `--classify TEXT=TAG` and regular-expression rules
+from `--classify-regex REGEX=TAG` are also evaluated against sampled
+text so the UI can surface likely log-type tags before long captures.
+
 Packet capture is available as an MVP. Driver-free builds include the pcap
 source model, pcapng exporter, fake-backend tests, interface discovery schema,
 metrics payloads, and bounded packet-list UI. Live Npcap/libpcap capture is
@@ -88,7 +97,10 @@ The UI also includes browser-local ergonomics for daily log work:
   decoding, with an explicit restart action to apply a selected
   per-source encoding to server-side decoded/persisted logs from that
   point forward;
-- substring classification rules that surface as log-type/tag filters;
+- substring and regular-expression classification rules that surface as
+  log-type/tag filters;
+- source startup detection details, including suggested encodings and
+  matching log-type rule candidates;
 - source/session notes and log-type notes stored only as local
   annotations;
 - timezone display controls accepting values such as `local`, `UTC`,
