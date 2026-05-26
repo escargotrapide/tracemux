@@ -65,15 +65,7 @@ pub async fn run(options: Options) -> Result<()> {
     let prefix = options.prefix.as_deref().unwrap_or("wanlogger");
     let classifier = classifier_from_specs(&options.classify)?;
     let now = OffsetDateTime::now_utc();
-    let stamp = format!(
-        "{:04}{:02}{:02}-{:02}{:02}{:02}",
-        now.year(),
-        u8::from(now.month()),
-        now.day(),
-        now.hour(),
-        now.minute(),
-        now.second()
-    );
+    let stamp = format_session_stamp(now);
     let kind = spec::kind_tag(&s);
     let iface = spec::iface_tag(&s);
     let unix_ns = wanlogger_core::time::unix_ns_now();
@@ -165,6 +157,18 @@ pub async fn run(options: Options) -> Result<()> {
     source.close().await.ok();
     tracing::info!(records = count, "log: session closed");
     Ok(())
+}
+
+fn format_session_stamp(now: OffsetDateTime) -> String {
+    format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    )
 }
 
 fn normalized_encoding(encoding: &str) -> String {

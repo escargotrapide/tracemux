@@ -50,21 +50,24 @@ mod tests {
     #[test]
     fn requested_encoding_wins() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("meta.toml"), "decoder = \"utf8-text:shift_jis\"\n")
-            .unwrap();
+        std::fs::write(
+            dir.path().join("meta.toml"),
+            "decoder = \"utf8-text:shift_jis\"\n",
+        )
+        .unwrap();
 
-        assert_eq!(
-            resolve_text_encoding(dir.path(), Some(" CP932 ")),
-            "cp932"
-        );
+        assert_eq!(resolve_text_encoding(dir.path(), Some(" CP932 ")), "cp932");
     }
 
     // REQ: FR-EXP-001
     #[test]
     fn decoder_label_supplies_encoding() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("meta.toml"), "decoder = \"utf8-text:shift_jis\"\n")
-            .unwrap();
+        std::fs::write(
+            dir.path().join("meta.toml"),
+            "decoder = \"utf8-text:shift_jis\"\n",
+        )
+        .unwrap();
 
         assert_eq!(resolve_text_encoding(dir.path(), None), "shift_jis");
     }

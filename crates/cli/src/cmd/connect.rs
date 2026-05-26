@@ -288,7 +288,10 @@ mod tests {
         std::fs::create_dir(&save).unwrap();
         std::fs::write(save.join("existing"), b"data").unwrap();
         let spec = spec::parse("mock://unit").unwrap();
-        let err = ConnectRecorder::create(&save, &spec, "utf-8").unwrap_err();
+        let err = match ConnectRecorder::create(&save, &spec, "utf-8") {
+            Ok(_) => panic!("expected non-empty save dir to fail"),
+            Err(err) => err,
+        };
         assert!(err.to_string().contains("non-empty"));
     }
 }

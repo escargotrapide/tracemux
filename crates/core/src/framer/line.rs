@@ -39,9 +39,8 @@ impl LineFramer {
 fn auto_eol_position(buf: &BytesMut) -> Option<usize> {
     for (idx, byte) in buf.iter().enumerate() {
         match *byte {
-            b'\n' => return Some(idx),
             b'\r' if buf.get(idx + 1) == Some(&b'\n') => return Some(idx + 1),
-            b'\r' => return Some(idx),
+            b'\r' | b'\n' => return Some(idx),
             _ => {}
         }
     }

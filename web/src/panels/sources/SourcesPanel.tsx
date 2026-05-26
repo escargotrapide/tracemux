@@ -293,12 +293,13 @@ export function SourcesPanel() {
     setExporting(format);
     try {
       const source = sourcesStore[sid];
+      const encoding = sourceEncodings[sourceEncodingKey(sid)]?.encoding;
       await downloadSessionExport(sid, {
         format,
         timezone: exportTimezone(),
-        encoding: sourceEncodings[sourceEncodingKey(sid)]?.encoding,
         filenamePattern: exportSettings.filenamePattern,
         sourceName: sourceAliases[sid]?.label ?? source?.name ?? sid,
+        ...(encoding !== undefined ? { encoding } : {}),
       });
       pushToast({ level: "info", message: t("sources.export.requested") });
     } catch (err) {

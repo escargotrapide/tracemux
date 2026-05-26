@@ -418,7 +418,7 @@ test("source panel can bulk export all persisted sources as one zip", async ({ p
     },
   });
 
-  await page.getByLabel("Bulk export timezone").fill("UTC");
+  await page.getByLabel("All sources timezone").fill("UTC");
   await page.getByRole("button", { name: "Zip all text" }).click();
 
   await expect.poll(() => requested.size).toBe(2);
