@@ -23,11 +23,17 @@ describe("sessionExport", () => {
     vi.unstubAllGlobals();
   });
 
-  it("builds download URLs with format and timezone", () => {
+  it("builds download URLs with format, timezone, and encoding", () => {
     // REQ: FR-EXP-001
     stubLocation();
-    expect(sessionExportUrl("abc", { format: "jsonl", timezone: "GMT+9" })).toBe(
-      "http://127.0.0.1:9000/api/sessions/abc/export?format=jsonl&tz=GMT%2B9",
+    expect(
+      sessionExportUrl("abc", {
+        format: "jsonl",
+        timezone: "GMT+9",
+        encoding: "shift_jis",
+      }),
+    ).toBe(
+      "http://127.0.0.1:9000/api/sessions/abc/export?format=jsonl&tz=GMT%2B9&encoding=shift_jis",
     );
   });
 

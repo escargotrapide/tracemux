@@ -1,8 +1,8 @@
 //! Plain-text exporter.
 //!
 //! Reads `src/index.jsonl` + `src/raw.bin` and writes one line per
-//! record as `{ts_origin}\t{text}\n` where `text` is the lossy-UTF-8
-//! decoding of the raw payload.
+//! record as `{ts_origin}\t{text}\n` where `text` is decoded with the
+//! session encoding when available.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use time::UtcOffset;
 
 use crate::error_id::{ErrorId, WanloggerError};
+use crate::exporter::encoding::resolve_text_encoding;
 use crate::exporter::timestamp::{format_rfc3339_in_timezone, parse_timezone_offset};
 use crate::exporter::Exporter;
 use crate::log::index::IndexEntry;
@@ -29,19 +30,30 @@ impl Exporter for TextExporter {
     }
 
     async fn export(&mut self, src: &Path, dst: &Path) -> Result<()> {
-        run(src, dst, None)
+        run(src, dst, None, None)
     }
 }
 
 /// Export text while formatting timestamps in a fixed timezone.
 pub fn export_with_timezone(src: &Path, dst: &Path, timezone: Option<&str>) -> Result<()> {
-    let offset = timezone.map(parse_timezone_offset).transpose()?;
-    run(src, dst, offset)
+    export_with_timezone_and_encoding(src, dst, timezone, None)
 }
 
-fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>) -> Result<()> {
+/// Export text with an optional fixed timezone and text encoding override.
+pub fn export_with_timezone_and_encoding(
+    src: &Path,
+    dst: &Path,
+    timezone: Option<&str>,
+    encoding: Option<&str>,
+) -> Result<()> {
+    let offset = timezone.map(parse_timezone_offset).transpose()?;
+    run(src, dst, offset, encoding)
+}
+
+fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>, encoding: Option<&str>) -> Result<()> {
     let idx = File::open(src.join("index.jsonl")).map_err(|e| err("opening index.jsonl", e))?;
     let mut raw = RawReader::open(src).map_err(|e| err("opening raw.bin", e))?;
+    let encoding = resolve_text_encoding(src, encoding);
     let out = File::create(dst).map_err(|e| err("creating dst", e))?;
     let mut w = BufWriter::new(out);
 
@@ -55,7 +67,7 @@ fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>) -> Result<()> {
         let bytes = raw
             .read_at(entry.off, entry.len)
             .map_err(|e| err("reading raw", e))?;
-        let text = String::from_utf8_lossy(&bytes);
+        let (text, _) = crate::codec::decode(&bytes, &encoding);
         let ts_origin = format_rfc3339_in_timezone(&entry.ts_origin, timezone)?;
         writeln!(w, "{ts_origin}\t{text}").map_err(|e| err("writing dst", e))?;
     }

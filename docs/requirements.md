@@ -161,11 +161,14 @@ session-dir's `index.jsonl` + `raw.bin` and writes one row per record
 to `<dst>`. The CLI refuses to run when `<session-dir>` lacks an
 `index.jsonl` file. `--tz` formats exported timestamp fields in a
 fixed display timezone such as `UTC`, `GMT+9`, `+09:00`, or
-`Asia/Tokyo` without changing the stored session-dir. The server exposes
-the same exporter set through an authenticated
+`Asia/Tokyo` without changing the stored session-dir. Text payloads are
+decoded with `--encoding` when supplied, otherwise with session metadata
+(`encoding` or `decoder = "utf8-text:<label>"`) and finally UTF-8. The
+server exposes the same exporter set through an authenticated
 `GET /api/sessions/{sid}/export?format=text|csv|jsonl` endpoint that
 resolves `{sid}` to a server-known persisted session-dir rather than
-accepting arbitrary filesystem paths.
+accepting arbitrary filesystem paths; `encoding=<label>` applies the
+same explicit text decoding override.
 
 ### FR-CLI-001  Import / export round-trip
 The CLI guarantees that for any plain-text input file `F`,
@@ -333,6 +336,14 @@ losslessly as lowercase hex plus length. `--encoding auto` discovers the
 target source's text encoding from the server source snapshot; an
 explicit `--encoding LABEL` overrides discovery. Text is included when
 the bytes decode without replacement under the selected encoding.
+
+### FR-CLI-010  Connect session save
+`wanlogger connect <spec> --save <session-dir>` preserves the existing
+stdout byte stream while also writing inbound payloads to a v0.1
+session-dir containing `meta.toml`, `raw.bin`, and `index.jsonl`. The CLI
+refuses to overwrite a non-empty destination directory. `--encoding`
+records the text encoding metadata used by later text-like exports and
+defaults to UTF-8.
 
 ### FR-REMOTE-001  Remote WSS mirror
 A server-started `remote` channel spec connects to another wanlogger

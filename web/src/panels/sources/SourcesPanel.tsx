@@ -283,6 +283,7 @@ export function SourcesPanel() {
       await downloadSessionExport(sid, {
         format,
         timezone: exportTimezone(),
+        encoding: sourceEncodings[sourceEncodingKey(sid)]?.encoding,
         filenamePattern: exportSettings.filenamePattern,
         sourceName: sourceAliases[sid]?.label ?? source?.name ?? sid,
       });

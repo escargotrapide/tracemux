@@ -36,10 +36,23 @@ impl LineFramer {
     }
 }
 
+fn auto_eol_position(buf: &BytesMut) -> Option<usize> {
+    for (idx, byte) in buf.iter().enumerate() {
+        match *byte {
+            b'\n' => return Some(idx),
+            b'\r' if buf.get(idx + 1) == Some(&b'\n') => return Some(idx + 1),
+            b'\r' => return Some(idx),
+            _ => {}
+        }
+    }
+    None
+}
+
 impl Framer for LineFramer {
     fn poll_frame(&mut self, buf: &mut BytesMut) -> Result<Option<Bytes>> {
         let pos = match self.eol {
-            Eol::Lf | Eol::Auto => buf.iter().position(|b| *b == b'\n'),
+            Eol::Lf => buf.iter().position(|b| *b == b'\n'),
+            Eol::Auto => auto_eol_position(buf),
             Eol::Cr => buf.iter().position(|b| *b == b'\r'),
             Eol::Crlf => {
                 // Find `\n` whose preceding byte is `\r`.
@@ -90,6 +103,32 @@ mod tests {
         let b = f.poll_frame(&mut buf).unwrap().unwrap();
         assert_eq!(&a[..], b"hello");
         assert_eq!(&b[..], b"world");
+        assert!(f.poll_frame(&mut buf).unwrap().is_none());
+    }
+
+    // REQ: FR-FRM-LINE
+    #[test]
+    fn auto_frames_cr_only() {
+        let mut f = LineFramer::new(Eol::Auto, 1024);
+        let mut buf = BytesMut::from(&b"alpha\rbeta\r"[..]);
+        let a = f.poll_frame(&mut buf).unwrap().unwrap();
+        let b = f.poll_frame(&mut buf).unwrap().unwrap();
+        assert_eq!(&a[..], b"alpha");
+        assert_eq!(&b[..], b"beta");
+        assert!(f.poll_frame(&mut buf).unwrap().is_none());
+    }
+
+    // REQ: FR-FRM-LINE
+    #[test]
+    fn auto_frames_mixed_eol() {
+        let mut f = LineFramer::new(Eol::Auto, 1024);
+        let mut buf = BytesMut::from(&b"alpha\r\nbeta\ngamma\r"[..]);
+        let a = f.poll_frame(&mut buf).unwrap().unwrap();
+        let b = f.poll_frame(&mut buf).unwrap().unwrap();
+        let c = f.poll_frame(&mut buf).unwrap().unwrap();
+        assert_eq!(&a[..], b"alpha");
+        assert_eq!(&b[..], b"beta");
+        assert_eq!(&c[..], b"gamma");
         assert!(f.poll_frame(&mut buf).unwrap().is_none());
     }
 }

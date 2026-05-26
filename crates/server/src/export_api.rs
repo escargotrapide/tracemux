@@ -58,6 +58,7 @@ struct ExportQuery {
     #[serde(default = "default_format")]
     format: String,
     tz: Option<String>,
+    encoding: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,10 +129,26 @@ async fn export_session(
     let tmp = temp_export_path(sid, format);
     let dst = tmp.clone();
     let timezone = query.tz;
+    let encoding = query.encoding;
     let export_result = tokio::task::spawn_blocking(move || match format {
-        ExportFormat::Text => text::export_with_timezone(&session_dir, &dst, timezone.as_deref()),
-        ExportFormat::Csv => csv::export_with_timezone(&session_dir, &dst, timezone.as_deref()),
-        ExportFormat::Jsonl => jsonl::export_with_timezone(&session_dir, &dst, timezone.as_deref()),
+        ExportFormat::Text => text::export_with_timezone_and_encoding(
+            &session_dir,
+            &dst,
+            timezone.as_deref(),
+            encoding.as_deref(),
+        ),
+        ExportFormat::Csv => csv::export_with_timezone_and_encoding(
+            &session_dir,
+            &dst,
+            timezone.as_deref(),
+            encoding.as_deref(),
+        ),
+        ExportFormat::Jsonl => jsonl::export_with_timezone_and_encoding(
+            &session_dir,
+            &dst,
+            timezone.as_deref(),
+            encoding.as_deref(),
+        ),
         ExportFormat::Pcapng => {
             pcapng::export_with_timezone(&session_dir, &dst, timezone.as_deref())
         }
@@ -344,6 +361,7 @@ mod tests {
             ExportQuery {
                 format: "text".to_string(),
                 tz: Some("GMT+9".to_string()),
+                encoding: None,
             },
         )
         .await
@@ -383,6 +401,7 @@ mod tests {
             ExportQuery {
                 format: "pcapng".to_string(),
                 tz: None,
+                encoding: Some("shift_jis".to_string()),
             },
         )
         .await
@@ -408,6 +427,7 @@ mod tests {
             ExportQuery {
                 format: "xlsx".to_string(),
                 tz: None,
+                encoding: None,
             },
         )
         .await

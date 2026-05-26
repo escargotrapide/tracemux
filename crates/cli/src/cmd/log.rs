@@ -37,6 +37,8 @@ struct MetaToml {
     spec: ChannelSpec,
     sid: Uuid,
     started: String,
+    decoder: String,
+    encoding: String,
 }
 
 /// Options for the `log` subcommand.
@@ -94,11 +96,14 @@ pub async fn run(options: Options) -> Result<()> {
 
     let sid = Uuid::new_v4();
     let started = now.format(&Rfc3339).unwrap_or_else(|_| stamp.clone());
+    let encoding = normalized_encoding(&options.encoding);
     let meta = MetaToml {
         prefix: prefix.to_string(),
         spec: s.clone(),
         sid,
         started,
+        decoder: format!("utf8-text:{encoding}"),
+        encoding: encoding.clone(),
     };
     std::fs::write(
         dir.join("meta.toml"),
@@ -122,7 +127,7 @@ pub async fn run(options: Options) -> Result<()> {
                 let mut e = IndexEntry::from_envelope(&ts, sid, Dir::In, kind, off, len);
                 e.source = Some(format!("{}:{}", spec::kind_tag(&s), spec::iface_tag(&s)));
                 if !classifier.is_empty() {
-                    let (text, _) = decode(&data, &options.encoding);
+                    let (text, _) = decode(&data, &encoding);
                     e.tags = classifier.tags_for_text(&text);
                 }
                 index.append(&e).context("index append")?;
@@ -160,6 +165,15 @@ pub async fn run(options: Options) -> Result<()> {
     source.close().await.ok();
     tracing::info!(records = count, "log: session closed");
     Ok(())
+}
+
+fn normalized_encoding(encoding: &str) -> String {
+    let encoding = encoding.trim();
+    if encoding.is_empty() {
+        "utf-8".to_string()
+    } else {
+        encoding.to_ascii_lowercase()
+    }
 }
 
 pub(crate) fn classifier_from_specs(specs: &[String]) -> Result<LogClassifier> {

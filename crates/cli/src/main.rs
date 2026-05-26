@@ -108,6 +108,12 @@ struct ServeArgs {
 struct ConnectArgs {
     /// Channel spec, e.g. `serial://COM3?baud=115200`.
     spec: String,
+    /// Also save received bytes into this session-dir.
+    #[arg(long, value_name = "DIR")]
+    save: Option<std::path::PathBuf>,
+    /// Text encoding stored in metadata when `--save` is used.
+    #[arg(long, default_value = "utf-8")]
+    encoding: String,
 }
 
 #[derive(Debug, clap::Args)]
@@ -216,11 +222,14 @@ struct ImportArgs {
 
 #[derive(Debug, clap::Args)]
 struct ExportArgs {
-    /// Exporter kind (`csv`, `text`).
+    /// Exporter kind (`csv`, `text`, `jsonl`, `pcapng`).
     kind: String,
     /// Format exported timestamps in a fixed timezone (`UTC`, `GMT+9`, `+09:00`, `Asia/Tokyo`).
     #[arg(long)]
     tz: Option<String>,
+    /// Decode raw text payloads with this encoding instead of session metadata.
+    #[arg(long)]
+    encoding: Option<String>,
     /// Source session-dir.
     src: std::path::PathBuf,
     /// Destination file.
@@ -305,7 +314,14 @@ async fn main() -> anyhow::Result<()> {
 async fn run_cmd(cmd: Cmd) -> anyhow::Result<()> {
     match cmd {
         Cmd::Serve(args) => run_serve(args).await?,
-        Cmd::Connect(args) => cmd::connect::run(&args.spec).await?,
+        Cmd::Connect(args) => {
+            cmd::connect::run(cmd::connect::Options {
+                spec: args.spec,
+                save: args.save,
+                encoding: args.encoding,
+            })
+            .await?;
+        }
         Cmd::Send(args) => run_send(args).await?,
         Cmd::Watch(args) => run_watch(args).await?,
         Cmd::TokenHash(args) => run_token_hash(&args)?,
@@ -318,7 +334,13 @@ async fn run_cmd(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::Extcap(args) => run_extcap(args).await?,
         Cmd::Import(args) => cmd::import::run(&args.kind, &args.src, &args.dst).await?,
         Cmd::Export(args) => {
-            cmd::export::run(&args.kind, &args.src, &args.dst, args.tz.as_deref())?;
+            cmd::export::run(
+                &args.kind,
+                &args.src,
+                &args.dst,
+                args.tz.as_deref(),
+                args.encoding.as_deref(),
+            )?;
         }
         Cmd::AiVerify => ai_verify::run().await?,
         Cmd::JsonSchema(args) => json_schema::emit(&args.out)?,

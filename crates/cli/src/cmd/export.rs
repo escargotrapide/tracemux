@@ -17,7 +17,13 @@ pub const KINDS: &[&str] = &["csv", "text", "jsonl", "pcapng"];
 /// # Errors
 /// Returns an error when `kind` is unknown, when `src` is not a
 /// session-dir, or when the underlying exporter fails.
-pub fn run(kind: &str, src: &Path, dst: &Path, timezone: Option<&str>) -> Result<()> {
+pub fn run(
+    kind: &str,
+    src: &Path,
+    dst: &Path,
+    timezone: Option<&str>,
+    encoding: Option<&str>,
+) -> Result<()> {
     if !KINDS.contains(&kind) {
         bail!(
             "unknown exporter kind `{kind}`; known: {}",
@@ -35,9 +41,9 @@ pub fn run(kind: &str, src: &Path, dst: &Path, timezone: Option<&str>) -> Result
     }
 
     match kind {
-        "text" => text::export_with_timezone(src, dst, timezone)?,
-        "csv" => csv::export_with_timezone(src, dst, timezone)?,
-        "jsonl" => jsonl::export_with_timezone(src, dst, timezone)?,
+        "text" => text::export_with_timezone_and_encoding(src, dst, timezone, encoding)?,
+        "csv" => csv::export_with_timezone_and_encoding(src, dst, timezone, encoding)?,
+        "jsonl" => jsonl::export_with_timezone_and_encoding(src, dst, timezone, encoding)?,
         "pcapng" => pcapng::export_with_timezone(src, dst, timezone)?,
         _ => unreachable!("kind already validated"),
     }
@@ -60,7 +66,7 @@ mod tests {
     #[test]
     fn unknown_kind_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let err = run("nope", dir.path(), &dir.path().join("out"), None).unwrap_err();
+        let err = run("nope", dir.path(), &dir.path().join("out"), None, None).unwrap_err();
         assert!(err.to_string().contains("unknown exporter kind"));
     }
 
@@ -69,7 +75,7 @@ mod tests {
     fn rejects_non_session_dir() {
         let dir = tempfile::tempdir().unwrap();
         // empty dir -- no index.jsonl
-        let err = run("text", dir.path(), &dir.path().join("out.txt"), None).unwrap_err();
+        let err = run("text", dir.path(), &dir.path().join("out.txt"), None, None).unwrap_err();
         assert!(err.to_string().contains("missing index.jsonl"));
     }
 
@@ -85,7 +91,7 @@ mod tests {
         write_synthetic_pcap_session(&session);
         let dst = dir.path().join("out.pcapng");
 
-        run("pcapng", &session, &dst, Some("GMT+9")).unwrap();
+        run("pcapng", &session, &dst, Some("GMT+9"), Some("shift_jis")).unwrap();
 
         let body = std::fs::read(&dst).unwrap();
         assert!(body.starts_with(&0x0A0D_0D0Au32.to_le_bytes()));

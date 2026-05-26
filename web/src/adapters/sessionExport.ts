@@ -5,6 +5,7 @@ export type SessionExportFormat = "text" | "csv" | "jsonl" | "pcapng";
 export interface SessionExportOptions {
   format: SessionExportFormat;
   timezone?: string;
+  encoding?: string;
   filenamePattern?: string;
   sourceName?: string;
   timestamp?: Date | number | string;
@@ -16,6 +17,8 @@ export function sessionExportUrl(sid: string, options: SessionExportOptions): st
   const params = new URLSearchParams({ format: options.format });
   const timezone = options.timezone?.trim();
   if (timezone) params.set("tz", timezone);
+  const encoding = options.encoding?.trim();
+  if (encoding) params.set("encoding", encoding);
   const base = resolveWanloggerHttpUrl(`/api/sessions/${encodeURIComponent(sid)}/export`);
   return `${base}?${params}`;
 }

@@ -1,8 +1,8 @@
 //! CSV exporter.
 //!
 //! Emits a header row and `ts_origin,ts_ingest,dir,kind,len,text`
-//! records, where `text` is the lossy-UTF-8 decoding of the raw
-//! payload, double-quoted and with embedded `"` doubled per RFC 4180.
+//! records, where `text` is decoded with the session encoding when
+//! available, double-quoted and with embedded `"` doubled per RFC 4180.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use time::UtcOffset;
 
 use crate::error_id::{ErrorId, WanloggerError};
+use crate::exporter::encoding::resolve_text_encoding;
 use crate::exporter::timestamp::{format_rfc3339_in_timezone, parse_timezone_offset};
 use crate::exporter::Exporter;
 use crate::log::index::IndexEntry;
@@ -29,19 +30,30 @@ impl Exporter for CsvExporter {
     }
 
     async fn export(&mut self, src: &Path, dst: &Path) -> Result<()> {
-        run(src, dst, None)
+        run(src, dst, None, None)
     }
 }
 
 /// Export CSV while formatting timestamps in a fixed timezone.
 pub fn export_with_timezone(src: &Path, dst: &Path, timezone: Option<&str>) -> Result<()> {
-    let offset = timezone.map(parse_timezone_offset).transpose()?;
-    run(src, dst, offset)
+    export_with_timezone_and_encoding(src, dst, timezone, None)
 }
 
-fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>) -> Result<()> {
+/// Export CSV with an optional fixed timezone and text encoding override.
+pub fn export_with_timezone_and_encoding(
+    src: &Path,
+    dst: &Path,
+    timezone: Option<&str>,
+    encoding: Option<&str>,
+) -> Result<()> {
+    let offset = timezone.map(parse_timezone_offset).transpose()?;
+    run(src, dst, offset, encoding)
+}
+
+fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>, encoding: Option<&str>) -> Result<()> {
     let idx = File::open(src.join("index.jsonl")).map_err(|e| err("opening index.jsonl", e))?;
     let mut raw = RawReader::open(src).map_err(|e| err("opening raw.bin", e))?;
+    let encoding = resolve_text_encoding(src, encoding);
     let out = File::create(dst).map_err(|e| err("creating dst", e))?;
     let mut w = BufWriter::new(out);
     writeln!(w, "ts_origin,ts_ingest,dir,kind,len,text").map_err(|e| err("write header", e))?;
@@ -56,7 +68,7 @@ fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>) -> Result<()> {
         let bytes = raw
             .read_at(entry.off, entry.len)
             .map_err(|e| err("reading raw", e))?;
-        let text = String::from_utf8_lossy(&bytes);
+        let (text, _) = crate::codec::decode(&bytes, &encoding);
         let ts_origin = format_rfc3339_in_timezone(&entry.ts_origin, timezone)?;
         let ts_ingest = format_rfc3339_in_timezone(&entry.ts_ingest, timezone)?;
         writeln!(
@@ -123,6 +135,9 @@ mod tests {
     use super::*;
     use crate::importer::text::TextImporter;
     use crate::importer::Importer;
+    use crate::log::index::{Dir, IndexEntry, IndexWriter, Kind};
+    use crate::log::raw::RawWriter;
+    use crate::time::{ClockQuality, ClockSource, DualTimestamp};
     use uuid::Uuid;
 
     #[tokio::test]
@@ -151,5 +166,58 @@ mod tests {
     fn quote_escapes_dquote() {
         assert_eq!(quote(r#"a"b"#), r#""a""b""#);
         assert_eq!(quote("plain"), "plain");
+    }
+
+    // REQ: FR-EXP-001
+    #[test]
+    fn uses_session_meta_encoding() {
+        let dir = std::env::temp_dir().join(format!("wlg-export-csv-sjis-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        write_shift_jis_session(&dir);
+        let dst = dir.join("out.csv");
+
+        export_with_timezone(&dir, &dst, None).unwrap();
+
+        let body = std::fs::read_to_string(&dst).unwrap();
+        assert!(body.contains("あ"), "export body was {body}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn write_shift_jis_session(dir: &Path) {
+        std::fs::write(
+            dir.join("meta.toml"),
+            "log_format_version = \"1.0.0\"\ndecoder = \"utf8-text:shift_jis\"\n",
+        )
+        .unwrap();
+        let mut raw = RawWriter::create(dir).unwrap();
+        let (off, len) = raw.append(&[0x82, 0xA0]).unwrap();
+        raw.flush().unwrap();
+
+        let mut index = IndexWriter::create(dir).unwrap();
+        index
+            .append(&IndexEntry::from_envelope(
+                &sample_ts(),
+                Uuid::new_v4(),
+                Dir::In,
+                Kind::Bytes,
+                off,
+                len,
+            ))
+            .unwrap();
+        index.flush().unwrap();
+    }
+
+    fn sample_ts() -> DualTimestamp {
+        DualTimestamp {
+            ts_origin_ns: 1_700_000_000_000_000_000,
+            ts_ingest_ns: 1_700_000_000_000_000_000,
+            mono_ns: 0,
+            boot_id: Uuid::nil(),
+            node_id: Uuid::nil(),
+            clock_offset_ms: 0,
+            clock_quality: ClockQuality::Imported,
+            drift_ppm: 0.0,
+            clock_source: ClockSource::Imported,
+        }
     }
 }

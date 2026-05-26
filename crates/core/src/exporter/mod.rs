@@ -18,6 +18,7 @@ pub trait Exporter: Send + Sync + 'static {
 }
 
 pub mod csv;
+pub(crate) mod encoding;
 pub mod jsonl;
 pub mod pcapng;
 pub mod text;
