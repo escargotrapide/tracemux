@@ -1,5 +1,6 @@
 // Global UI state. The server is the single source of truth -- these
 // signals only mirror what arrives over the wire.
+// REQ: FR-UI-018
 
 import { batch, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -72,6 +73,7 @@ const [terminalFocusRequestState, setTerminalFocusRequestState] =
   createSignal<TerminalFocusRequest | null>(null);
 const [terminalOpenRequestState, setTerminalOpenRequestState] =
   createSignal<TerminalOpenRequest | null>(null);
+const [displayClearVersionState, setDisplayClearVersionState] = createSignal(0);
 let terminalFocusSeq = 1;
 
 const uiPerfCounters: UiPerfSnapshot = {
@@ -402,6 +404,12 @@ export function openNewTerminalChannel(sid: string, ch: number): void {
   setTerminalOpenRequestState({ id: terminalFocusSeq++, sid, ch });
 }
 
+/** Clear all browser-side display buffers without touching server-owned logs. */
+export function clearClientDisplayBuffers(): void {
+  clearChannelFrames();
+  setDisplayClearVersionState((value) => value + 1);
+}
+
 /** Send a control frame (e.g. start/stop a source). */
 export function sendCtl(
   sid: string | undefined,
@@ -437,6 +445,7 @@ export const uiPerfState = uiPerf;
 export const terminalChannel = terminalChannelState;
 export const terminalFocusRequest = terminalFocusRequestState;
 export const terminalOpenRequest = terminalOpenRequestState;
+export const displayClearVersion = displayClearVersionState;
 
 /**
  * Test-only entry point: feed a frame through the same handler the
@@ -460,6 +469,7 @@ export function __setClientForTest(next: Pick<WireClient, "send"> | null): void 
   setTerminalChannelState(null);
   setTerminalFocusRequestState(null);
   setTerminalOpenRequestState(null);
+  setDisplayClearVersionState(0);
   terminalFocusSeq = 1;
 }
 

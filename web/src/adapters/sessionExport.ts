@@ -76,10 +76,10 @@ export function sessionExportFilename(sid: string, format: SessionExportFormat):
   return renderSessionExportFilename(DEFAULT_SESSION_EXPORT_FILENAME_PATTERN, { sid, format });
 }
 
-export async function downloadSessionExport(
+export async function fetchSessionExportBlob(
   sid: string,
   options: SessionExportOptions,
-): Promise<void> {
+): Promise<Blob> {
   const headers: HeadersInit = {};
   const token = resolveWanloggerToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -89,21 +89,32 @@ export async function downloadSessionExport(
     const detail = await response.text().catch(() => "");
     throw new Error(detail || `export failed: HTTP ${response.status}`);
   }
-  const blob = await response.blob();
+  return response.blob();
+}
+
+export function downloadBlob(blob: Blob, filename: string): void {
   const href = URL.createObjectURL(blob);
   try {
     const a = document.createElement("a");
     a.href = href;
-    a.download = renderSessionExportFilename(options.filenamePattern, {
-      sid,
-      format: options.format,
-      sourceName: options.sourceName,
-      timestamp: options.timestamp,
-    });
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
   } finally {
     URL.revokeObjectURL(href);
   }
+}
+
+export async function downloadSessionExport(
+  sid: string,
+  options: SessionExportOptions,
+): Promise<void> {
+  const blob = await fetchSessionExportBlob(sid, options);
+  downloadBlob(blob, renderSessionExportFilename(options.filenamePattern, {
+    sid,
+    format: options.format,
+    sourceName: options.sourceName,
+    timestamp: options.timestamp,
+  }));
 }

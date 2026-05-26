@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 // REQ: FR-EXP-PCAPNG
 import {
+  fetchSessionExportBlob,
   renderSessionExportFilename,
   sessionExportFilename,
   sessionExportUrl,
@@ -62,5 +63,20 @@ describe("sessionExport", () => {
         sourceName: "COM7",
       }),
     ).toMatch(/^COM7_csv\.csv$/);
+  });
+
+  it("fetches export blobs through the authenticated HTTP export URL", async () => {
+    // REQ: FR-UI-018
+    stubLocation();
+    const fetchMock = vi.fn(async () => new Response("export body", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const blob = await fetchSessionExportBlob("sid-fetch", { format: "text" });
+
+    expect(await blob.text()).toBe("export body");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:9000/api/sessions/sid-fetch/export?format=text",
+      { headers: {} },
+    );
   });
 });

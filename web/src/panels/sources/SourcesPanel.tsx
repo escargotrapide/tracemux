@@ -2,12 +2,17 @@
 // controls. Server is the source of truth.
 //
 // REQ: FR-UI-008
+// REQ: FR-UI-018
 
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import {
   downloadSessionExport,
   type SessionExportFormat,
 } from "~/adapters/sessionExport";
+import {
+  downloadSessionExportZip,
+  type SessionExportZipEntry,
+} from "~/adapters/sessionExportZip";
 import {
   openNewTerminalChannel,
   openTerminalChannel,
@@ -133,6 +138,8 @@ export function SourcesPanel() {
   const [pcapPublishMode, setPcapPublishMode] = createSignal<PcapPublishMode>("stats-only");
   const [exportTimezone, setExportTimezone] = createSignal("");
   const [exporting, setExporting] = createSignal<string | null>(null);
+  const [bulkExporting, setBulkExporting] = createSignal<SessionExportFormat | null>(null);
+  const [bulkProgress, setBulkProgress] = createSignal<{ completed: number; total: number } | null>(null);
   const [loadedNotesSid, setLoadedNotesSid] = createSignal<string | null>(null);
   const [sourceNoteSyncStatus, setSourceNoteSyncStatus] = createSignal<Record<string, AnnotationSyncStatus>>({});
   const rows = () =>
@@ -146,6 +153,12 @@ export function SourcesPanel() {
     const sid = selectedSid();
     return sid ? sourcesStore[sid] : undefined;
   };
+  const persistentSources = createMemo(() => Object.values(sourcesStore).filter((source) => source.persistent));
+  const bulkProgressLabel = createMemo(() => {
+    const progress = bulkProgress();
+    if (!progress) return "";
+    return `${progress.completed}/${progress.total}`;
+  });
 
   createEffect(() => {
     const sid = selectedSid();
@@ -295,6 +308,41 @@ export function SourcesPanel() {
       });
     } finally {
       setExporting(null);
+    }
+  }
+
+  async function onDownloadAllExports(format: SessionExportFormat): Promise<void> {
+    const sources = persistentSources();
+    if (sources.length === 0) {
+      pushToast({ level: "warn", message: t("sources.export_all.unavailable") });
+      return;
+    }
+    const entries: SessionExportZipEntry[] = sources.map((source) => ({
+      sid: source.sid,
+      sourceName: sourceAliases[source.sid]?.label ?? source.name ?? source.sid,
+      encoding: sourceEncodings[sourceEncodingKey(source.sid)]?.encoding,
+    }));
+    setBulkExporting(format);
+    setBulkProgress({ completed: 0, total: entries.length });
+    try {
+      await downloadSessionExportZip(entries, {
+        format,
+        timezone: exportTimezone(),
+        filenamePattern: exportSettings.filenamePattern,
+        onProgress: ({ completed, total }) => setBulkProgress({ completed, total }),
+      });
+      pushToast({
+        level: "info",
+        message: `${t("sources.export_all.requested")} (${entries.length})`,
+      });
+    } catch (err) {
+      pushToast({
+        level: "error",
+        message: (err as Error).message ?? t("sources.export_all.failed"),
+      });
+    } finally {
+      setBulkExporting(null);
+      setBulkProgress(null);
     }
   }
 
@@ -588,6 +636,41 @@ export function SourcesPanel() {
             <option value="bytes">{t("sources.filter.sort_bytes")}</option>
           </select>
         </label>
+      </div>
+      <div class="wl-source-bulk-export">
+        <strong>{t("sources.export_all.title")}</strong>
+        <input
+          type="text"
+          value={exportTimezone()}
+          onInput={(ev) => setExportTimezone(ev.currentTarget.value)}
+          placeholder={t("sources.export.timezone_placeholder")}
+          aria-label={t("sources.export_all.timezone")}
+        />
+        <input
+          type="text"
+          value={exportSettings.filenamePattern}
+          onInput={(ev) => updateExportSettings({ filenamePattern: ev.currentTarget.value })}
+          placeholder={t("sources.export.filename_pattern_placeholder")}
+          aria-label={t("sources.export_all.filename_pattern")}
+        />
+        <For each={EXPORT_FORMATS}>
+          {(format) => (
+            <button
+              type="button"
+              onClick={() => void onDownloadAllExports(format)}
+              disabled={persistentSources().length === 0 || bulkExporting() !== null}
+            >
+              {bulkExporting() === format
+                ? `${t("sources.export_all.downloading")} ${bulkProgressLabel()}`.trim()
+                : t(`sources.export_all.${format}`)}
+            </button>
+          )}
+        </For>
+        <span style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+          {persistentSources().length > 0
+            ? `${t("sources.export_all.help")} (${persistentSources().length})`
+            : t("sources.export_all.unavailable")}
+        </span>
       </div>
       <Show
         when={rows().length > 0}

@@ -365,6 +365,72 @@ test("source detail export button calls the HTTP export API", async ({ page }) =
   await expect(page.getByText("Export download requested")).toBeVisible();
 });
 
+test("source panel can bulk export all persisted sources as one zip", async ({ page }) => {
+  // REQ: FR-UI-018
+  const requested = new Set<string>();
+  await page.route("http://127.0.0.1:9000/api/sessions/**/export?**", async (route) => {
+    requested.add(route.request().url());
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+      body: `export:${route.request().url()}`,
+    });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 20,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          name: "Bulk A",
+          kind: "tcp",
+          status: "stopped",
+          channels: [0],
+          bytes_in: 42,
+          persistent: true,
+          session_dir: "C:/tmp/bulk-a",
+        },
+        {
+          sid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Bulk B",
+          kind: "serial",
+          status: "stopped",
+          channels: [0],
+          bytes_in: 64,
+          persistent: true,
+          session_dir: "C:/tmp/bulk-b",
+        },
+        {
+          sid: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          name: "Live Only",
+          kind: "mock",
+          status: "running",
+          channels: [0],
+          bytes_in: 1,
+          persistent: false,
+        },
+      ],
+    },
+  });
+
+  await page.getByLabel("Bulk export timezone").fill("UTC");
+  await page.getByRole("button", { name: "Zip all text" }).click();
+
+  await expect.poll(() => requested.size).toBe(2);
+  const urls = [...requested].join("\n");
+  expect(urls).toContain("/api/sessions/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/export");
+  expect(urls).toContain("/api/sessions/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/export");
+  expect(urls).not.toContain("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+  expect(urls).toContain("format=text");
+  expect(urls).toContain("tz=UTC");
+  await expect(page.getByText(/Bulk export ZIP download requested/)).toBeVisible();
+});
+
 test("settings rules and source start defaults are sent with ctl start", async ({ page }) => {
   // REQ: FR-UI-014
   await page.goto("/");

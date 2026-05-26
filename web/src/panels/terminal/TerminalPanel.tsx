@@ -6,6 +6,7 @@
 // REQ: FR-UI-010
 // REQ: FR-UI-011
 // REQ: FR-UI-013
+// REQ: FR-UI-018
 
 import {
   createEffect,
@@ -21,6 +22,8 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { t } from "~/i18n";
 import {
   pushToast,
+  clearClientDisplayBuffers,
+  displayClearVersion,
   selectTerminalChannel,
   sendWrite,
   sourcesStore,
@@ -248,9 +251,11 @@ export function TerminalPanel(props: TerminalPanelProps) {
     }
   });
 
-  function clearTerminal(): void {
+  function clearClientDisplay(): void {
+    clearClientDisplayBuffers();
     renderedRecords = 0;
     term?.clear();
+    pushToast({ level: "info", message: t("display.clear_requested") });
   }
 
   function copySelection(): void {
@@ -341,6 +346,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
     displaySettings.showSource;
     displaySettings.timezone;
     displaySettings.terminalMaxRecords;
+    displayClearVersion();
     sourceEncodings[sourceEncodingKey(sid())]?.encoding;
     sourceEncodings[channelEncodingKey(sid(), ch())]?.encoding;
     sourcesStore[sid()]?.encoding;
@@ -486,7 +492,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
             {t("terminal.send")}
           </button>
         </form>
-        <button type="button" onClick={clearTerminal}>
+        <button type="button" onClick={clearClientDisplay}>
           {t("terminal.clear")}
         </button>
         <button type="button" onClick={copySelection}>

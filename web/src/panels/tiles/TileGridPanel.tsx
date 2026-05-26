@@ -4,11 +4,18 @@
 // the slow coalescing bucket (NFR-PERF-001).
 //
 // REQ: FR-UI-012
+// REQ: FR-UI-018
 
 import { createEffect, createMemo, For, onCleanup, onMount } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { sourcesStore, useChannel } from "~/state";
+import {
+  clearClientDisplayBuffers,
+  displayClearVersion,
+  pushToast,
+  sourcesStore,
+  useChannel,
+} from "~/state";
 import { getChannelFrames } from "~/state/channelBuffers";
 import { enabledClassificationRules } from "~/state/classificationRules";
 import {
@@ -205,6 +212,7 @@ function Tile(props: TileBinding) {
     displaySettings.showSource;
     displaySettings.timezone;
     displaySettings.tileMaxRecords;
+    displayClearVersion();
     sourceEncodings[sourceEncodingKey(props.sid)]?.encoding;
     sourceEncodings[channelEncodingKey(props.sid, props.ch)]?.encoding;
     sourcesStore[props.sid]?.encoding;
@@ -238,6 +246,11 @@ export function TileGridPanel() {
     "grid-auto-rows": `minmax(${displaySettings.tileMinHeight}px, 1fr)`,
   });
 
+  function clearDisplay(): void {
+    clearClientDisplayBuffers();
+    pushToast({ level: "info", message: t("display.clear_requested") });
+  }
+
   return (
     <div class="wl-tile-panel">
       <div class="wl-tile-toolbar">
@@ -261,6 +274,9 @@ export function TileGridPanel() {
             onInput={(ev) => updateDisplaySettings({ tileMinHeight: Number(ev.currentTarget.value) })}
           />
         </label>
+        <button type="button" onClick={clearDisplay}>
+          {t("display.clear_all")}
+        </button>
       </div>
       <div class="wl-tile-grid" data-testid="tile-grid" style={gridStyle()}>
         {tiles().length === 0 ? (

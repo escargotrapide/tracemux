@@ -4,6 +4,8 @@ import {
   __ingestFrameForTest,
   __setClientForTest,
   __setConnStateForTest,
+  clearClientDisplayBuffers,
+  displayClearVersion,
   metricsState,
   uiPerfState,
   terminalChannel,
@@ -110,6 +112,61 @@ describe("state frame handler", () => {
     expect(sourcesStore["s-perf"].bytesIn).toBe(5);
     expect(sourcesStore["s-perf"].lastTsMs).toBe(2);
     expect(sourcesStore["s-perf"].channels).toEqual([0, 1]);
+  });
+
+  it("clears client display buffers without removing source metadata", () => {
+    // REQ: FR-UI-018
+    __ingestFrameForTest({
+      type: "data",
+      seq: 21,
+      payload: {
+        ts_origin: 0,
+        ts_ingest: 1_000_000,
+        mono_ns: 0,
+        boot_id: "b",
+        node_id: "n",
+        clock_offset_ms: 0,
+        clock_quality: "best-effort",
+        drift_ppm: 0,
+        clock_source: "system",
+        sid: "s-clear-a",
+        ch: 0,
+        dir: "in",
+        kind: "bytes",
+        body: new Uint8Array([1]),
+      },
+    });
+    __ingestFrameForTest({
+      type: "data",
+      seq: 22,
+      payload: {
+        ts_origin: 0,
+        ts_ingest: 2_000_000,
+        mono_ns: 0,
+        boot_id: "b",
+        node_id: "n",
+        clock_offset_ms: 0,
+        clock_quality: "best-effort",
+        drift_ppm: 0,
+        clock_source: "system",
+        sid: "s-clear-b",
+        ch: 1,
+        dir: "in",
+        kind: "bytes",
+        body: new Uint8Array([2]),
+      },
+    });
+    expect(getChannelFrames("s-clear-a", 0)).toHaveLength(1);
+    expect(getChannelFrames("s-clear-b", 1)).toHaveLength(1);
+    const version = displayClearVersion();
+
+    clearClientDisplayBuffers();
+
+    expect(displayClearVersion()).toBe(version + 1);
+    expect(getChannelFrames("s-clear-a", 0)).toEqual([]);
+    expect(getChannelFrames("s-clear-b", 1)).toEqual([]);
+    expect(sourcesStore["s-clear-a"]).toBeDefined();
+    expect(sourcesStore["s-clear-b"]).toBeDefined();
   });
 
   it("sends terminal write frames", () => {

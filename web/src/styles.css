@@ -143,6 +143,16 @@ button:hover {
 .wl-pcap-candidates input[type="text"] {
   min-width: 220px;
 }
+.wl-source-bulk-export {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.wl-source-bulk-export input {
+  min-width: 180px;
+}
 .wl-serial-candidate {
   display: inline-flex;
   align-items: center;

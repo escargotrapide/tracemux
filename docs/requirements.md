@@ -309,6 +309,15 @@ The web UI exposes a free-form notes field for each selected
 source/session. Notes are stored as browser-side annotations only and
 must not persist raw log data outside the server-owned session-dir.
 
+### FR-UI-018  Client display clear and bulk ZIP export
+The web UI can clear all browser-side terminal/tile display buffers on
+request without sending a server mutation and without deleting
+server-owned session-dir logs. The sources panel can export all
+server-persisted sources known to the client as one ZIP download. Each
+ZIP entry is produced by the existing authenticated per-session export
+API in one of the existing formats (`text`, `csv`, `jsonl`, `pcapng`),
+while non-persistent sources are excluded from the bulk export set.
+
 ### FR-WIRE-003  Lifecycle start-option overrides
 WSS `ctl` lifecycle actions support optional start-option fields:
 `encoding`, `classifier`, and `session_name_pattern`. `start` applies
