@@ -91,6 +91,63 @@ describe("annotation sync state helpers", () => {
     expect(loadLogTypeNotes(storage)[key]?.text).toBe("newer local type note");
   });
 
+  it("applies newer server deletes without erasing newer local notes", () => {
+    const storage = new FakeStorage();
+    const sid = "55555555-5555-4555-8555-555555555555";
+    const key = "deleted-fault";
+    const serverMs = Date.parse("2026-05-20T00:00:00Z");
+    updateSourceNote(sid, "local source note", storage, serverMs - 1);
+    updateLogTypeNote(key, "local type note", storage, serverMs - 1);
+
+    applyServerAnnotations(
+      [
+        {
+          id: annotationIdForTarget(sessionAnnotationTarget(sid)),
+          target: { kind: "session", sid },
+          text: "",
+          updated_at: "2026-05-20T00:00:00Z",
+          deleted: true,
+        },
+        {
+          id: annotationIdForTarget({ kind: "log_type", key }),
+          target: { kind: "log_type", key },
+          text: "",
+          updated_at: "2026-05-20T00:00:00Z",
+          deleted: true,
+        },
+      ],
+      { storage },
+    );
+
+    expect(loadSourceNotes(storage)[sid]).toBeUndefined();
+    expect(loadLogTypeNotes(storage)[key]).toBeUndefined();
+
+    updateSourceNote(sid, "newer local source note", storage, serverMs + 1);
+    updateLogTypeNote(key, "newer local type note", storage, serverMs + 1);
+    applyServerAnnotations(
+      [
+        {
+          id: annotationIdForTarget(sessionAnnotationTarget(sid)),
+          target: { kind: "session", sid },
+          text: "",
+          updated_at: "2026-05-20T00:00:00Z",
+          deleted: true,
+        },
+        {
+          id: annotationIdForTarget({ kind: "log_type", key }),
+          target: { kind: "log_type", key },
+          text: "",
+          updated_at: "2026-05-20T00:00:00Z",
+          deleted: true,
+        },
+      ],
+      { storage },
+    );
+
+    expect(loadSourceNotes(storage)[sid]?.text).toBe("newer local source note");
+    expect(loadLogTypeNotes(storage)[key]?.text).toBe("newer local type note");
+  });
+
   it("syncs source notes with deterministic annotation ids", async () => {
     const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     const sid = "22222222-2222-4222-8222-222222222222";

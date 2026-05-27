@@ -8,8 +8,18 @@ import {
   type FetchLike,
   type ServerAnnotation,
 } from "~/adapters/annotations";
-import { logTypeNotes, updateLogTypeNote, type LogTypeNote } from "~/state/logTypeNotes";
-import { sourceNotes, updateSourceNote, type SourceNote } from "~/state/sourceNotes";
+import {
+  deleteLogTypeNote,
+  logTypeNotes,
+  updateLogTypeNote,
+  type LogTypeNote,
+} from "~/state/logTypeNotes";
+import {
+  deleteSourceNote,
+  sourceNotes,
+  updateSourceNote,
+  type SourceNote,
+} from "~/state/sourceNotes";
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 
@@ -34,12 +44,17 @@ export function applyServerAnnotations(
 ): void {
   const fallbackNow = options.now ?? Date.now();
   for (const annotation of annotations) {
-    if (annotation.deleted) continue;
     const updatedAt = annotationTimeMs(annotation, fallbackNow);
     if (annotation.target.kind === "session") {
       const sid = annotation.target.sid?.trim();
       if (!sid) continue;
       const local = sourceNotes[sid];
+      if (annotation.deleted) {
+        if (local && shouldApply(local.updatedAt, updatedAt)) {
+          deleteSourceNote(sid, options.storage);
+        }
+        continue;
+      }
       if (shouldApply(local?.updatedAt, updatedAt)) {
         updateSourceNote(sid, annotation.text, options.storage, updatedAt);
       }
@@ -50,6 +65,12 @@ export function applyServerAnnotations(
     if (!key) continue;
     if (annotation.target.sid && !options.includeScopedLogTypes) continue;
     const local = logTypeNotes[key];
+    if (annotation.deleted) {
+      if (local && shouldApply(local.updatedAt, updatedAt)) {
+        deleteLogTypeNote(key, options.storage);
+      }
+      continue;
+    }
     if (shouldApply(local?.updatedAt, updatedAt)) {
       updateLogTypeNote(key, annotation.text, options.storage, updatedAt);
     }
