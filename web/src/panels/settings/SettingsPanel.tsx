@@ -4,9 +4,9 @@
 //
 // REQ: FR-UI-014
 
-import { createSignal, For, onMount } from "solid-js";
+import { createEffect, createSignal, For } from "solid-js";
 import { t } from "~/i18n";
-import { pushToast } from "~/state";
+import { connState, pushToast } from "~/state";
 import {
   loadAndApplyLogTypeAnnotations,
   syncLogTypeNoteToServer,
@@ -53,8 +53,11 @@ export function SettingsPanel() {
     const key = normalizeLogTypeKey(logTypeKey());
     return key ? logTypeNotes[key]?.text ?? "" : "";
   };
+  let logTypeAnnotationsRequested = false;
 
-  onMount(() => {
+  createEffect(() => {
+    if (logTypeAnnotationsRequested || connState().status !== "open") return;
+    logTypeAnnotationsRequested = true;
     setLogTypeSyncStatus("loading");
     void loadAndApplyLogTypeAnnotations()
       .then(() => setLogTypeSyncStatus("synced"))

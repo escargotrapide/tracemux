@@ -73,6 +73,7 @@ test("loads shell and shows top-bar title", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("wanlogger").first()).toBeVisible();
   await expect(page.getByText(/Terminal|\u30bf\u30fc\u30df\u30ca\u30eb/).first()).toBeVisible();
+  await expect(page.getByText("Log type note sync failed; kept in this browser.")).toHaveCount(0);
 });
 
 test("language toggle switches between ja and en", async ({ page }) => {
