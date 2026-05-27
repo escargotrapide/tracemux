@@ -9,6 +9,7 @@ vi.mock("~/state", () => ({
 import { observeVisibility, TILE_COUNT } from "../../src/state/visibility";
 
 let latestObserver: FakeIntersectionObserver | undefined;
+let rafCallbacks: FrameRequestCallback[] = [];
 
 class FakeIntersectionObserver {
   readonly observe = vi.fn();
@@ -29,11 +30,23 @@ class FakeIntersectionObserver {
   }
 }
 
+function flushAnimationFrame(): void {
+  const callbacks = rafCallbacks;
+  rafCallbacks = [];
+  for (const callback of callbacks) callback(performance.now());
+}
+
 describe("visibility reporting", () => {
   beforeEach(() => {
     send.mockReset();
     latestObserver = undefined;
     vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+    rafCallbacks = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      rafCallbacks.push(callback);
+      return rafCallbacks.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
   });
 
   afterEach(() => {
@@ -49,6 +62,7 @@ describe("visibility reporting", () => {
 
     expect(latestObserver?.observe).toHaveBeenCalledWith(element);
     latestObserver?.emit({ isIntersecting: true, intersectionRatio: 0.5 });
+    flushAnimationFrame();
     expect(send).toHaveBeenCalledWith({
       type: "panel_priority",
       sid: "sid-visible",
@@ -57,6 +71,7 @@ describe("visibility reporting", () => {
     });
 
     latestObserver?.emit({ isIntersecting: false, intersectionRatio: 0 });
+    flushAnimationFrame();
     expect(send).toHaveBeenCalledWith({
       type: "panel_priority",
       sid: "sid-visible",
@@ -66,6 +81,27 @@ describe("visibility reporting", () => {
 
     stop();
     expect(latestObserver?.disconnect).toHaveBeenCalled();
+  });
+
+  it("coalesces rapid panel priority updates to the latest frame", () => {
+    // REQ: FR-UI-004
+    // REQ: NFR-PERF-001
+    const element = document.createElement("div");
+
+    observeVisibility(element, { sid: "sid-rapid", ch: 2 });
+    latestObserver?.emit({ isIntersecting: true, intersectionRatio: 0.5 });
+    latestObserver?.emit({ isIntersecting: false, intersectionRatio: 0 });
+
+    expect(send).not.toHaveBeenCalled();
+    flushAnimationFrame();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({
+      type: "panel_priority",
+      sid: "sid-rapid",
+      ch: 2,
+      payload: { visible: false, ratio: 0 },
+    });
   });
 
   it("pins the tile virtualization window to sixteen tiles", () => {
