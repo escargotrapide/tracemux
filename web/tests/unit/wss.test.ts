@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Packr } from "msgpackr";
 import { WireClient, resolveWanloggerHttpUrl, resolveWanloggerUrl } from "../../src/adapters/wss";
+
+const packr = new Packr({ useRecords: false, mapsAsObjects: true });
 
 class FakeWebSocket extends EventTarget {
   static readonly CONNECTING = 0;
@@ -53,6 +56,13 @@ function stubLocation(location: Partial<Location>): void {
       ...location,
     },
   });
+}
+
+function packed(value: unknown): ArrayBuffer {
+  const data = packr.pack(value) as Uint8Array;
+  const buffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buffer).set(data);
+  return buffer;
 }
 
 describe("resolveWanloggerUrl", () => {
@@ -131,5 +141,23 @@ describe("resolveWanloggerUrl", () => {
     ws?.receive(new Uint8Array([0x81]).buffer);
 
     expect(errors).toContain("E-UI-0010");
+  });
+
+  it("emits protocol errors for unsupported frame types", () => {
+    // REQ: FR-UI-009
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const client = new WireClient({ url: "ws://example.test/ws" });
+    const errors: string[] = [];
+    const frames: string[] = [];
+    client.onError((err) => errors.push(`${err.errorId}:${err.message}`));
+    client.onFrame((frame) => frames.push(frame.type));
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws?.open();
+    ws?.receive(packed({ type: "future_frame", seq: 1, payload: {} }));
+
+    expect(errors).toContain("E-UI-0010:Unsupported WSS frame ignored");
+    expect(frames).toEqual([]);
   });
 });

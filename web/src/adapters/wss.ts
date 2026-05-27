@@ -10,20 +10,25 @@
 
 import { Packr, Unpackr } from "msgpackr";
 
-export type FrameType =
-  | "hello"
-  | "auth"
-  | "sub"
-  | "unsub"
-  | "data"
-  | "ctl"
-  | "write"
-  | "metrics"
-  | "clientlog"
-  | "ping"
-  | "pong"
-  | "clock_sync"
-  | "panel_priority";
+const FRAME_TYPES = [
+  "hello",
+  "auth",
+  "sub",
+  "unsub",
+  "data",
+  "ctl",
+  "write",
+  "metrics",
+  "clientlog",
+  "ping",
+  "pong",
+  "clock_sync",
+  "panel_priority",
+] as const;
+
+export type FrameType = (typeof FRAME_TYPES)[number];
+
+const FRAME_TYPE_SET = new Set<string>(FRAME_TYPES);
 
 export interface Frame<P = unknown> {
   type: FrameType;
@@ -165,6 +170,10 @@ export interface WireClientError {
 }
 export type ErrorListener = (error: WireClientError) => void;
 
+function isKnownFrameType(value: unknown): value is FrameType {
+  return typeof value === "string" && FRAME_TYPE_SET.has(value);
+}
+
 export class WireClient {
   private ws: WebSocket | null = null;
   private seqOut = 0n;
@@ -241,9 +250,16 @@ export class WireClient {
         return;
       }
       try {
-        const frame = unpackr.unpack(new Uint8Array(data)) as Frame;
+        const frame = unpackr.unpack(new Uint8Array(data)) as Partial<Frame>;
+        if (!isKnownFrameType(frame.type)) {
+          this.emitError({
+            errorId: "E-UI-0010",
+            message: "Unsupported WSS frame ignored",
+          });
+          return;
+        }
         for (const fn of this.frameListeners) {
-          fn(frame);
+          fn(frame as Frame);
         }
       } catch (err) {
         console.warn("E-UI-0010 unpack failed", err);
