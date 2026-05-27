@@ -202,6 +202,13 @@ fn authorize_export(
 }
 
 fn ensure_session_dir(path: &Path, root: Option<&Path>) -> Result<(), ExportApiError> {
+    if !path.exists() {
+        return Err(ExportApiError {
+            status: StatusCode::NOT_FOUND,
+            error_id: "E-1001",
+            message: format!("source session-dir does not exist: {}", path.display()),
+        });
+    }
     let canonical_path = path.canonicalize().map_err(|e| ExportApiError {
         status: StatusCode::NOT_FOUND,
         error_id: "E-1001",
@@ -409,6 +416,17 @@ mod tests {
         assert_eq!(err.status, StatusCode::FORBIDDEN);
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    fn ensure_session_dir_reports_missing_session_dir() {
+        // REQ: FR-EXP-001
+        let missing = unique_temp_path("wanlogger-export-missing");
+
+        let err = ensure_session_dir(&missing, None).unwrap_err();
+
+        assert_eq!(err.status, StatusCode::NOT_FOUND);
+        assert!(err.message.contains("does not exist"));
     }
 
     #[test]

@@ -42,6 +42,7 @@ impl<T> HoldQueue<T> {
     }
 
     /// Push `item`. Returns `true` if it was kept, `false` if dropped.
+    #[must_use]
     pub fn push(&mut self, item: T) -> bool {
         if self.inner.len() < self.capacity {
             self.inner.push_back(item);

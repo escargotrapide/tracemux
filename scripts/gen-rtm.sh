@@ -100,17 +100,28 @@ lines = [
   "| Requirement | Implementation references | Test evidence | Status |",
   "| ----------- | ------------------------- | ------------- | ------ |",
 ]
+covered = 0
+implementation_only = 0
+unreferenced = 0
 for req_id in defined_order:
   impl = "<br>".join(sorted(set(impl_refs.get(req_id, [])))) or "(none)"
   tests = "<br>".join(sorted(set(test_refs.get(req_id, [])))) or "(none)"
   if test_refs.get(req_id):
     status = "covered"
+    covered += 1
   elif impl_refs.get(req_id):
     status = "implementation-only"
+    implementation_only += 1
   else:
     status = "unreferenced"
+    unreferenced += 1
   lines.append(f"| {req_id} | {impl} | {tests} | {status} |")
 
+lines.extend([
+  "",
+  f"_Summary: {covered} covered, {implementation_only} implementation-only, {unreferenced} unreferenced._",
+])
+
 out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+print(f"Wrote {out} ({covered} covered, {implementation_only} implementation-only, {unreferenced} unreferenced)")
 PY
-echo "Wrote $OUT"
