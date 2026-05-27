@@ -44,7 +44,7 @@ button:hover {
 
 .wl-app {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   height: 100vh;
 }
 
@@ -58,6 +58,19 @@ button:hover {
   border-bottom: 1px solid var(--wl-border);
 }
 
+.wl-connection-banner {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--wl-border);
+  background: rgba(210, 153, 34, 0.14);
+  color: var(--wl-fg);
+}
+.wl-connection-banner.err {
+  background: rgba(248, 81, 73, 0.14);
+}
+.wl-connection-banner.warn {
+  background: rgba(210, 153, 34, 0.14);
+}
+
 .wl-statusbar {
   border-bottom: none;
   border-top: 1px solid var(--wl-border);
@@ -67,6 +80,7 @@ button:hover {
 
 .wl-dock {
   position: relative;
+  min-height: 0;
   overflow: hidden;
 }
 

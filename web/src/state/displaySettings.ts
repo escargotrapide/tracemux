@@ -1,4 +1,5 @@
 import { createStore } from "solid-js/store";
+import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
 export const DISPLAY_SETTINGS_STORAGE_KEY = "wanlogger.displaySettings.v1";
 
@@ -27,13 +28,6 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   showSource: false,
   timezone: "local",
 };
-
-type StorageLike = Pick<Storage, "getItem" | "setItem">;
-
-function defaultStorage(): StorageLike | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.localStorage;
-}
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -85,8 +79,8 @@ export function normalizeDisplaySettings(value: unknown): DisplaySettings {
   };
 }
 
-export function loadDisplaySettings(storage = defaultStorage()): DisplaySettings {
-  const raw = storage?.getItem(DISPLAY_SETTINGS_STORAGE_KEY) ?? null;
+export function loadDisplaySettings(storage = browserStorage()): DisplaySettings {
+  const raw = safeGetItem(DISPLAY_SETTINGS_STORAGE_KEY, storage);
   if (!raw) return { ...DEFAULT_DISPLAY_SETTINGS };
   try {
     return normalizeDisplaySettings(JSON.parse(raw) as unknown);
@@ -97,10 +91,10 @@ export function loadDisplaySettings(storage = defaultStorage()): DisplaySettings
 
 export function saveDisplaySettings(
   settings: DisplaySettings,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): DisplaySettings {
   const normalized = normalizeDisplaySettings(settings);
-  storage?.setItem(DISPLAY_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
+  safeSetItem(DISPLAY_SETTINGS_STORAGE_KEY, JSON.stringify(normalized), storage);
   return normalized;
 }
 
@@ -112,7 +106,7 @@ export const displaySettings = displaySettingsStore;
 
 export function updateDisplaySettings(
   patch: Partial<DisplaySettings>,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): DisplaySettings {
   const next = normalizeDisplaySettings({ ...displaySettingsStore, ...patch });
   setDisplaySettingsStore(next);

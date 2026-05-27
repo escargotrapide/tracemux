@@ -1,4 +1,5 @@
 import { parseSourceSpec } from "~/state/sourceSpec";
+import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
 export interface SourcePreset {
   name: string;
@@ -14,11 +15,6 @@ export const BUILTIN_SOURCE_PRESETS: SourcePreset[] = [
   { name: "serial COM3", spec: "serial://COM3?baud=115200&data=8&parity=none&stop=1&flow=none" },
   { name: "file follow", spec: "file:///C:/logs/app.log?follow=1" },
 ];
-
-function defaultStorage(): Storage | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.localStorage;
-}
 
 export function isValidPresetName(name: string): boolean {
   return /^[A-Za-z0-9_.-]+$/.test(name);
@@ -51,14 +47,14 @@ function parseStoredPresets(raw: string | null): SourcePreset[] {
   }
 }
 
-export function loadUserSourcePresets(storage = defaultStorage()): SourcePreset[] {
-  return parseStoredPresets(storage?.getItem(SOURCE_PRESETS_STORAGE_KEY) ?? null);
+export function loadUserSourcePresets(storage: StorageLike | undefined = browserStorage()): SourcePreset[] {
+  return parseStoredPresets(safeGetItem(SOURCE_PRESETS_STORAGE_KEY, storage));
 }
 
 export function saveUserSourcePreset(
   name: string,
   spec: string,
-  storage = defaultStorage(),
+  storage: StorageLike | undefined = browserStorage(),
 ): SourcePreset[] {
   const normalizedName = normalizePresetName(name);
   const normalizedSpec = normalizeSpec(spec);
@@ -72,16 +68,16 @@ export function saveUserSourcePreset(
     ...loadUserSourcePresets(storage).filter((p) => p.name !== normalizedName),
     { name: normalizedName, spec: normalizedSpec },
   ].sort((a, b) => a.name.localeCompare(b.name));
-  storage?.setItem(SOURCE_PRESETS_STORAGE_KEY, JSON.stringify(next));
+  safeSetItem(SOURCE_PRESETS_STORAGE_KEY, JSON.stringify(next), storage);
   return next;
 }
 
 export function deleteUserSourcePreset(
   name: string,
-  storage = defaultStorage(),
+  storage: StorageLike | undefined = browserStorage(),
 ): SourcePreset[] {
   const normalizedName = normalizePresetName(name);
   const next = loadUserSourcePresets(storage).filter((p) => p.name !== normalizedName);
-  storage?.setItem(SOURCE_PRESETS_STORAGE_KEY, JSON.stringify(next));
+  safeSetItem(SOURCE_PRESETS_STORAGE_KEY, JSON.stringify(next), storage);
   return next;
 }

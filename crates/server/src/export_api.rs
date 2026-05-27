@@ -124,10 +124,10 @@ async fn export_session(
             error_id: "E-1001",
             message: format!("source `{sid}` has no persisted session-dir"),
         })?;
-    ensure_session_dir(&session_dir)?;
+    ensure_session_dir(&session_dir, state.source_manager.session_root())?;
 
-    let tmp = temp_export_path(sid, format);
-    let dst = tmp.clone();
+    let tmp = TempExportFile::new(temp_export_path(sid, format));
+    let dst = tmp.path().to_path_buf();
     let timezone = query.tz;
     let encoding = query.encoding;
     let export_result = tokio::task::spawn_blocking(move || match format {
@@ -165,12 +165,14 @@ async fn export_session(
         message: e.to_string(),
     })?;
 
-    let body = tokio::fs::read(&tmp).await.map_err(|e| ExportApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        error_id: "E-1001",
-        message: format!("reading export artifact: {e}"),
-    })?;
-    let _ = tokio::fs::remove_file(&tmp).await;
+    let body = tokio::fs::read(tmp.path())
+        .await
+        .map_err(|e| ExportApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error_id: "E-1001",
+            message: format!("reading export artifact: {e}"),
+        })?;
+    tmp.cleanup().await;
 
     Ok(ExportArtifact {
         filename: format!("wanlogger-{sid}.{}", format.extension()),
@@ -199,7 +201,32 @@ fn authorize_export(
         .map_err(|_| ExportApiError::auth("bearer token rejected"))
 }
 
-fn ensure_session_dir(path: &Path) -> Result<(), ExportApiError> {
+fn ensure_session_dir(path: &Path, root: Option<&Path>) -> Result<(), ExportApiError> {
+    let canonical_path = path.canonicalize().map_err(|e| ExportApiError {
+        status: StatusCode::NOT_FOUND,
+        error_id: "E-1001",
+        message: format!(
+            "source session-dir is not accessible: {}: {e}",
+            path.display()
+        ),
+    })?;
+    if let Some(root) = root {
+        let canonical_root = root.canonicalize().map_err(|e| ExportApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error_id: "E-1001",
+            message: format!("session root is not accessible: {}: {e}", root.display()),
+        })?;
+        if !canonical_path.starts_with(&canonical_root) {
+            return Err(ExportApiError {
+                status: StatusCode::FORBIDDEN,
+                error_id: "E-1001",
+                message: format!(
+                    "source session-dir is outside configured session root: {}",
+                    path.display()
+                ),
+            });
+        }
+    }
     if !path.join("index.jsonl").is_file() {
         return Err(ExportApiError {
             status: StatusCode::NOT_FOUND,
@@ -211,6 +238,40 @@ fn ensure_session_dir(path: &Path) -> Result<(), ExportApiError> {
         });
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct TempExportFile {
+    path: PathBuf,
+    cleanup: bool,
+}
+
+impl TempExportFile {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            cleanup: true,
+        }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    async fn cleanup(mut self) {
+        if self.cleanup {
+            let _ = tokio::fs::remove_file(&self.path).await;
+            self.cleanup = false;
+        }
+    }
+}
+
+impl Drop for TempExportFile {
+    fn drop(&mut self) {
+        if self.cleanup {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 fn temp_export_path(sid: Uuid, format: ExportFormat) -> PathBuf {
@@ -332,6 +393,33 @@ mod tests {
         let err = authorize_export(&headers, &peer, &BearerVerifier::new(), true).unwrap_err();
         assert_eq!(err.status, StatusCode::UNAUTHORIZED);
         assert_eq!(err.error_id, "E-2101");
+    }
+
+    #[test]
+    fn ensure_session_dir_rejects_paths_outside_session_root() {
+        // REQ: FR-EXP-001
+        let root = unique_temp_path("wanlogger-export-root");
+        let outside = unique_temp_path("wanlogger-export-outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("index.jsonl"), b"{}\n").unwrap();
+
+        let err = ensure_session_dir(&outside, Some(&root)).unwrap_err();
+
+        assert_eq!(err.status, StatusCode::FORBIDDEN);
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    fn temp_export_file_is_removed_on_error_path_drop() {
+        // REQ: FR-EXP-001
+        let path = unique_temp_path("wanlogger-export-guard").with_extension("txt");
+        std::fs::write(&path, b"partial").unwrap();
+        {
+            let _guard = TempExportFile::new(path.clone());
+        }
+        assert!(!path.exists());
     }
 
     #[tokio::test]
@@ -497,5 +585,9 @@ mod tests {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x08, 0x00,
             0x45, 0x00, 0x00, 0x14,
         ]
+    }
+
+    fn unique_temp_path(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("{prefix}-{}", Uuid::new_v4()))
     }
 }

@@ -61,6 +61,22 @@ impl Registry {
         sid
     }
 
+    /// Insert a session only when the id is not present already.
+    ///
+    /// Returns the shared state that is stored after the call. If another
+    /// caller registered the same `sid` first, that existing state is
+    /// returned and the supplied state is left unused.
+    pub fn insert_if_absent(&self, state: SessionState) -> Arc<SessionState> {
+        let sid = state.sid;
+        let mut map = self.map.write();
+        if let Some(existing) = map.get(&sid) {
+            return existing.clone();
+        }
+        let state = Arc::new(state);
+        map.insert(sid, state.clone());
+        state
+    }
+
     /// Look up a session.
     #[must_use]
     pub fn get(&self, sid: &Uuid) -> Option<Arc<SessionState>> {
@@ -113,5 +129,25 @@ mod tests {
         let _ = r.insert(SessionState::new("a", "1"));
         let _ = r.insert(SessionState::new("b", "2"));
         assert_eq!(r.ids().len(), 2);
+    }
+
+    #[test]
+    fn insert_if_absent_preserves_existing_state() {
+        let r = Registry::new();
+        let mut first = SessionState::new("tcp", "first");
+        let sid = first.sid;
+        first.label = Some("original".to_string());
+
+        let inserted = r.insert_if_absent(first);
+        let mut replacement = SessionState::new("tcp", "replacement");
+        replacement.sid = sid;
+        replacement.label = Some("replacement".to_string());
+
+        let existing = r.insert_if_absent(replacement);
+
+        assert!(Arc::ptr_eq(&inserted, &existing));
+        assert_eq!(existing.iface, "first");
+        assert_eq!(existing.label.as_deref(), Some("original"));
+        assert_eq!(r.len(), 1);
     }
 }

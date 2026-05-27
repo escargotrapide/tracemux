@@ -20,7 +20,7 @@ pub struct IngestStats {
     pub frames_in: u64,
     /// Bytes written to the log sink.
     pub bytes_logged: u64,
-    /// Records dropped (e.g. ring eviction).
+    /// Records dropped before delivery to a consumer.
     pub dropped: u64,
 }
 
@@ -54,10 +54,7 @@ impl Ingest {
 
     /// Register a live session and return its stable `sid`.
     pub fn register_session(&self, state: SessionState) -> Uuid {
-        if self.registry.get(&state.sid).is_some() {
-            return state.sid;
-        }
-        self.registry.insert(state)
+        self.registry.insert_if_absent(state).sid
     }
 
     /// Publish one already-encoded wire frame to a session fan-out.
@@ -150,5 +147,18 @@ mod tests {
             1
         );
         assert_eq!(rx.recv().await.unwrap(), Bytes::from_static(b"again"));
+    }
+
+    #[test]
+    fn register_session_does_not_replace_existing_metadata_for_same_sid() {
+        let ig = Ingest::new();
+        let sid = ig.register_session(SessionState::new("mock", "first"));
+
+        let mut replacement = SessionState::new("mock", "restart");
+        replacement.sid = sid;
+        assert_eq!(ig.register_session(replacement), sid);
+
+        let session = ig.registry.get(&sid).unwrap();
+        assert_eq!(session.iface, "first");
     }
 }

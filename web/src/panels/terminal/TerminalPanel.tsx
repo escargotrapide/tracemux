@@ -92,6 +92,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
   let unobserve: (() => void) | null = null;
   let resizeObs: ResizeObserver | null = null;
   let renderedRecords = 0;
+  let lastSendErrorToastMs = 0;
 
   const [sid, setSid] = createSignal(props.sid);
   const [ch, setCh] = createSignal(props.ch);
@@ -268,16 +269,22 @@ export function TerminalPanel(props: TerminalPanelProps) {
     const text = txText();
     if (!hasActiveSource() || text.length === 0) return;
     const bytes = encoder.encode(text);
-    try {
-      sendWrite(sid(), ch(), bytes);
+    if (sendWrite(sid(), ch(), bytes)) {
       setTxText("");
       pushToast({
         level: "info",
         message: `${t("terminal.sent")} (${bytes.byteLength} bytes)`,
       });
-    } catch {
-      pushToast({ level: "error", message: t("terminal.send_error") });
+    } else {
+      showSendErrorToast();
     }
+  }
+
+  function showSendErrorToast(): void {
+    const now = Date.now();
+    if (now - lastSendErrorToastMs < 1_500) return;
+    lastSendErrorToastMs = now;
+    pushToast({ level: "error", message: t("terminal.send_error") });
   }
 
   function safeFit(): void {
@@ -313,11 +320,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
     term.onData((data) => {
       if (!hasActiveSource()) return;
       const bytes = encoder.encode(data);
-      try {
-        sendWrite(sid(), ch(), bytes);
-      } catch {
-        // ignore; surfaced via ctl error toast
-      }
+      if (!sendWrite(sid(), ch(), bytes)) showSendErrorToast();
     });
 
     resizeObs = new ResizeObserver(() => requestAnimationFrame(safeFit));

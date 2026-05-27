@@ -1,4 +1,5 @@
 import { createStore } from "solid-js/store";
+import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
 export const CLASSIFICATION_RULES_STORAGE_KEY = "wanlogger.classificationRules.v1";
 export const MAX_CLASSIFICATION_RULES = 200;
@@ -23,13 +24,6 @@ export interface WireClassificationRule {
   regex?: string;
   tag: string;
   case_sensitive?: boolean;
-}
-
-type StorageLike = Pick<Storage, "getItem" | "setItem">;
-
-function defaultStorage(): StorageLike | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.localStorage;
 }
 
 function slugPart(value: string): string {
@@ -101,8 +95,8 @@ export function normalizeClassificationRules(value: unknown): ClassificationRule
   return out;
 }
 
-export function loadClassificationRules(storage = defaultStorage()): ClassificationRules {
-  const raw = storage?.getItem(CLASSIFICATION_RULES_STORAGE_KEY) ?? null;
+export function loadClassificationRules(storage = browserStorage()): ClassificationRules {
+  const raw = safeGetItem(CLASSIFICATION_RULES_STORAGE_KEY, storage);
   if (!raw) return {};
   try {
     return normalizeClassificationRules(JSON.parse(raw) as unknown);
@@ -113,10 +107,10 @@ export function loadClassificationRules(storage = defaultStorage()): Classificat
 
 export function saveClassificationRules(
   rules: ClassificationRules,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): ClassificationRules {
   const normalized = normalizeClassificationRules(rules);
-  storage?.setItem(CLASSIFICATION_RULES_STORAGE_KEY, JSON.stringify(normalized));
+  safeSetItem(CLASSIFICATION_RULES_STORAGE_KEY, JSON.stringify(normalized), storage);
   return normalized;
 }
 
@@ -128,7 +122,7 @@ export const classificationRules = classificationRulesStore;
 
 export function upsertClassificationRule(
   patch: Partial<ClassificationRule>,
-  storage = defaultStorage(),
+  storage = browserStorage(),
   now = Date.now(),
 ): ClassificationRule {
   const id = normalizeText(patch.id) || fallbackRuleId(patch.contains ?? "", patch.tag ?? "");
@@ -143,7 +137,7 @@ export function upsertClassificationRule(
 
 export function deleteClassificationRule(
   id: string,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): void {
   setClassificationRulesStore(id, undefined as unknown as ClassificationRule);
   const next = { ...classificationRulesStore };

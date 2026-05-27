@@ -1,5 +1,47 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveWanloggerHttpUrl, resolveWanloggerUrl } from "../../src/adapters/wss";
+import { WireClient, resolveWanloggerHttpUrl, resolveWanloggerUrl } from "../../src/adapters/wss";
+
+class FakeWebSocket extends EventTarget {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+  static instances: FakeWebSocket[] = [];
+
+  binaryType: BinaryType = "blob";
+  readyState = FakeWebSocket.CONNECTING;
+  sent: ArrayBuffer[] = [];
+
+  constructor(
+    readonly url: string,
+    readonly protocols?: string | string[],
+  ) {
+    super();
+    FakeWebSocket.instances.push(this);
+  }
+
+  send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+    if (this.readyState !== FakeWebSocket.OPEN) {
+      throw new Error("socket is not open");
+    }
+    this.sent.push(data as ArrayBuffer);
+  }
+
+  close(): void {
+    this.readyState = FakeWebSocket.CLOSED;
+  }
+
+  open(): void {
+    this.readyState = FakeWebSocket.OPEN;
+    this.dispatchEvent(new Event("open"));
+  }
+
+  receive(data: ArrayBuffer): void {
+    const event = new Event("message") as MessageEvent;
+    Object.defineProperty(event, "data", { value: data });
+    this.dispatchEvent(event);
+  }
+}
 
 function stubLocation(location: Partial<Location>): void {
   vi.stubGlobal("window", {
@@ -17,6 +59,7 @@ describe("resolveWanloggerUrl", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    FakeWebSocket.instances = [];
   });
 
   it("honors VITE_WANLOGGER_URL", () => {
@@ -58,5 +101,35 @@ describe("resolveWanloggerUrl", () => {
       port: "",
     });
     expect(resolveWanloggerUrl()).toBe("ws://127.0.0.1:9000/ws");
+  });
+
+  it("reports whether send actually reached an open socket", () => {
+    // REQ: FR-UI-009
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const client = new WireClient({ url: "ws://example.test/ws" });
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0];
+    expect(ws).toBeDefined();
+    expect(client.send({ type: "ping", payload: {} })).toBe(false);
+
+    ws?.open();
+    expect(client.send({ type: "ping", payload: {} })).toBe(true);
+    expect(ws?.sent.length).toBe(2);
+  });
+
+  it("emits protocol errors for malformed MessagePack frames", () => {
+    // REQ: FR-UI-009
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const client = new WireClient({ url: "ws://example.test/ws" });
+    const errors: string[] = [];
+    client.onError((err) => errors.push(err.errorId));
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws?.open();
+    ws?.receive(new Uint8Array([0x81]).buffer);
+
+    expect(errors).toContain("E-UI-0010");
   });
 });

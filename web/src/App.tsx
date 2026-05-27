@@ -1,6 +1,6 @@
 // Top-level app shell. Hosts a Dockview grid with the built-in panels.
 
-import { createEffect, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import {
   createDockview,
@@ -166,6 +166,14 @@ export function App() {
     return "";
   };
 
+  const connectionNotice = () => {
+    const s = connState();
+    if (s.status === "connecting") return t("status.connecting_detail");
+    if (s.status === "closed") return t("status.closed_detail");
+    if (s.status === "error") return s.message || t("status.error_detail");
+    return "";
+  };
+
   return (
     <div class="wl-app">
       <header class="wl-topbar">
@@ -190,6 +198,13 @@ export function App() {
           </button>
         </span>
       </header>
+      <Show when={connectionNotice()}>
+        {(message) => (
+          <div class={`wl-connection-banner ${statusClass()}`} role="status" aria-live="polite">
+            {message()}
+          </div>
+        )}
+      </Show>
       <main class="wl-dock" ref={dockHost!} />
       <footer class="wl-statusbar">
         <span class={`wl-status-dot ${statusClass()}`} />

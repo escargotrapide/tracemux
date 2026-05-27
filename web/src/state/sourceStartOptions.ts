@@ -1,5 +1,6 @@
 import { createStore } from "solid-js/store";
 import { wireClassificationRules } from "~/state/classificationRules";
+import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
 export const SOURCE_START_OPTIONS_STORAGE_KEY = "wanlogger.sourceStartOptions.v1";
 export const DEFAULT_SOURCE_ENCODING = "utf-8";
@@ -31,13 +32,6 @@ export interface StartCtlOptions {
   detection_mode?: DetectionMode;
   session_name_pattern?: string;
   classifier?: ReturnType<typeof wireClassificationRules>;
-}
-
-type StorageLike = Pick<Storage, "getItem" | "setItem">;
-
-function defaultStorage(): StorageLike | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.localStorage;
 }
 
 export const DEFAULT_SOURCE_START_OPTIONS: SourceStartOptions = {
@@ -72,8 +66,8 @@ export function normalizeSourceStartOptions(value: unknown): SourceStartOptions 
   };
 }
 
-export function loadSourceStartOptions(storage = defaultStorage()): SourceStartOptions {
-  const raw = storage?.getItem(SOURCE_START_OPTIONS_STORAGE_KEY) ?? null;
+export function loadSourceStartOptions(storage = browserStorage()): SourceStartOptions {
+  const raw = safeGetItem(SOURCE_START_OPTIONS_STORAGE_KEY, storage);
   if (!raw) return { ...DEFAULT_SOURCE_START_OPTIONS };
   try {
     return normalizeSourceStartOptions(JSON.parse(raw) as unknown);
@@ -84,10 +78,10 @@ export function loadSourceStartOptions(storage = defaultStorage()): SourceStartO
 
 export function saveSourceStartOptions(
   options: SourceStartOptions,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): SourceStartOptions {
   const normalized = normalizeSourceStartOptions(options);
-  storage?.setItem(SOURCE_START_OPTIONS_STORAGE_KEY, JSON.stringify(normalized));
+  safeSetItem(SOURCE_START_OPTIONS_STORAGE_KEY, JSON.stringify(normalized), storage);
   return normalized;
 }
 
@@ -99,7 +93,7 @@ export const sourceStartOptions = sourceStartOptionsStore;
 
 export function updateSourceStartOptions(
   patch: Partial<SourceStartOptions>,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): SourceStartOptions {
   const next = normalizeSourceStartOptions({ ...sourceStartOptionsStore, ...patch });
   setSourceStartOptionsStore(next);

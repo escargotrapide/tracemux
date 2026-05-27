@@ -3,7 +3,7 @@ import "@xterm/xterm/css/xterm.css";
 import "dockview-core/dist/styles/dockview.css";
 import "./styles.css";
 import { App } from "./App";
-import { __ingestFrameForTest, __setClientForTest } from "./state";
+import { __ingestFrameForTest, __setClientForTest, __setConnStateForTest } from "./state";
 
 const root = document.getElementById("root");
 if (!root) {
@@ -16,6 +16,8 @@ if (import.meta.env.DEV) {
     __ingestFrameForTest;
   (window as unknown as Record<string, unknown>).__wanloggerSetClient =
     __setClientForTest;
+  (window as unknown as Record<string, unknown>).__wanloggerSetConnState =
+    __setConnStateForTest;
 }
 
 render(() => <App />, root);

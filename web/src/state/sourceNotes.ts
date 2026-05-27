@@ -1,4 +1,5 @@
 import { createStore } from "solid-js/store";
+import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
 export const SOURCE_NOTES_STORAGE_KEY = "wanlogger.sourceNotes.v1";
 export const MAX_SOURCE_NOTE_LENGTH = 20_000;
@@ -10,13 +11,6 @@ export interface SourceNote {
 }
 
 export type SourceNotes = Record<string, SourceNote>;
-
-type StorageLike = Pick<Storage, "getItem" | "setItem">;
-
-function defaultStorage(): StorageLike | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.localStorage;
-}
 
 function normalizeNote(value: unknown, fallbackSid: string): SourceNote | null {
   if (!value || typeof value !== "object") return null;
@@ -40,8 +34,8 @@ export function normalizeSourceNotes(value: unknown): SourceNotes {
   return out;
 }
 
-export function loadSourceNotes(storage = defaultStorage()): SourceNotes {
-  const raw = storage?.getItem(SOURCE_NOTES_STORAGE_KEY) ?? null;
+export function loadSourceNotes(storage = browserStorage()): SourceNotes {
+  const raw = safeGetItem(SOURCE_NOTES_STORAGE_KEY, storage);
   if (!raw) return {};
   try {
     return normalizeSourceNotes(JSON.parse(raw) as unknown);
@@ -50,9 +44,9 @@ export function loadSourceNotes(storage = defaultStorage()): SourceNotes {
   }
 }
 
-export function saveSourceNotes(notes: SourceNotes, storage = defaultStorage()): SourceNotes {
+export function saveSourceNotes(notes: SourceNotes, storage = browserStorage()): SourceNotes {
   const normalized = normalizeSourceNotes(notes);
-  storage?.setItem(SOURCE_NOTES_STORAGE_KEY, JSON.stringify(normalized));
+  safeSetItem(SOURCE_NOTES_STORAGE_KEY, JSON.stringify(normalized), storage);
   return normalized;
 }
 
@@ -63,7 +57,7 @@ export const sourceNotes = sourceNotesStore;
 export function updateSourceNote(
   sid: string,
   text: string,
-  storage = defaultStorage(),
+  storage = browserStorage(),
   now = Date.now(),
 ): SourceNote {
   const note = normalizeNote({ sid, text, updatedAt: now }, sid) ?? {
@@ -76,7 +70,7 @@ export function updateSourceNote(
   return note;
 }
 
-export function deleteSourceNote(sid: string, storage = defaultStorage()): void {
+export function deleteSourceNote(sid: string, storage = browserStorage()): void {
   setSourceNotesStore(sid, undefined as unknown as SourceNote);
   const next = { ...sourceNotesStore };
   delete next[sid];

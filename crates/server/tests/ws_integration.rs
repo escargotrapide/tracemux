@@ -724,6 +724,7 @@ async fn ctl_start_file_source_persists_session_dir() {
 // REQ: FR-CLI-005
 // REQ: FR-CLI-006
 // REQ: FR-CLI-007
+#[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn ctl_start_file_source_accepts_start_options() {
     let root = std::env::temp_dir().join(format!(

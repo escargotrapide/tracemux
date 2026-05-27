@@ -1,5 +1,6 @@
 import { createStore } from "solid-js/store";
 import { DEFAULT_SOURCE_ENCODING, normalizeEncoding } from "~/state/sourceStartOptions";
+import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
 export const SOURCE_ENCODINGS_STORAGE_KEY = "wanlogger.sourceEncodings.v1";
 
@@ -11,13 +12,6 @@ export interface SourceEncoding {
 }
 
 export type SourceEncodings = Record<string, SourceEncoding>;
-
-type StorageLike = Pick<Storage, "getItem" | "setItem">;
-
-function defaultStorage(): StorageLike | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.localStorage;
-}
 
 function validChannel(value: unknown): number | undefined {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -71,8 +65,8 @@ export function normalizeSourceEncodings(value: unknown): SourceEncodings {
   return out;
 }
 
-export function loadSourceEncodings(storage = defaultStorage()): SourceEncodings {
-  const raw = storage?.getItem(SOURCE_ENCODINGS_STORAGE_KEY) ?? null;
+export function loadSourceEncodings(storage = browserStorage()): SourceEncodings {
+  const raw = safeGetItem(SOURCE_ENCODINGS_STORAGE_KEY, storage);
   if (!raw) return {};
   try {
     return normalizeSourceEncodings(JSON.parse(raw) as unknown);
@@ -83,10 +77,10 @@ export function loadSourceEncodings(storage = defaultStorage()): SourceEncodings
 
 export function saveSourceEncodings(
   encodings: SourceEncodings,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): SourceEncodings {
   const normalized = normalizeSourceEncodings(encodings);
-  storage?.setItem(SOURCE_ENCODINGS_STORAGE_KEY, JSON.stringify(normalized));
+  safeSetItem(SOURCE_ENCODINGS_STORAGE_KEY, JSON.stringify(normalized), storage);
   return normalized;
 }
 
@@ -112,7 +106,7 @@ export function encodingForChannel(
 export function updateSourceEncoding(
   sid: string,
   encoding: string,
-  storage = defaultStorage(),
+  storage = browserStorage(),
   now = Date.now(),
 ): SourceEncoding | null {
   const record = normalizeRecord({ sid, encoding, updatedAt: now }, sid);
@@ -130,7 +124,7 @@ export function updateChannelEncoding(
   sid: string,
   ch: number,
   encoding: string,
-  storage = defaultStorage(),
+  storage = browserStorage(),
   now = Date.now(),
 ): SourceEncoding | null {
   const key = channelEncodingKey(sid, ch);
@@ -144,7 +138,7 @@ export function updateChannelEncoding(
   return record;
 }
 
-export function deleteSourceEncoding(sid: string, storage = defaultStorage()): void {
+export function deleteSourceEncoding(sid: string, storage = browserStorage()): void {
   const key = sourceEncodingKey(sid);
   setSourceEncodingsStore(key, undefined as unknown as SourceEncoding);
   const next = { ...sourceEncodingsStore };
@@ -155,7 +149,7 @@ export function deleteSourceEncoding(sid: string, storage = defaultStorage()): v
 export function deleteChannelEncoding(
   sid: string,
   ch: number,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): void {
   const key = channelEncodingKey(sid, ch);
   setSourceEncodingsStore(key, undefined as unknown as SourceEncoding);

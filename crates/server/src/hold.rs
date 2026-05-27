@@ -2,7 +2,7 @@
 //!
 //! When a WSS client cannot keep up, the server queues outbound items
 //! in a bounded ring. Once full, the oldest item is dropped and the
-//! `dropped` counter is bumped ? callers can surface this as
+//! `dropped` counter is bumped; callers can surface this as
 //! `E-1002 Backpressure` to the client.
 
 use std::collections::VecDeque;

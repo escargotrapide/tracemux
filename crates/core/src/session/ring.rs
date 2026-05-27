@@ -48,7 +48,7 @@ impl Ring {
             self.used += b.len();
             self.items.push_back(b);
         } else {
-            // single entry larger than capacity ? drop it.
+            // Single entry larger than capacity; drop it.
             self.dropped += 1;
             evicted += 1;
         }

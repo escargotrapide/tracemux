@@ -158,6 +158,12 @@ const unpackr = new Unpackr({ useRecords: false, mapsAsObjects: true });
 
 export type FrameListener = (frame: Frame) => void;
 export type StateListener = (state: ConnState) => void;
+export interface WireClientError {
+  errorId: "E-UI-0010" | "E-UI-0011";
+  message: string;
+  cause?: unknown;
+}
+export type ErrorListener = (error: WireClientError) => void;
 
 export class WireClient {
   private ws: WebSocket | null = null;
@@ -165,6 +171,7 @@ export class WireClient {
   private state: ConnState = { status: "idle" };
   private frameListeners = new Set<FrameListener>();
   private stateListeners = new Set<StateListener>();
+  private errorListeners = new Set<ErrorListener>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
   private closedByUser = false;
@@ -184,6 +191,11 @@ export class WireClient {
     this.stateListeners.add(fn);
     fn(this.state);
     return () => this.stateListeners.delete(fn);
+  }
+
+  onError(fn: ErrorListener): () => void {
+    this.errorListeners.add(fn);
+    return () => this.errorListeners.delete(fn);
   }
 
   connect(): void {
@@ -234,8 +246,12 @@ export class WireClient {
           fn(frame);
         }
       } catch (err) {
-        // swallow malformed frames; server is the source of truth
         console.warn("E-UI-0010 unpack failed", err);
+        this.emitError({
+          errorId: "E-UI-0010",
+          message: "Malformed WSS frame ignored",
+          cause: err,
+        });
       }
     });
 
@@ -269,21 +285,35 @@ export class WireClient {
     this.ws = null;
   }
 
-  send<P>(frame: Omit<Frame<P>, "seq"> & { seq?: number }): void {
+  send<P>(frame: Omit<Frame<P>, "seq"> & { seq?: number }): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
+      return false;
     }
     const seq = frame.seq ?? Number(this.seqOut++ & 0xffff_ffff_ffff_ffffn);
     const out: Frame<P> = { ...frame, seq } as Frame<P>;
     const packed = packr.pack(out) as Uint8Array;
     const buf = new ArrayBuffer(packed.byteLength);
     new Uint8Array(buf).set(packed);
-    this.ws.send(buf);
+    try {
+      this.ws.send(buf);
+      return true;
+    } catch (err) {
+      this.emitError({
+        errorId: "E-UI-0011",
+        message: "WebSocket send failed",
+        cause: err,
+      });
+      return false;
+    }
   }
 
   private setState(s: ConnState): void {
     this.state = s;
     for (const fn of this.stateListeners) fn(s);
+  }
+
+  private emitError(error: WireClientError): void {
+    for (const fn of this.errorListeners) fn(error);
   }
 
   private scheduleReconnect(): void {

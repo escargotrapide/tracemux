@@ -65,8 +65,11 @@ import { t } from "~/i18n";
 
 function onAction(sid: string, action: "stop" | "restart" | "remove"): void {
   try {
-    sendCtl(sid, action);
-    pushToast({ level: "info", message: `${action}: ${sid.slice(0, 8)}` });
+    const sent = sendCtl(sid, action);
+    pushToast({
+      level: sent ? "info" : "error",
+      message: sent ? `${action}: ${sid.slice(0, 8)}` : t("sources.action.send_failed"),
+    });
   } catch (err) {
     pushToast({
       level: "error",
@@ -79,11 +82,16 @@ function onRestartWithServerEncoding(sid: string): void {
   const encoding = sourceEncodings[sourceEncodingKey(sid)]?.encoding
     ?? sourceTextEncodingFallback(sid);
   try {
-    sendCtl(sid, "restart", undefined, {
+    const sent = sendCtl(sid, "restart", undefined, {
       ...(startCtlOptions() as Record<string, unknown>),
       encoding,
     });
-    pushToast({ level: "info", message: t("sources.detail.server_encoding_requested") });
+    pushToast({
+      level: sent ? "info" : "error",
+      message: sent
+        ? t("sources.detail.server_encoding_requested")
+        : t("sources.action.send_failed"),
+    });
   } catch (err) {
     pushToast({
       level: "error",
@@ -95,12 +103,17 @@ function onRestartWithServerEncoding(sid: string): void {
 function onRestartWithSuggestedEncoding(sid: string, encoding: string): void {
   try {
     updateSourceEncoding(sid, encoding);
-    sendCtl(sid, "restart", undefined, {
+    const sent = sendCtl(sid, "restart", undefined, {
       ...(startCtlOptions() as Record<string, unknown>),
       detection_mode: "configured",
       encoding,
     });
-    pushToast({ level: "info", message: t("sources.detail.detected_encoding_requested") });
+    pushToast({
+      level: sent ? "info" : "error",
+      message: sent
+        ? t("sources.detail.detected_encoding_requested")
+        : t("sources.action.send_failed"),
+    });
   } catch (err) {
     pushToast({
       level: "error",
@@ -203,8 +216,11 @@ export function SourcesPanel() {
     ev.preventDefault();
     try {
       const spec = parseSourceSpec(specInput());
-      sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>);
-      pushToast({ level: "info", message: t("sources.start.requested") });
+      const sent = sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>);
+      pushToast({
+        level: sent ? "info" : "error",
+        message: sent ? t("sources.start.requested") : t("sources.action.send_failed"),
+      });
     } catch (err) {
       pushToast({
         level: "error",
@@ -297,8 +313,11 @@ export function SourcesPanel() {
     for (const port of ports) {
       try {
         const spec = parseSourceSpec(serialSpecForPort(port, { baud: serialBaud() }));
-        sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>);
-        requested += 1;
+        if (sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>)) {
+          requested += 1;
+        } else {
+          pushToast({ level: "error", message: `${port}: ${t("sources.action.send_failed")}` });
+        }
       } catch (err) {
         pushToast({
           level: "error",

@@ -186,6 +186,16 @@ describe("state frame handler", () => {
     });
   });
 
+  it("returns false from send helpers when the client cannot send", () => {
+    // REQ: FR-UI-009
+    const send = vi.fn(() => false);
+    __setClientForTest({ send });
+
+    expect(sendWrite("sid-tx-fail", 2, new Uint8Array([0x41]))).toBe(false);
+    expect(sendCtl("sid-stop-fail", "stop")).toBe(false);
+    expect(requestSourceList()).toBe(false);
+  });
+
   it("sends source lifecycle ctl frames", () => {
     // REQ: FR-UI-008
     const send = vi.fn();

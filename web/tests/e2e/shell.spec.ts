@@ -27,21 +27,40 @@ async function injectFrame(page: Page, frame: unknown): Promise<void> {
   }, frame);
 }
 
-async function installClientSpy(page: Page): Promise<void> {
+async function installClientSpy(page: Page, sendResult = true): Promise<void> {
   await page.waitForFunction(
     () =>
       typeof (window as unknown as { __wanloggerSetClient?: unknown })
         .__wanloggerSetClient === "function",
   );
-  await page.evaluate(() => {
+  await page.evaluate((result) => {
     const sent: unknown[] = [];
     const win = window as unknown as {
-      __wanloggerSetClient: (client: { send: (frame: unknown) => void }) => void;
+      __wanloggerSetClient: (client: { send: (frame: unknown) => boolean }) => void;
       __wanloggerSentFrames: unknown[];
     };
     win.__wanloggerSentFrames = sent;
-    win.__wanloggerSetClient({ send: (frame: unknown) => sent.push(frame) });
-  });
+    win.__wanloggerSetClient({
+      send: (frame: unknown) => {
+        sent.push(frame);
+        return result;
+      },
+    });
+  }, sendResult);
+}
+
+async function setConnState(page: Page, state: unknown): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { __wanloggerSetConnState?: unknown })
+        .__wanloggerSetConnState === "function",
+  );
+  await page.evaluate((next) => {
+    const fn = (
+      window as unknown as { __wanloggerSetConnState: (s: unknown) => void }
+    ).__wanloggerSetConnState;
+    fn(next);
+  }, state);
 }
 
 async function sentFrames(page: Page): Promise<unknown[]> {
@@ -135,8 +154,8 @@ test("source alias updates terminal and tile labels", async ({ page }) => {
   });
 
   await expect(page.getByText(/COM7 \/ ch 0/).first()).toBeVisible();
-  await page.getByRole("button", { name: /Details|�ڍ�/ }).first().click();
-  await page.getByLabel(/Display alias|�\�����G�C���A�X/).fill("Motor UART");
+  await page.getByRole("button", { name: /Details|詳細/ }).first().click();
+  await page.getByLabel(/Display alias|表示名エイリアス/).fill("Motor UART");
 
   await expect(page.getByText(/Motor UART \/ ch 0/).first()).toBeVisible();
   await expect(page.locator(".wl-tile-header").filter({ hasText: "Motor UART" })).toBeVisible();
@@ -463,6 +482,19 @@ test("settings rules and source start defaults are sent with ctl start", async (
   expect(start?.payload?.encoding).toBe("shift_jis");
   expect(start?.payload?.session_name_pattern).toBe("{prefix}_{kind}_{iface}_{unix_ns}");
   expect(start?.payload?.classifier).toContainEqual({ contains: "ERROR", tag: "fault" });
+});
+
+test("connection banner and unsent source command are visible", async ({ page }) => {
+  // REQ: FR-UI-009
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page, false);
+  await setConnState(page, { status: "closed", code: 1006, reason: "lost" });
+
+  await expect(page.getByText(/Disconnected from the wanlogger server/)).toBeVisible();
+  await page.getByLabel("Source spec").fill("mock://disconnected-e2e");
+  await page.getByRole("button", { name: "Add source" }).click();
+  await expect(page.getByText(/Request was not sent/)).toBeVisible();
 });
 
 test("source details expose persistence, per-source display settings, and notes", async ({ page }) => {

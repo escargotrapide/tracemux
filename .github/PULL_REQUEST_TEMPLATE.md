@@ -3,12 +3,12 @@ Thank you for your contribution. Fill in every section. AI-authored PRs
 must pass `just ai-verify` before requesting human review.
 -->
 
-## ������� (Acceptance criteria)
+## 受入条件 (Acceptance criteria)
 
 <!-- Bulleted, testable. Reference requirement ids (FR-/NFR-). -->
-- [ ] FR-�c
+- [ ] FR-...
 
-## �e���͈� (Scope of change)
+## 影響範囲 (Scope of change)
 
 <!-- Layers / files / users affected. -->
 - [ ] Server / WSS / ingest
@@ -20,12 +20,12 @@ must pass `just ai-verify` before requesting human review.
 
 ## Critical path review
 
-<!-- Check AGENTS.md ��5 before requesting review. AI agents must not self-merge critical-path PRs. -->
+<!-- Check AGENTS.md section 5 before requesting review. AI agents must not self-merge critical-path PRs. -->
 - [ ] I checked `AGENTS.md` critical paths.
 - [ ] This PR touches a critical path and needs `human-review-required`.
 - [ ] This PR does not touch a critical path.
 
-## wire / log / cli �݊����e�� (Compatibility)
+## wire / log / cli 互換性影響 (Compatibility)
 
 - [ ] No change to `docs/protocols/wire-protocol.md`
 - [ ] No change to `docs/protocols/log-format.md`
@@ -34,10 +34,10 @@ must pass `just ai-verify` before requesting human review.
 - [ ] If any frozen surface changed, an ADR is included and the
   matching version was bumped, plus compat fixtures were updated.
 
-## RTM �X�V (Requirements Traceability Matrix)
+## RTM 更新 (Requirements Traceability Matrix)
 
 - [ ] `docs/requirements.md` updated (new / amended FR / NFR)
-- [ ] Tests reference the requirement id (`// REQ: FR-�c`)
+- [ ] Tests reference the requirement id (`// REQ: FR-...`)
 - [ ] `just rtm` regenerated `docs/rtm.md`
 
 ## Verification

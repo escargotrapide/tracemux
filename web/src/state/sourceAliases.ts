@@ -1,4 +1,5 @@
 import { createStore } from "solid-js/store";
+import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
 export const SOURCE_ALIASES_STORAGE_KEY = "wanlogger.sourceAliases.v1";
 export const MAX_SOURCE_ALIAS_LENGTH = 80;
@@ -10,13 +11,6 @@ export interface SourceAlias {
 }
 
 export type SourceAliases = Record<string, SourceAlias>;
-
-type StorageLike = Pick<Storage, "getItem" | "setItem">;
-
-function defaultStorage(): StorageLike | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.localStorage;
-}
 
 function normalizeAlias(value: unknown, fallbackSid: string): SourceAlias | null {
   if (!value || typeof value !== "object") return null;
@@ -42,8 +36,8 @@ export function normalizeSourceAliases(value: unknown): SourceAliases {
   return out;
 }
 
-export function loadSourceAliases(storage = defaultStorage()): SourceAliases {
-  const raw = storage?.getItem(SOURCE_ALIASES_STORAGE_KEY) ?? null;
+export function loadSourceAliases(storage = browserStorage()): SourceAliases {
+  const raw = safeGetItem(SOURCE_ALIASES_STORAGE_KEY, storage);
   if (!raw) return {};
   try {
     return normalizeSourceAliases(JSON.parse(raw) as unknown);
@@ -54,10 +48,10 @@ export function loadSourceAliases(storage = defaultStorage()): SourceAliases {
 
 export function saveSourceAliases(
   aliases: SourceAliases,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): SourceAliases {
   const normalized = normalizeSourceAliases(aliases);
-  storage?.setItem(SOURCE_ALIASES_STORAGE_KEY, JSON.stringify(normalized));
+  safeSetItem(SOURCE_ALIASES_STORAGE_KEY, JSON.stringify(normalized), storage);
   return normalized;
 }
 
@@ -70,7 +64,7 @@ export const sourceAliases = sourceAliasesStore;
 export function updateSourceAlias(
   sid: string,
   label: string,
-  storage = defaultStorage(),
+  storage = browserStorage(),
   now = Date.now(),
 ): SourceAlias | null {
   const alias = normalizeAlias({ sid, label, updatedAt: now }, sid);
@@ -83,7 +77,7 @@ export function updateSourceAlias(
   return alias;
 }
 
-export function deleteSourceAlias(sid: string, storage = defaultStorage()): void {
+export function deleteSourceAlias(sid: string, storage = browserStorage()): void {
   setSourceAliasesStore(sid, undefined as unknown as SourceAlias);
   const next = { ...sourceAliasesStore };
   delete next[sid];

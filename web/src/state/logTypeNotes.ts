@@ -1,4 +1,5 @@
 import { createStore } from "solid-js/store";
+import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
 export const LOG_TYPE_NOTES_STORAGE_KEY = "wanlogger.logTypeNotes.v1";
 export const MAX_LOG_TYPE_NOTE_LENGTH = 20_000;
@@ -11,13 +12,6 @@ export interface LogTypeNote {
 }
 
 export type LogTypeNotes = Record<string, LogTypeNote>;
-
-type StorageLike = Pick<Storage, "getItem" | "setItem">;
-
-function defaultStorage(): StorageLike | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.localStorage;
-}
 
 export function normalizeLogTypeKey(key: string): string {
   return key.trim().slice(0, MAX_LOG_TYPE_KEY_LENGTH);
@@ -47,8 +41,8 @@ export function normalizeLogTypeNotes(value: unknown): LogTypeNotes {
   return out;
 }
 
-export function loadLogTypeNotes(storage = defaultStorage()): LogTypeNotes {
-  const raw = storage?.getItem(LOG_TYPE_NOTES_STORAGE_KEY) ?? null;
+export function loadLogTypeNotes(storage = browserStorage()): LogTypeNotes {
+  const raw = safeGetItem(LOG_TYPE_NOTES_STORAGE_KEY, storage);
   if (!raw) return {};
   try {
     return normalizeLogTypeNotes(JSON.parse(raw) as unknown);
@@ -59,10 +53,10 @@ export function loadLogTypeNotes(storage = defaultStorage()): LogTypeNotes {
 
 export function saveLogTypeNotes(
   notes: LogTypeNotes,
-  storage = defaultStorage(),
+  storage = browserStorage(),
 ): LogTypeNotes {
   const normalized = normalizeLogTypeNotes(notes);
-  storage?.setItem(LOG_TYPE_NOTES_STORAGE_KEY, JSON.stringify(normalized));
+  safeSetItem(LOG_TYPE_NOTES_STORAGE_KEY, JSON.stringify(normalized), storage);
   return normalized;
 }
 
@@ -75,7 +69,7 @@ export const logTypeNotes = logTypeNotesStore;
 export function updateLogTypeNote(
   key: string,
   text: string,
-  storage = defaultStorage(),
+  storage = browserStorage(),
   now = Date.now(),
 ): LogTypeNote {
   const normalizedKey = normalizeLogTypeKey(key);
@@ -89,7 +83,7 @@ export function updateLogTypeNote(
   return note;
 }
 
-export function deleteLogTypeNote(key: string, storage = defaultStorage()): void {
+export function deleteLogTypeNote(key: string, storage = browserStorage()): void {
   const normalizedKey = normalizeLogTypeKey(key);
   if (!normalizedKey) return;
   setLogTypeNotesStore(normalizedKey, undefined as unknown as LogTypeNote);

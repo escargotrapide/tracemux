@@ -39,11 +39,26 @@ The automated E2E test in `tools/virt-peer/tests/tcp_wss_e2e.rs` starts the
 peer in TCP listen mode, starts the server WSS router in-process, issues a WSS
 `ctl start` with a `tcp` source spec, subscribes to the returned session, and
 asserts that the scripted peer bytes reach both WSS subscribers and the
-server-created session-dir.
+server-created session-dir. It also exercises the HTTP session export route for
+the same persisted source, so the smoke covers live delivery and read-back.
 
 This path is the preferred smoke test before moving to virtual COM hardware
 because it exercises the same server source runner and persistence path while
 remaining driver-free.
+
+## Browser plus driverless smoke
+
+For local UI work on Windows, run the browser and virtual-peer checks without
+installing COM or packet-capture drivers:
+
+- `corepack pnpm --dir web e2e` starts Vite through Playwright and verifies the
+  injected browser shell, connection-loss UI, export controls, and source note
+  flows.
+- `cargo test -p wanlogger-virt-peer --test tcp_wss_e2e` verifies the TCP peer,
+  WSS source control, session-dir persistence, and HTTP export route.
+
+These checks are the default driverless runtime gate. COM-pair and Npcap-backed
+packet-capture validation remain manual or environment-gated follow-ups.
 
 ## AI verification workflow
 

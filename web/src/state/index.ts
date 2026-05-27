@@ -16,6 +16,7 @@ import {
   type Frame,
   type MetricsPayload,
   type SourceSyncPayload,
+  type WireClientError,
 } from "~/adapters/wss";
 import {
   appendChannelFrame,
@@ -158,6 +159,8 @@ export function dismissToast(id: number): void {
 export const toastsStore = toasts;
 
 let client: WireClient | null = null;
+let suppressedWireErrors = 0;
+let lastWireErrorToastMs = 0;
 
 const channelListeners = new Map<string, Set<(p: DataPayload) => void>>();
 
@@ -236,6 +239,22 @@ function sendSourceListRequest(): void {
   client?.send({ type: "ctl", payload: { action: "list" } });
 }
 
+function handleWireClientError(error: WireClientError): void {
+  const now = Date.now();
+  if (now - lastWireErrorToastMs < 2_000) {
+    suppressedWireErrors += 1;
+    return;
+  }
+  const suffix = suppressedWireErrors > 0 ? ` (${suppressedWireErrors} suppressed)` : "";
+  suppressedWireErrors = 0;
+  lastWireErrorToastMs = now;
+  pushToast({
+    level: "error",
+    message: `${error.message}${suffix}`,
+    errorId: error.errorId,
+  });
+}
+
 function handleConnState(state: ConnState): void {
   setConn(state);
   if (state.status === "open") {
@@ -253,6 +272,7 @@ export function getClient(): WireClient {
     });
     client.onState(handleConnState);
     client.onFrame(handleFrame);
+    client.onError(handleWireClientError);
     client.connect();
   }
   return client;
@@ -422,7 +442,7 @@ export function sendCtl(
   action: "list" | "start" | "stop" | "resume" | "restart" | "remove",
   spec?: Record<string, unknown>,
   options?: Record<string, unknown>,
-): void {
+): boolean {
   const payload: {
     action: "list" | "start" | "stop" | "resume" | "restart" | "remove";
     spec?: Record<string, unknown>;
@@ -431,17 +451,17 @@ export function sendCtl(
   };
   if (spec) payload.spec = spec;
   if (options) Object.assign(payload, options);
-  getClient().send({ type: "ctl", ...(sid ? { sid } : {}), payload });
+  return getClient().send({ type: "ctl", ...(sid ? { sid } : {}), payload });
 }
 
 /** Request a source list sync from the server. */
-export function requestSourceList(): void {
-  getClient().send({ type: "ctl", payload: { action: "list" } });
+export function requestSourceList(): boolean {
+  return getClient().send({ type: "ctl", payload: { action: "list" } });
 }
 
 /** Send raw bytes to a (sid, ch). Used by terminal panel for TX. */
-export function sendWrite(sid: string, ch: number, body: Uint8Array): void {
-  getClient().send({ type: "write", sid, ch, payload: { body } });
+export function sendWrite(sid: string, ch: number, body: Uint8Array): boolean {
+  return getClient().send({ type: "write", sid, ch, payload: { body } });
 }
 
 export const connState = conn;
