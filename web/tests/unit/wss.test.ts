@@ -160,4 +160,22 @@ describe("resolveWanloggerUrl", () => {
     expect(errors).toContain("E-UI-0010:Unsupported WSS frame ignored");
     expect(frames).toEqual([]);
   });
+
+  it("rejects known frame types with malformed envelopes", () => {
+    // REQ: FR-UI-009
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const client = new WireClient({ url: "ws://example.test/ws" });
+    const errors: string[] = [];
+    const frames: string[] = [];
+    client.onError((err) => errors.push(`${err.errorId}:${err.message}`));
+    client.onFrame((frame) => frames.push(frame.type));
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws?.open();
+    ws?.receive(packed({ type: "metrics", seq: 1 }));
+
+    expect(errors).toContain("E-UI-0010:Malformed WSS frame ignored");
+    expect(frames).toEqual([]);
+  });
 });

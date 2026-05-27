@@ -174,6 +174,10 @@ function isKnownFrameType(value: unknown): value is FrameType {
   return typeof value === "string" && FRAME_TYPE_SET.has(value);
 }
 
+function isFrameEnvelope(value: unknown): value is Partial<Frame> {
+  return typeof value === "object" && value !== null && "type" in value && "payload" in value;
+}
+
 export class WireClient {
   private ws: WebSocket | null = null;
   private seqOut = 0n;
@@ -250,7 +254,14 @@ export class WireClient {
         return;
       }
       try {
-        const frame = unpackr.unpack(new Uint8Array(data)) as Partial<Frame>;
+        const frame = unpackr.unpack(new Uint8Array(data));
+        if (!isFrameEnvelope(frame)) {
+          this.emitError({
+            errorId: "E-UI-0010",
+            message: "Malformed WSS frame ignored",
+          });
+          return;
+        }
         if (!isKnownFrameType(frame.type)) {
           this.emitError({
             errorId: "E-UI-0010",
