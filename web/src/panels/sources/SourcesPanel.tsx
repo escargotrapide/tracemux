@@ -16,6 +16,7 @@ import {
 import {
   openNewTerminalChannel,
   openTerminalChannel,
+  connState,
   sourcesStore,
   sendCtl,
   pushToast,
@@ -201,6 +202,7 @@ export function SourcesPanel() {
   createEffect(() => {
     const sid = selectedSid();
     if (!sid || loadedNotesSid() === sid) return;
+    if (connState().status !== "open") return;
     setLoadedNotesSid(sid);
     setSourceNoteStatus(sid, "loading");
     void loadAndApplySourceAnnotations(sid)

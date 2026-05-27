@@ -526,6 +526,7 @@ test("source details expose persistence, per-source display settings, and notes"
   await page.getByRole("button", { name: "Details" }).click();
   await expect(page.getByText("Saved to session-dir")).toBeVisible();
   await expect(page.getByText("C:/logs/COM7-session")).toBeVisible();
+  await expect(page.getByText("Source note sync failed; kept in this browser.")).toHaveCount(0);
 
   await page.getByLabel("Display encoding").fill("cp932");
   await page.getByLabel("Channel encoding ch 1").fill("shift_jis");
@@ -602,6 +603,7 @@ test("source notes load from and sync to the annotation API", async ({ page }) =
       ],
     },
   });
+  await setConnState(page, { status: "open", since: Date.now() });
 
   await page.getByRole("button", { name: "Details" }).click();
   const details = page.locator("aside");
@@ -644,6 +646,7 @@ test("source note annotation sync failure is visible but non-fatal", async ({ pa
       ],
     },
   });
+  await setConnState(page, { status: "open", since: Date.now() });
 
   await page.getByRole("button", { name: "Details" }).click();
   const details = page.locator("aside");
