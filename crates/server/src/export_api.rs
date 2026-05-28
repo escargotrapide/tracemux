@@ -28,6 +28,16 @@ pub struct ExportRouteState {
     source_manager: Arc<SourceManager>,
     auth: Arc<BearerVerifier>,
     no_auth: bool,
+    defaults: ExportDefaults,
+}
+
+/// Defaults used by HTTP export when query parameters are omitted.
+#[derive(Debug, Clone, Default)]
+pub struct ExportDefaults {
+    /// Default timezone for rendered timestamps.
+    pub timezone: Option<String>,
+    /// Default text encoding for text-like exporters.
+    pub encoding: Option<String>,
 }
 
 impl ExportRouteState {
@@ -42,7 +52,15 @@ impl ExportRouteState {
             source_manager,
             auth,
             no_auth,
+            defaults: ExportDefaults::default(),
         }
+    }
+
+    /// Apply export defaults.
+    #[must_use]
+    pub fn with_defaults(mut self, defaults: ExportDefaults) -> Self {
+        self.defaults = defaults;
+        self
     }
 }
 
@@ -128,8 +146,8 @@ async fn export_session(
 
     let tmp = TempExportFile::new(temp_export_path(sid, format));
     let dst = tmp.path().to_path_buf();
-    let timezone = query.tz;
-    let encoding = query.encoding;
+    let timezone = query.tz.or_else(|| state.defaults.timezone.clone());
+    let encoding = query.encoding.or_else(|| state.defaults.encoding.clone());
     let export_result = tokio::task::spawn_blocking(move || match format {
         ExportFormat::Text => text::export_with_timezone_and_encoding(
             &session_dir,
@@ -474,6 +492,48 @@ mod tests {
         .unwrap();
         let body = String::from_utf8(artifact.body).unwrap();
         assert!(body.contains("download"));
+        assert!(body.lines().next().unwrap().contains("+09:00"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn exports_known_session_dir_with_default_timezone() {
+        // REQ: FR-CLI-012
+        let root = std::env::temp_dir().join(format!("wanlogger-export-api-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let input = root.join("in.txt");
+        std::fs::write(&input, b"configured\n").unwrap();
+        let ingest = Arc::new(crate::ingest::Ingest::new());
+        let manager = Arc::new(SourceManager::with_session_root(
+            ingest,
+            root.join("sessions"),
+        ));
+        let sid = manager
+            .start_spec(ChannelSpec::File {
+                path: input.to_string_lossy().to_string(),
+                follow: false,
+            })
+            .await
+            .unwrap();
+        manager.wait(sid).await.unwrap().unwrap();
+        let state = ExportRouteState::new(manager, Arc::new(BearerVerifier::new()), true)
+            .with_defaults(ExportDefaults {
+                timezone: Some("GMT+9".to_string()),
+                encoding: None,
+            });
+        let artifact = export_session(
+            &state,
+            &sid.to_string(),
+            ExportQuery {
+                format: "text".to_string(),
+                tz: None,
+                encoding: None,
+            },
+        )
+        .await
+        .unwrap();
+        let body = String::from_utf8(artifact.body).unwrap();
+        assert!(body.contains("configured"));
         assert!(body.lines().next().unwrap().contains("+09:00"));
         let _ = std::fs::remove_dir_all(root);
     }

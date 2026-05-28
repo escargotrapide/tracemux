@@ -52,6 +52,17 @@ events or a full `sources` snapshot. The browser requests `list` on
 connect/reconnect and after lifecycle acknowledgements so the table
 converges back to server truth.
 
+`wanlogger serve` can also seed source lifecycle state at process start
+from a v1 TOML config file (`--config wanlogger.toml`). The config file
+can set server startup defaults such as bind address, session root,
+encoding, content-detection mode, session naming pattern, auth policy,
+TLS state, retention keep-days, serial startup, export defaults, live
+WSS delivery pacing, token PHC file references, and named startup
+channels. Command-line flags remain the final override for overlapping
+scalar values, while token PHC files from config and CLI are combined.
+Configured channel labels are stored as session labels so source
+snapshots and the UI show the operator-facing name.
+
 Terminal panels subscribe with `sub`/`unsub` to `(sid, ch)` fan-out
 streams registered by ingest. A source row can select and focus the
 global terminal target; the terminal never subscribes to a placeholder

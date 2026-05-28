@@ -74,6 +74,61 @@ launch with `wanlogger serve --open-all-serial`; add repeated
 `--serial-port PORT` flags to restrict the set instead of opening every
 detected port.
 
+Server startup settings can be loaded from a TOML file with
+`wanlogger serve --config wanlogger.toml`. The v1 config covers listener
+settings, auth policy, TLS state, serial startup, export defaults,
+live-delivery pacing, retention, and named startup channels; explicit
+CLI flags such as `--bind`, `--no-auth`, and `--require-auth` override
+overlapping config values.
+
+```toml
+config_version = 1
+
+[server]
+bind = "127.0.0.1:9443"
+session_root = "wanlogger-sessions"
+encoding = "utf-8"
+detect_mode = "configured"
+session_name_pattern = "{prefix}_{kind}_{iface}_{unix_ns}"
+token_phc_files = ["tokens.phc"]
+require_auth = false
+
+[server.serial]
+open_all = false
+ports = ["COM3"]
+baud = 115200
+data_bits = 8
+parity = "none"
+stop_bits = 1
+flow = "none"
+
+[server.tls]
+enabled = false
+dir = "wanlogger-sessions/tls"
+
+[export]
+timezone = "UTC"
+encoding = "utf-8"
+
+[ui]
+live_flush_ms = 0
+
+[retention]
+keep_days = 0
+
+[channels.demo]
+label = "demo source"
+[channels.demo.spec]
+kind = "mock"
+tag = "demo"
+```
+
+Config files do not store plaintext bearer tokens. Use `token_phc_files`
+with hashes produced by `wanlogger token-hash`, or pass token material
+through the existing CLI/environment paths.
+`wanlogger export --config wanlogger.toml` also reads the `[export]`
+timezone and encoding defaults when `--tz` or `--encoding` is omitted.
+
 For mixed encodings or reused source presets, `wanlogger serve` can run
 bounded startup content detection with `--detect-mode auto`, `suggest`,
 `configured`, or `off`. Auto mode may apply a high-confidence detected

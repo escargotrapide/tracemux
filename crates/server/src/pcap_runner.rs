@@ -49,6 +49,7 @@ pub(crate) async fn run_pcap_once_notify<T>(
     registered: Option<oneshot::Sender<Uuid>>,
     sid_override: Option<Uuid>,
     host: Option<String>,
+    label: Option<String>,
 ) -> anyhow::Result<RunnerStats>
 where
     T: TimeSource,
@@ -57,7 +58,7 @@ where
     source.open().await?;
     let meta = source.metadata();
     let mut state = SessionState::new(meta.kind.clone(), meta.iface.clone());
-    state.label.clone_from(&config.display_name);
+    state.label = label.or_else(|| config.display_name.clone());
     if let Some(sid) = sid_override {
         state.sid = sid;
     }
@@ -552,6 +553,7 @@ mod tests {
             None,
             Some(sid),
             Some("host-a".to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -632,6 +634,7 @@ mod tests {
             Some(session.clone()),
             None,
             Some(sid),
+            None,
             None,
         )
         .await

@@ -349,6 +349,23 @@ the startup set. Baud, data bits, parity, stop bits, and flow control are
 configurable, and a failure to open one port must not prevent attempts
 for the remaining ports.
 
+### FR-CLI-012  Configuration file
+`wanlogger serve --config <path>` and `wanlogger export --config <path>`
+read a UTF-8 TOML `config_version = 1` configuration file. The v1
+server table can provide `bind`,
+`session_root`, `encoding`, `detect_mode`, `session_name_pattern`,
+`token_phc_files`, TLS listener settings, serial startup defaults, live
+WSS delivery pacing, and `require_auth`; named `channels.<name>` entries
+provide startup `ChannelSpec` values and optional display labels. The
+top-level `export` table provides timezone and encoding defaults for
+CLI and HTTP exports, and `retention.keep_days` prunes expired
+session-dirs at server startup when non-zero. Explicit CLI flags
+override overlapping scalar config values, token PHC files from CLI and
+config are combined, unsupported config versions are rejected, plaintext
+bearer tokens are not stored in config files, and channel startup
+failures are reported without preventing the server from attempting the
+remaining configured channels.
+
 ### FR-CLI-009  Watch subcommand
 `wanlogger watch` connects to `wanlogger serve` using the
 `wanlogger.v1` WSS subprotocol, subscribes to a target `--sid` and

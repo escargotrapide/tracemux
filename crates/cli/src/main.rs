@@ -4,6 +4,7 @@
 //! replay | extcap | import | export | ai-verify | json-schema`.
 
 use clap::{Parser, Subcommand};
+use wanlogger_core::config::schema_v1::ConfigV1;
 use wanlogger_server::{
     run_with_session_root_classifier_encoding_pattern_startup_and_options as run_server_with_options,
     ServerRunOptions,
@@ -54,19 +55,26 @@ enum Cmd {
 }
 
 #[derive(Debug, clap::Args)]
+#[allow(clippy::struct_excessive_bools)]
 struct ServeArgs {
-    /// Bind address (default 127.0.0.1:0 for auto).
-    #[arg(long, default_value = "127.0.0.1:0")]
-    bind: String,
+    /// Read server startup settings from a TOML config file.
+    #[arg(long, value_name = "PATH")]
+    config: Option<std::path::PathBuf>,
+    /// Bind address (default 127.0.0.1:0 for auto, or config server.bind).
+    #[arg(long)]
+    bind: Option<String>,
     /// Root directory for server-created session-dirs.
-    #[arg(long, default_value = "wanlogger-sessions")]
-    session_root: std::path::PathBuf,
+    #[arg(long)]
+    session_root: Option<std::path::PathBuf>,
     /// Session-dir name pattern using {prefix}, {kind}, {iface}, {timestamp}, {unix_ns}.
     #[arg(long, value_name = "PATTERN")]
     session_name_pattern: Option<String>,
     /// Disable auth (gated to loopback).
-    #[arg(long)]
+    #[arg(long, conflicts_with = "require_auth")]
     no_auth: bool,
+    /// Require auth even when the config file disables it.
+    #[arg(long, conflicts_with = "no_auth")]
+    require_auth: bool,
     /// Add an argon2id PHC hash for an accepted bearer token.
     #[arg(long = "token-phc", value_name = "PHC")]
     token_phc: Vec<String>,
@@ -80,11 +88,11 @@ struct ServeArgs {
     #[arg(long, value_name = "DIR")]
     tls_dir: Option<std::path::PathBuf>,
     /// Default text encoding for server-side decoded records.
-    #[arg(long, default_value = "utf-8")]
-    encoding: String,
+    #[arg(long)]
+    encoding: Option<String>,
     /// Content detection mode (`configured`, `auto`, `suggest`, `off`).
-    #[arg(long = "detect-mode", default_value = "configured")]
-    detect_mode: String,
+    #[arg(long = "detect-mode")]
+    detect_mode: Option<String>,
     /// Add a server-side substring classifier as `contains=tag`.
     #[arg(long = "classify", value_name = "CONTAINS=TAG")]
     classify: Vec<String>,
@@ -98,20 +106,20 @@ struct ServeArgs {
     #[arg(long = "serial-port", value_name = "PORT")]
     serial_ports: Vec<String>,
     /// Baud rate used by `--open-all-serial`.
-    #[arg(long, default_value_t = 115_200)]
-    serial_baud: u32,
+    #[arg(long)]
+    serial_baud: Option<u32>,
     /// Data bits used by `--open-all-serial`.
-    #[arg(long, default_value_t = 8)]
-    serial_data_bits: u8,
+    #[arg(long)]
+    serial_data_bits: Option<u8>,
     /// Parity used by `--open-all-serial` (`none`, `even`, `odd`).
-    #[arg(long, default_value = "none")]
-    serial_parity: String,
+    #[arg(long)]
+    serial_parity: Option<String>,
     /// Stop bits used by `--open-all-serial`.
-    #[arg(long, default_value_t = 1)]
-    serial_stop_bits: u8,
+    #[arg(long)]
+    serial_stop_bits: Option<u8>,
     /// Flow control used by `--open-all-serial` (`none`, `hardware`, `software`).
-    #[arg(long, default_value = "none")]
-    serial_flow: String,
+    #[arg(long)]
+    serial_flow: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -235,6 +243,9 @@ struct ImportArgs {
 
 #[derive(Debug, clap::Args)]
 struct ExportArgs {
+    /// Read export defaults from a TOML config file.
+    #[arg(long, value_name = "PATH")]
+    config: Option<std::path::PathBuf>,
     /// Exporter kind (`csv`, `text`, `jsonl`, `pcapng`).
     kind: String,
     /// Format exported timestamps in a fixed timezone (`UTC`, `GMT+9`, `+09:00`, `Asia/Tokyo`).
@@ -347,12 +358,15 @@ async fn run_cmd(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::Extcap(args) => run_extcap(args).await?,
         Cmd::Import(args) => cmd::import::run(&args.kind, &args.src, &args.dst).await?,
         Cmd::Export(args) => {
+            let config = load_serve_config(args.config.as_deref())?;
+            let timezone = export_timezone(&args, config.as_ref());
+            let encoding = export_encoding(&args, config.as_ref());
             cmd::export::run(
                 &args.kind,
                 &args.src,
                 &args.dst,
-                args.tz.as_deref(),
-                args.encoding.as_deref(),
+                timezone.as_deref(),
+                encoding.as_deref(),
             )?;
         }
         Cmd::AiVerify => ai_verify::run().await?,
@@ -362,29 +376,137 @@ async fn run_cmd(cmd: Cmd) -> anyhow::Result<()> {
 }
 
 async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
+    let config = load_serve_config(args.config.as_deref())?;
     let classifier = cmd::log::classifier_from_specs(&args.classify, &args.classify_regex)?;
-    let detection_mode = wanlogger_core::detect::content::DetectionMode::parse(&args.detect_mode)
+    let detect_mode = serve_detect_mode(&args, config.as_ref());
+    let detection_mode = wanlogger_core::detect::content::DetectionMode::parse(&detect_mode)
         .ok_or_else(|| {
-        anyhow::anyhow!("--detect-mode must be configured, auto, suggest, or off")
-    })?;
-    let startup = serve_startup_sources(&args);
-    let security = serve_security(&args);
+            anyhow::anyhow!("--detect-mode must be configured, auto, suggest, or off")
+        })?;
+    let startup = serve_startup_sources(&args, config.as_ref());
+    let bind = serve_bind(&args, config.as_ref());
+    let session_root = serve_session_root(&args, config.as_ref());
+    let security = serve_security(&args, config.as_ref(), &session_root);
+    let no_auth = serve_no_auth(&args, config.as_ref());
+    let encoding = serve_encoding(&args, config.as_ref());
+    let session_name_pattern = serve_session_name_pattern(&args, config.as_ref());
+    let retention_keep_days = serve_retention_keep_days(config.as_ref());
+    let export_defaults = serve_export_defaults(config.as_ref());
+    let ws_delivery = serve_ws_delivery(config.as_ref());
     run_server_with_options(
-        &args.bind,
-        args.no_auth,
-        args.session_root,
+        &bind,
+        no_auth,
+        session_root,
         classifier,
-        args.encoding,
-        args.session_name_pattern.unwrap_or_else(|| {
+        encoding,
+        session_name_pattern.unwrap_or_else(|| {
             wanlogger_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()
         }),
         startup,
         ServerRunOptions {
             detection_mode,
             security,
+            retention_keep_days,
+            export_defaults,
+            ws_delivery,
         },
     )
     .await
+}
+
+fn load_serve_config(path: Option<&std::path::Path>) -> anyhow::Result<Option<ConfigV1>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let body = std::fs::read_to_string(path)
+        .map_err(|err| anyhow::anyhow!("reading config {}: {err}", path.display()))?;
+    let config: ConfigV1 = toml::from_str(&body)
+        .map_err(|err| anyhow::anyhow!("parsing config {}: {err}", path.display()))?;
+    if config.config_version != 1 {
+        anyhow::bail!(
+            "unsupported config_version {} in {}; expected 1",
+            config.config_version,
+            path.display()
+        );
+    }
+    Ok(Some(config))
+}
+
+fn serve_bind(args: &ServeArgs, config: Option<&ConfigV1>) -> String {
+    args.bind
+        .clone()
+        .or_else(|| config.map(|c| c.server.bind.clone()))
+        .unwrap_or_else(|| "127.0.0.1:0".to_string())
+}
+
+fn serve_session_root(args: &ServeArgs, config: Option<&ConfigV1>) -> std::path::PathBuf {
+    args.session_root
+        .clone()
+        .or_else(|| config.map(|c| std::path::PathBuf::from(&c.server.session_root)))
+        .unwrap_or_else(|| std::path::PathBuf::from("wanlogger-sessions"))
+}
+
+fn serve_encoding(args: &ServeArgs, config: Option<&ConfigV1>) -> String {
+    args.encoding
+        .clone()
+        .or_else(|| config.map(|c| c.server.encoding.clone()))
+        .unwrap_or_else(|| "utf-8".to_string())
+}
+
+fn serve_detect_mode(args: &ServeArgs, config: Option<&ConfigV1>) -> String {
+    args.detect_mode
+        .clone()
+        .or_else(|| config.map(|c| c.server.detect_mode.clone()))
+        .unwrap_or_else(|| "configured".to_string())
+}
+
+fn serve_session_name_pattern(args: &ServeArgs, config: Option<&ConfigV1>) -> Option<String> {
+    args.session_name_pattern
+        .clone()
+        .or_else(|| config.and_then(|c| c.server.session_name_pattern.clone()))
+}
+
+fn serve_retention_keep_days(config: Option<&ConfigV1>) -> u32 {
+    config.map_or(0, |c| c.retention.keep_days)
+}
+
+fn serve_ws_delivery(config: Option<&ConfigV1>) -> wanlogger_server::ws::WsDeliveryOptions {
+    wanlogger_server::ws::WsDeliveryOptions {
+        min_send_interval: std::time::Duration::from_millis(
+            config.map_or(0, |c| c.ui.live_flush_ms),
+        ),
+    }
+}
+
+fn serve_export_defaults(
+    config: Option<&ConfigV1>,
+) -> wanlogger_server::export_api::ExportDefaults {
+    wanlogger_server::export_api::ExportDefaults {
+        timezone: config.and_then(|c| c.export.timezone.clone()),
+        encoding: config.and_then(|c| c.export.encoding.clone()),
+    }
+}
+
+fn export_timezone(args: &ExportArgs, config: Option<&ConfigV1>) -> Option<String> {
+    args.tz
+        .clone()
+        .or_else(|| config.and_then(|c| c.export.timezone.clone()))
+}
+
+fn export_encoding(args: &ExportArgs, config: Option<&ConfigV1>) -> Option<String> {
+    args.encoding
+        .clone()
+        .or_else(|| config.and_then(|c| c.export.encoding.clone()))
+}
+
+fn serve_no_auth(args: &ServeArgs, config: Option<&ConfigV1>) -> bool {
+    if args.no_auth {
+        return true;
+    }
+    if args.require_auth {
+        return false;
+    }
+    config.is_some_and(|c| !c.server.require_auth)
 }
 
 async fn run_send(args: SendArgs) -> anyhow::Result<()> {
@@ -486,42 +608,95 @@ fn extcap_mode(args: ExtcapArgs) -> anyhow::Result<cmd::extcap::Mode> {
     );
 }
 
-fn serve_startup_sources(args: &ServeArgs) -> wanlogger_server::StartupSources {
-    if !args.open_all_serial {
-        return wanlogger_server::StartupSources::default();
+fn serve_startup_sources(
+    args: &ServeArgs,
+    config: Option<&ConfigV1>,
+) -> wanlogger_server::StartupSources {
+    let mut startup = wanlogger_server::StartupSources::default();
+    if let Some(config) = config {
+        startup.channels = config
+            .channels
+            .iter()
+            .map(|(name, channel)| wanlogger_server::StartupChannel {
+                name: name.clone(),
+                label: channel.label.clone(),
+                spec: channel.spec.clone(),
+            })
+            .collect();
     }
-    wanlogger_server::StartupSources {
-        serial: Some(wanlogger_server::SerialAutostart {
-            ports: if args.serial_ports.is_empty() {
-                None
-            } else {
-                Some(args.serial_ports.clone())
-            },
+    let config_serial = config.map(|c| &c.server.serial);
+    if args.open_all_serial || config_serial.is_some_and(|serial| serial.open_all) {
+        let ports = if args.serial_ports.is_empty() {
+            config_serial
+                .and_then(|serial| (!serial.ports.is_empty()).then(|| serial.ports.clone()))
+        } else {
+            Some(args.serial_ports.clone())
+        };
+        startup.serial = Some(wanlogger_server::SerialAutostart {
+            ports,
             options: wanlogger_server::source_manager::SerialPortOptions {
-                baud: args.serial_baud,
-                data_bits: args.serial_data_bits,
-                parity: args.serial_parity.clone(),
-                stop_bits: args.serial_stop_bits,
-                flow: args.serial_flow.clone(),
+                baud: args
+                    .serial_baud
+                    .or_else(|| config_serial.map(|serial| serial.baud))
+                    .unwrap_or(115_200),
+                data_bits: args
+                    .serial_data_bits
+                    .or_else(|| config_serial.map(|serial| serial.data_bits))
+                    .unwrap_or(8),
+                parity: args
+                    .serial_parity
+                    .clone()
+                    .or_else(|| config_serial.map(|serial| serial.parity.clone()))
+                    .unwrap_or_else(|| "none".to_string()),
+                stop_bits: args
+                    .serial_stop_bits
+                    .or_else(|| config_serial.map(|serial| serial.stop_bits))
+                    .unwrap_or(1),
+                flow: args
+                    .serial_flow
+                    .clone()
+                    .or_else(|| config_serial.map(|serial| serial.flow.clone()))
+                    .unwrap_or_else(|| "none".to_string()),
             },
-        }),
+        });
     }
+    startup
 }
 
-fn serve_security(args: &ServeArgs) -> wanlogger_server::ServerSecurity {
-    let tls = if args.tls || args.tls_dir.is_some() {
-        Some(wanlogger_server::TlsServeConfig {
-            dir: args
-                .tls_dir
-                .clone()
-                .unwrap_or_else(|| args.session_root.join("tls")),
+fn serve_security(
+    args: &ServeArgs,
+    config: Option<&ConfigV1>,
+    session_root: &std::path::Path,
+) -> wanlogger_server::ServerSecurity {
+    let config_tls_dir = config
+        .and_then(|c| c.server.tls.dir.as_ref())
+        .map(std::path::PathBuf::from);
+    let config_tls_enabled = config.is_some_and(|c| c.server.tls.enabled);
+    let tls =
+        if args.tls || args.tls_dir.is_some() || config_tls_enabled || config_tls_dir.is_some() {
+            Some(wanlogger_server::TlsServeConfig {
+                dir: args
+                    .tls_dir
+                    .clone()
+                    .or(config_tls_dir)
+                    .unwrap_or_else(|| session_root.join("tls")),
+            })
+        } else {
+            None
+        };
+    let mut token_phc_files: Vec<std::path::PathBuf> = config
+        .map(|c| {
+            c.server
+                .token_phc_files
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect()
         })
-    } else {
-        None
-    };
+        .unwrap_or_default();
+    token_phc_files.extend(args.token_phc_files.clone());
     wanlogger_server::ServerSecurity {
         token_phc: args.token_phc.clone(),
-        token_phc_files: args.token_phc_files.clone(),
+        token_phc_files,
         tls,
     }
 }
@@ -557,7 +732,7 @@ mod tests {
         let Cmd::Serve(args) = cli.cmd else {
             panic!("expected serve command");
         };
-        let startup = serve_startup_sources(&args);
+        let startup = serve_startup_sources(&args, None);
         let serial = startup.serial.expect("serial startup");
         assert_eq!(
             serial.ports,
@@ -590,7 +765,8 @@ mod tests {
         let Cmd::Serve(args) = cli.cmd else {
             panic!("expected serve command");
         };
-        let security = serve_security(&args);
+        let session_root = serve_session_root(&args, None);
+        let security = serve_security(&args, None, &session_root);
         assert_eq!(security.token_phc.len(), 1);
         assert_eq!(
             security.token_phc_files,
@@ -603,11 +779,280 @@ mod tests {
     }
 
     #[test]
+    fn serve_config_file_supplies_bind_auth_and_channels() {
+        // REQ: FR-CLI-012
+        let path = write_temp_config(
+            r#"
+                config_version = 1
+                [server]
+                bind = "127.0.0.1:9443"
+                session_root = "sessions-from-config"
+                encoding = "shift_jis"
+                detect_mode = "suggest"
+                session_name_pattern = "{prefix}-{kind}-{iface}-cfg"
+                token_phc_files = ["tokens-from-config.phc"]
+                require_auth = false
+
+                [server.serial]
+                open_all = true
+                ports = ["COM9"]
+                baud = 57600
+                data_bits = 7
+                parity = "odd"
+                stop_bits = 2
+                flow = "software"
+
+                [server.tls]
+                enabled = true
+                dir = "tls-from-config"
+
+                [export]
+                timezone = "Asia/Tokyo"
+                encoding = "utf-8"
+
+                [ui]
+                live_flush_ms = 25
+
+                [retention]
+                keep_days = 7
+
+                [channels.demo]
+                label = "demo source"
+                [channels.demo.spec]
+                kind = "mock"
+                tag = "demo"
+            "#,
+        );
+        let path_arg = path.to_string_lossy().to_string();
+        let cli =
+            Cli::try_parse_from(["wanlogger", "serve", "--config", path_arg.as_str()]).unwrap();
+
+        let Cmd::Serve(args) = cli.cmd else {
+            panic!("expected serve command");
+        };
+        let config = load_serve_config(args.config.as_deref()).unwrap().unwrap();
+        assert_eq!(serve_bind(&args, Some(&config)), "127.0.0.1:9443");
+        assert_eq!(
+            serve_session_root(&args, Some(&config)),
+            std::path::PathBuf::from("sessions-from-config")
+        );
+        assert_eq!(serve_encoding(&args, Some(&config)), "shift_jis");
+        assert_eq!(serve_detect_mode(&args, Some(&config)), "suggest");
+        assert_eq!(
+            serve_session_name_pattern(&args, Some(&config)).as_deref(),
+            Some("{prefix}-{kind}-{iface}-cfg")
+        );
+        assert_eq!(serve_retention_keep_days(Some(&config)), 7);
+        assert_eq!(
+            serve_export_defaults(Some(&config)).timezone.as_deref(),
+            Some("Asia/Tokyo")
+        );
+        assert_eq!(
+            serve_export_defaults(Some(&config)).encoding.as_deref(),
+            Some("utf-8")
+        );
+        assert_eq!(
+            serve_ws_delivery(Some(&config)).min_send_interval,
+            std::time::Duration::from_millis(25)
+        );
+        assert!(serve_no_auth(&args, Some(&config)));
+        let session_root = serve_session_root(&args, Some(&config));
+        let security = serve_security(&args, Some(&config), &session_root);
+        assert_eq!(
+            security.token_phc_files,
+            vec![std::path::PathBuf::from("tokens-from-config.phc")]
+        );
+        assert_eq!(
+            security.tls.expect("tls config").dir,
+            std::path::PathBuf::from("tls-from-config")
+        );
+
+        let startup = serve_startup_sources(&args, Some(&config));
+        assert_eq!(startup.channels.len(), 1);
+        let serial = startup.serial.expect("serial startup");
+        assert_eq!(serial.ports, Some(vec!["COM9".to_string()]));
+        assert_eq!(serial.options.baud, 57_600);
+        assert_eq!(serial.options.data_bits, 7);
+        assert_eq!(serial.options.parity, "odd");
+        assert_eq!(serial.options.stop_bits, 2);
+        assert_eq!(serial.options.flow, "software");
+        assert_eq!(startup.channels[0].name, "demo");
+        assert_eq!(startup.channels[0].label.as_deref(), Some("demo source"));
+        match &startup.channels[0].spec {
+            wanlogger_core::source::ChannelSpec::Mock { tag } => assert_eq!(tag, "demo"),
+            other => panic!("wrong channel spec: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn serve_cli_overrides_config_bind_and_auth() {
+        // REQ: FR-CLI-012
+        let path = write_temp_config(
+            r#"
+                config_version = 1
+                [server]
+                bind = "127.0.0.1:9443"
+                session_root = "sessions-from-config"
+                encoding = "shift_jis"
+                detect_mode = "suggest"
+                session_name_pattern = "{prefix}-{kind}-{iface}-cfg"
+                token_phc_files = ["tokens-from-config.phc"]
+                require_auth = false
+
+                [server.serial]
+                open_all = true
+                ports = ["COM9"]
+                baud = 57600
+                data_bits = 7
+                parity = "odd"
+                stop_bits = 2
+                flow = "software"
+
+                [server.tls]
+                enabled = true
+                dir = "tls-from-config"
+            "#,
+        );
+        let path_arg = path.to_string_lossy().to_string();
+        let cli = Cli::try_parse_from([
+            "wanlogger",
+            "serve",
+            "--config",
+            path_arg.as_str(),
+            "--bind",
+            "127.0.0.1:7777",
+            "--session-root",
+            "sessions-from-cli",
+            "--encoding",
+            "cp932",
+            "--detect-mode",
+            "off",
+            "--session-name-pattern",
+            "{prefix}-{kind}-cli",
+            "--serial-port",
+            "COM10",
+            "--serial-baud",
+            "115200",
+            "--serial-parity",
+            "none",
+            "--token-phc-file",
+            "tokens-from-cli.phc",
+            "--tls-dir",
+            "tls-from-cli",
+            "--require-auth",
+        ])
+        .unwrap();
+
+        let Cmd::Serve(args) = cli.cmd else {
+            panic!("expected serve command");
+        };
+        let config = load_serve_config(args.config.as_deref()).unwrap().unwrap();
+        assert_eq!(serve_bind(&args, Some(&config)), "127.0.0.1:7777");
+        assert_eq!(
+            serve_session_root(&args, Some(&config)),
+            std::path::PathBuf::from("sessions-from-cli")
+        );
+        assert_eq!(serve_encoding(&args, Some(&config)), "cp932");
+        assert_eq!(serve_detect_mode(&args, Some(&config)), "off");
+        assert_eq!(
+            serve_session_name_pattern(&args, Some(&config)).as_deref(),
+            Some("{prefix}-{kind}-cli")
+        );
+        assert!(!serve_no_auth(&args, Some(&config)));
+        let session_root = serve_session_root(&args, Some(&config));
+        let security = serve_security(&args, Some(&config), &session_root);
+        assert_eq!(
+            security.token_phc_files,
+            vec![
+                std::path::PathBuf::from("tokens-from-config.phc"),
+                std::path::PathBuf::from("tokens-from-cli.phc")
+            ]
+        );
+        assert_eq!(
+            security.tls.expect("tls config").dir,
+            std::path::PathBuf::from("tls-from-cli")
+        );
+        let startup = serve_startup_sources(&args, Some(&config));
+        let serial = startup.serial.expect("serial startup");
+        assert_eq!(serial.ports, Some(vec!["COM10".to_string()]));
+        assert_eq!(serial.options.baud, 115_200);
+        assert_eq!(serial.options.data_bits, 7);
+        assert_eq!(serial.options.parity, "none");
+        assert_eq!(serial.options.stop_bits, 2);
+        assert_eq!(serial.options.flow, "software");
+    }
+
+    #[test]
+    fn export_config_supplies_timezone_and_encoding_defaults() {
+        // REQ: FR-CLI-012
+        let path = write_temp_config(
+            r#"
+                config_version = 1
+                [export]
+                timezone = "Asia/Tokyo"
+                encoding = "shift_jis"
+            "#,
+        );
+        let path_arg = path.to_string_lossy().to_string();
+        let cli = Cli::try_parse_from([
+            "wanlogger",
+            "export",
+            "--config",
+            path_arg.as_str(),
+            "text",
+            "src-session",
+            "out.txt",
+        ])
+        .unwrap();
+
+        let Cmd::Export(args) = cli.cmd else {
+            panic!("expected export command");
+        };
+        let config = load_serve_config(args.config.as_deref()).unwrap().unwrap();
+        assert_eq!(
+            export_timezone(&args, Some(&config)).as_deref(),
+            Some("Asia/Tokyo")
+        );
+        assert_eq!(
+            export_encoding(&args, Some(&config)).as_deref(),
+            Some("shift_jis")
+        );
+    }
+
+    #[test]
+    fn serve_config_rejects_unknown_version() {
+        // REQ: FR-CLI-012
+        let path = write_temp_config(
+            r#"
+                config_version = 2
+                [server]
+                bind = "127.0.0.1:9443"
+                require_auth = true
+            "#,
+        );
+
+        let err = load_serve_config(Some(&path)).unwrap_err();
+        assert!(err.to_string().contains("unsupported config_version 2"));
+    }
+
+    #[test]
     fn token_hash_args_parse_token() {
         let cli = Cli::try_parse_from(["wanlogger", "token-hash", "--token", "secret"]).unwrap();
         let Cmd::TokenHash(args) = cli.cmd else {
             panic!("expected token-hash command");
         };
         assert_eq!(args.token, "secret");
+    }
+
+    fn write_temp_config(body: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "wanlogger-cli-config-{}-{}",
+            std::process::id(),
+            wanlogger_core::time::unix_ns_now()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wanlogger.toml");
+        std::fs::write(&path, body).unwrap();
+        path
     }
 }

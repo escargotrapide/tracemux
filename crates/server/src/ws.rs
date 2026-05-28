@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, State};
@@ -65,6 +66,16 @@ pub struct WsState {
     pub source_manager: Arc<SourceManager>,
     /// Optional append-only audit log for write-back requests.
     pub audit: Option<Arc<AuditLog>>,
+    /// Delivery pacing for live subscription frames.
+    pub delivery: WsDeliveryOptions,
+}
+
+/// WSS subscription delivery tuning.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WsDeliveryOptions {
+    /// Minimum interval between binary subscription sends. Zero keeps
+    /// immediate delivery.
+    pub min_send_interval: Duration,
 }
 
 impl WsState {
@@ -102,6 +113,7 @@ impl WsState {
             ingest,
             source_manager,
             audit: None,
+            delivery: WsDeliveryOptions::default(),
         }
     }
 
@@ -109,6 +121,13 @@ impl WsState {
     #[must_use]
     pub fn with_audit(mut self, audit: Arc<AuditLog>) -> Self {
         self.audit = Some(audit);
+        self
+    }
+
+    /// Apply WSS delivery tuning.
+    #[must_use]
+    pub fn with_delivery_options(mut self, delivery: WsDeliveryOptions) -> Self {
+        self.delivery = delivery;
         self
     }
 }
@@ -191,6 +210,7 @@ async fn ws_handler(
                 state.ingest,
                 state.source_manager,
                 state.audit,
+                state.delivery,
             )
             .await;
             drop(g);
@@ -216,7 +236,15 @@ pub async fn handle_socket_with_source_manager(
     ingest: Arc<Ingest>,
     source_manager: Arc<SourceManager>,
 ) {
-    handle_socket_with_source_manager_and_audit(socket, peer, ingest, source_manager, None).await;
+    handle_socket_with_source_manager_and_audit(
+        socket,
+        peer,
+        ingest,
+        source_manager,
+        None,
+        WsDeliveryOptions::default(),
+    )
+    .await;
 }
 
 async fn handle_socket_with_source_manager_and_audit(
@@ -225,6 +253,7 @@ async fn handle_socket_with_source_manager_and_audit(
     ingest: Arc<Ingest>,
     source_manager: Arc<SourceManager>,
     audit: Option<Arc<AuditLog>>,
+    delivery: WsDeliveryOptions,
 ) {
     tracing::info!(%peer, "ws: connected");
     let (mut sender, mut receiver) = socket.split();
@@ -269,6 +298,7 @@ async fn handle_socket_with_source_manager_and_audit(
                     &out_tx,
                     &mut subscriptions,
                     peer,
+                    delivery,
                 )
                 .await
                 {
@@ -316,9 +346,12 @@ async fn dispatch_envelope(
     out_tx: &mpsc::Sender<Message>,
     subscriptions: &mut HashMap<SubscriptionKey, JoinHandle<()>>,
     peer: SocketAddr,
+    delivery: WsDeliveryOptions,
 ) -> bool {
     match env.kind {
-        FrameType::Sub => subscribe_session(env, ingest, out_tx, subscriptions, peer).await,
+        FrameType::Sub => {
+            subscribe_session(env, ingest, out_tx, subscriptions, peer, delivery).await
+        }
         FrameType::Unsub => unsubscribe_session(env, out_tx, subscriptions, peer).await,
         FrameType::Ctl => handle_ctl(env, source_manager, out_tx, peer).await,
         FrameType::Write => handle_write(env, source_manager, audit, out_tx, peer).await,
@@ -761,6 +794,7 @@ async fn subscribe_session(
     out_tx: &mpsc::Sender<Message>,
     subscriptions: &mut HashMap<SubscriptionKey, JoinHandle<()>>,
     peer: SocketAddr,
+    delivery: WsDeliveryOptions,
 ) -> bool {
     let key = match SubscriptionKey::from_env(env) {
         Ok(k) => k,
@@ -791,6 +825,9 @@ async fn subscribe_session(
                 Ok(bytes) => {
                     if tx.send(Message::Binary(bytes.to_vec())).await.is_err() {
                         break;
+                    }
+                    if !delivery.min_send_interval.is_zero() {
+                        tokio::time::sleep(delivery.min_send_interval).await;
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -1116,6 +1153,7 @@ fn start_options_from_payload(value: &Value) -> Result<SourceStartOptions, Strin
         detection_mode: detection_mode_from_payload(value)?,
         session_name_pattern: optional_payload_str(value, "session_name_pattern")?,
         classifier: classifier_from_payload(value)?,
+        label: None,
     })
 }
 

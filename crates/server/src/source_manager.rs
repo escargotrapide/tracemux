@@ -40,7 +40,7 @@ use wanlogger_core::{ErrorId, WanloggerError};
 use crate::ingest::Ingest;
 use crate::pcap_runner::run_pcap_once_notify;
 use crate::remote_mirror::{self, RemoteTarget};
-use crate::runner::{run_source_once_notify, RunnerStats};
+use crate::runner::{run_source_once_notify, RunnerNotifyOptions, RunnerStats};
 
 type SharedSink = Arc<tokio::sync::Mutex<Box<dyn Sink>>>;
 const DETECTION_SAMPLE_TIMEOUT: Duration = Duration::from_millis(250);
@@ -97,6 +97,8 @@ pub struct SourceStartOptions {
     pub detection_mode: Option<DetectionMode>,
     /// Session-dir name pattern used when a new session-dir is created.
     pub session_name_pattern: Option<String>,
+    /// Optional display label for the registered source session.
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -743,6 +745,7 @@ impl SourceManager {
         let ingest = self.ingest.clone();
         let host = local_host_label();
         let task_session_dir = session_dir.clone();
+        let label = start_options.label.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
         let handle = tokio::spawn(async move {
             run_pcap_once_notify(
@@ -753,6 +756,7 @@ impl SourceManager {
                 Some(tx),
                 Some(sid),
                 host,
+                label,
             )
             .await
         });
@@ -932,6 +936,7 @@ impl SourceManager {
             target.display_target(),
         );
         state.sid = sid;
+        state.label.clone_from(&start_options.label);
         self.ingest.register_session(state);
 
         let (sink, write_rx) = remote_mirror::RemoteWriteSink::channel();
@@ -1152,6 +1157,7 @@ impl SourceManager {
         T: TimeSource + Send + Sync + 'static,
     {
         let ingest = self.ingest.clone();
+        let label = registration.start_options.label.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
         let handle = tokio::spawn(async move {
             run_source_once_notify(
@@ -1161,8 +1167,11 @@ impl SourceManager {
                 decoder,
                 logsink,
                 &time,
-                Some(tx),
-                Some(sid),
+                RunnerNotifyOptions {
+                    registered: Some(tx),
+                    sid_override: Some(sid),
+                    label,
+                },
             )
             .await
         });
@@ -1380,6 +1389,7 @@ fn merge_start_options(
         encoding: overrides.encoding.or(base.encoding),
         detection_mode: overrides.detection_mode.or(base.detection_mode),
         session_name_pattern: overrides.session_name_pattern.or(base.session_name_pattern),
+        label: overrides.label.or(base.label),
     }
 }
 
@@ -1597,6 +1607,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn start_spec_with_options_sets_session_label() {
+        // REQ: FR-CLI-012
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::new(ingest.clone());
+
+        let sid = manager
+            .start_spec_with_options(
+                ChannelSpec::Mock {
+                    tag: "manager".to_string(),
+                },
+                SourceStartOptions {
+                    label: Some("demo source".to_string()),
+                    ..SourceStartOptions::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        let state = ingest.registry.get(&sid).unwrap();
+        assert_eq!(state.label.as_deref(), Some("demo source"));
+        let snapshot = manager
+            .list_sources()
+            .into_iter()
+            .find(|source| source.sid == sid)
+            .unwrap();
+        assert_eq!(snapshot.name, "demo source");
+
+        let _ = manager.wait(sid).await;
+        assert!(manager.remove(sid));
+    }
+
+    #[tokio::test]
     async fn start_spec_with_session_root_persists_file_source() {
         let root = tempdir();
         let input = root.join("input.log");
@@ -1708,6 +1750,7 @@ mod tests {
                     encoding: Some("utf-8".to_string()),
                     detection_mode: Some(DetectionMode::Auto),
                     session_name_pattern: None,
+                    label: None,
                 },
             )
             .await
@@ -1761,6 +1804,7 @@ mod tests {
                     encoding: Some("shift_jis".to_string()),
                     detection_mode: None,
                     session_name_pattern: Some("{prefix}-{kind}-{iface}-custom".to_string()),
+                    label: None,
                 },
             )
             .await
@@ -1818,6 +1862,7 @@ mod tests {
                 sid,
                 SourceStartOptions {
                     encoding: Some("shift_jis".to_string()),
+                    label: None,
                     ..SourceStartOptions::default()
                 },
             )

@@ -56,7 +56,23 @@ where
     L: LogSink,
     T: TimeSource,
 {
-    run_source_once_notify(ingest, source, framer, decoder, logsink, time, None, None).await
+    run_source_once_notify(
+        ingest,
+        source,
+        framer,
+        decoder,
+        logsink,
+        time,
+        RunnerNotifyOptions::default(),
+    )
+    .await
+}
+
+#[derive(Default)]
+pub(crate) struct RunnerNotifyOptions {
+    pub(crate) registered: Option<tokio::sync::oneshot::Sender<Uuid>>,
+    pub(crate) sid_override: Option<Uuid>,
+    pub(crate) label: Option<String>,
 }
 
 pub(crate) async fn run_source_once_notify<S, F, D, L, T>(
@@ -66,8 +82,7 @@ pub(crate) async fn run_source_once_notify<S, F, D, L, T>(
     mut decoder: D,
     mut logsink: L,
     time: &T,
-    registered: Option<tokio::sync::oneshot::Sender<Uuid>>,
-    sid_override: Option<Uuid>,
+    options: RunnerNotifyOptions,
 ) -> anyhow::Result<RunnerStats>
 where
     S: Source,
@@ -80,11 +95,12 @@ where
     let meta = source.metadata();
     let mut state =
         wanlogger_core::session::registry::SessionState::new(meta.kind.clone(), meta.iface.clone());
-    if let Some(sid) = sid_override {
+    if let Some(sid) = options.sid_override {
         state.sid = sid;
     }
+    state.label = options.label;
     let sid = ingest.register_session(state);
-    if let Some(tx) = registered {
+    if let Some(tx) = options.registered {
         let _ = tx.send(sid);
     }
     let source_label = format!("{}:{}", meta.kind, meta.iface);

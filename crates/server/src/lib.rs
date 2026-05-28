@@ -5,7 +5,10 @@
 
 #![warn(missing_docs)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
+
+use wanlogger_core::source::ChannelSpec;
 
 pub mod ai_api;
 pub mod annotation_api;
@@ -33,8 +36,21 @@ pub mod ws;
 /// Sources that should be opened automatically when `wanlogger serve` starts.
 #[derive(Debug, Clone, Default)]
 pub struct StartupSources {
+    /// Named channel specs to open at server startup.
+    pub channels: Vec<StartupChannel>,
     /// Serial/COM startup configuration. `None` disables bulk serial startup.
     pub serial: Option<SerialAutostart>,
+}
+
+/// One named channel loaded from server startup configuration.
+#[derive(Debug, Clone)]
+pub struct StartupChannel {
+    /// Stable operator-facing channel name from the config file.
+    pub name: String,
+    /// Optional human label for diagnostics.
+    pub label: Option<String>,
+    /// Source specification to open.
+    pub spec: ChannelSpec,
 }
 
 /// Serial/COM startup configuration for `wanlogger serve`.
@@ -74,6 +90,12 @@ pub struct ServerRunOptions {
     pub detection_mode: wanlogger_core::detect::content::DetectionMode,
     /// Security settings for bearer tokens and TLS.
     pub security: ServerSecurity,
+    /// Days to keep session-dirs under the session root. `0` disables pruning.
+    pub retention_keep_days: u32,
+    /// Defaults for HTTP session export when query parameters are omitted.
+    pub export_defaults: export_api::ExportDefaults,
+    /// WSS subscription delivery tuning.
+    pub ws_delivery: ws::WsDeliveryOptions,
 }
 
 impl ServerSecurity {
@@ -258,6 +280,7 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_optio
     let ingest = Arc::new(ingest::Ingest::new());
     let session_root = session_root.into();
     std::fs::create_dir_all(&session_root)?;
+    prune_old_session_dirs(&session_root, options.retention_keep_days)?;
     let audit = Arc::new(audit::AuditLog::create(&session_root)?);
     let annotation_store = Arc::new(annotation_api::AnnotationStore::open(&session_root)?);
     let source_manager = Arc::new(
@@ -272,14 +295,16 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_optio
     source_manager.set_detection_mode(options.detection_mode);
     start_configured_sources(&source_manager, &startup).await;
     let export_state =
-        export_api::ExportRouteState::new(source_manager.clone(), Arc::new(auth.clone()), no_auth);
+        export_api::ExportRouteState::new(source_manager.clone(), Arc::new(auth.clone()), no_auth)
+            .with_defaults(options.export_defaults);
     let annotation_state = annotation_api::AnnotationRouteState::new(
         annotation_store,
         Arc::new(auth.clone()),
         no_auth,
     );
-    let ws_state =
-        ws::WsState::with_source_manager(auth, no_auth, conns, source_manager).with_audit(audit);
+    let ws_state = ws::WsState::with_source_manager(auth, no_auth, conns, source_manager)
+        .with_audit(audit)
+        .with_delivery_options(options.ws_delivery);
 
     let app = routes::build_with_exports_and_annotations(export_state, annotation_state)
         .merge(ws::router(ws_state));
@@ -326,10 +351,71 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_optio
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct RetentionPruneStats {
+    scanned: usize,
+    removed: usize,
+}
+
+fn prune_old_session_dirs(
+    session_root: &Path,
+    keep_days: u32,
+) -> anyhow::Result<RetentionPruneStats> {
+    prune_old_session_dirs_at(session_root, keep_days, SystemTime::now())
+}
+
+fn prune_old_session_dirs_at(
+    session_root: &Path,
+    keep_days: u32,
+    now: SystemTime,
+) -> anyhow::Result<RetentionPruneStats> {
+    if keep_days == 0 {
+        return Ok(RetentionPruneStats::default());
+    }
+    let cutoff = now
+        .checked_sub(Duration::from_secs(
+            u64::from(keep_days).saturating_mul(86_400),
+        ))
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    let mut stats = RetentionPruneStats::default();
+    for entry in std::fs::read_dir(session_root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        if entry.file_name() == std::ffi::OsStr::new(".wanlogger") {
+            continue;
+        }
+        let path = entry.path();
+        let meta = path.join("meta.toml");
+        if !meta.is_file() {
+            continue;
+        }
+        stats.scanned += 1;
+        let modified = meta.metadata()?.modified()?;
+        if modified < cutoff {
+            std::fs::remove_dir_all(&path).map_err(|err| {
+                anyhow::anyhow!("removing expired session-dir {}: {err}", path.display())
+            })?;
+            stats.removed += 1;
+        }
+    }
+    if stats.scanned > 0 || stats.removed > 0 {
+        tracing::info!(
+            keep_days,
+            scanned = stats.scanned,
+            removed = stats.removed,
+            "wanlogger-server: retention prune complete"
+        );
+    }
+    Ok(stats)
+}
+
 async fn start_configured_sources(
     source_manager: &source_manager::SourceManager,
     startup: &StartupSources,
 ) {
+    start_configured_channels(source_manager, &startup.channels).await;
     let Some(serial) = &startup.serial else {
         return;
     };
@@ -365,6 +451,50 @@ async fn start_configured_sources(
     tracing::info!(ok, failed, "wanlogger-server: serial bulk startup complete");
 }
 
+async fn start_configured_channels(
+    source_manager: &source_manager::SourceManager,
+    channels: &[StartupChannel],
+) {
+    if channels.is_empty() {
+        return;
+    }
+    let start_options = source_manager_default_start_options(source_manager);
+    let mut ok = 0usize;
+    let mut failed = 0usize;
+    for channel in channels {
+        let mut channel_options = start_options.clone();
+        channel_options.label.clone_from(&channel.label);
+        match source_manager
+            .start_spec_with_options(channel.spec.clone(), channel_options)
+            .await
+        {
+            Ok(sid) => {
+                ok += 1;
+                tracing::info!(
+                    channel = %channel.name,
+                    label = channel.label.as_deref(),
+                    %sid,
+                    "wanlogger-server: configured source started"
+                );
+            }
+            Err(err) => {
+                failed += 1;
+                tracing::warn!(
+                    channel = %channel.name,
+                    label = channel.label.as_deref(),
+                    error = %err,
+                    "wanlogger-server: configured source failed to start"
+                );
+            }
+        }
+    }
+    tracing::info!(
+        ok,
+        failed,
+        "wanlogger-server: configured source startup complete"
+    );
+}
+
 fn source_manager_default_start_options(
     source_manager: &source_manager::SourceManager,
 ) -> source_manager::SourceStartOptions {
@@ -373,6 +503,7 @@ fn source_manager_default_start_options(
         encoding: Some(source_manager.encoding()),
         detection_mode: Some(source_manager.detection_mode()),
         session_name_pattern: Some(source_manager.session_name_pattern()),
+        label: None,
     }
 }
 
@@ -406,5 +537,61 @@ mod tests {
         assert!(verifier.verify("nope").is_err());
 
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn retention_prune_removes_only_expired_session_dirs() {
+        // REQ: FR-CLI-012
+        let root = tempdir("wanlogger-retention");
+        let old_session = root.join("old-session");
+        let not_session = root.join("not-session");
+        let metadata = root.join(".wanlogger");
+        std::fs::create_dir_all(&old_session).unwrap();
+        std::fs::create_dir_all(&not_session).unwrap();
+        std::fs::create_dir_all(&metadata).unwrap();
+        std::fs::write(old_session.join("meta.toml"), b"sid = 'old'\n").unwrap();
+        std::fs::write(not_session.join("note.txt"), b"keep\n").unwrap();
+        std::fs::write(metadata.join("meta.toml"), b"not a session\n").unwrap();
+
+        let future = SystemTime::now()
+            .checked_add(Duration::from_secs(2 * 86_400))
+            .unwrap();
+        let stats = prune_old_session_dirs_at(&root, 1, future).unwrap();
+
+        assert_eq!(stats.scanned, 1);
+        assert_eq!(stats.removed, 1);
+        assert!(!old_session.exists());
+        assert!(not_session.exists());
+        assert!(metadata.exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn retention_prune_zero_days_is_disabled() {
+        // REQ: FR-CLI-012
+        let root = tempdir("wanlogger-retention-disabled");
+        let session = root.join("session");
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(session.join("meta.toml"), b"sid = 'keep'\n").unwrap();
+
+        let future = SystemTime::now()
+            .checked_add(Duration::from_secs(365 * 86_400))
+            .unwrap();
+        let stats = prune_old_session_dirs_at(&root, 0, future).unwrap();
+
+        assert_eq!(stats, RetentionPruneStats::default());
+        assert!(session.exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    fn tempdir(prefix: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "{}-{}-{}",
+            prefix,
+            std::process::id(),
+            wanlogger_core::time::unix_ns_now()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
 }
