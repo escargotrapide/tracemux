@@ -1,16 +1,17 @@
-// Client-side ZIP packaging for all-sources export. This intentionally
-// reuses the existing per-session export HTTP API and stores files in the
-// ZIP without compression, keeping the browser work predictable.
+// Client-side ZIP packaging remains available for small tests/fallbacks, but
+// production all-sources downloads use the server-side bundle API so large
+// exports do not have to be materialized in browser memory.
 // REQ: FR-UI-018
 
 import {
-  downloadBlob,
+  downloadUrl,
   fetchSessionExportBlob,
   renderSessionExportFilename,
   sanitizeExportFilename,
   type SessionExportFormat,
   type SessionExportOptions,
 } from "~/adapters/sessionExport";
+import { resolveWanloggerHttpUrl, resolveWanloggerToken } from "~/adapters/wss";
 
 export interface SessionExportZipEntry {
   sid: string;
@@ -35,9 +36,10 @@ export interface SessionExportZipOptions {
 }
 
 export interface SessionExportZipResult {
-  blob: Blob;
+  blob?: Blob;
   filename: string;
   entryNames: string[];
+  downloadUrl?: string;
 }
 
 export interface ZipFile {
@@ -48,6 +50,24 @@ export interface ZipFile {
 const ZIP_MIME = "application/zip";
 const textEncoder = new TextEncoder();
 let crcTable: Uint32Array | undefined;
+
+interface ServerBundleTicketResponse {
+  ticket: string;
+  expires_in_ms: number;
+  expires_at_ms: number;
+}
+
+interface ServerBundleTicketRequest {
+  entries: Array<{
+    sid: string;
+    source_name?: string;
+    encoding?: string;
+  }>;
+  format: SessionExportFormat;
+  tz?: string;
+  filename_pattern?: string;
+  timestamp_ms: number;
+}
 
 function timestampDate(value: Date | number | string | undefined): Date {
   const date = value instanceof Date
@@ -76,6 +96,67 @@ export function sessionExportZipFilename(
   timestamp: Date | number | string | undefined = new Date(),
 ): string {
   return `${sessionExportZipBaseName(format, timestamp)}.zip`;
+}
+
+function sessionExportBundleTicketUrl(): string {
+  return resolveWanloggerHttpUrl("/api/exports/bundle-ticket");
+}
+
+function sessionExportBundleDownloadUrl(ticket: string): string {
+  const url = new URL(resolveWanloggerHttpUrl("/api/exports/bundle"));
+  url.searchParams.set("ticket", ticket);
+  return url.toString();
+}
+
+async function requestSessionExportBundleTicket(
+  entries: SessionExportZipEntry[],
+  options: SessionExportZipOptions,
+  timestamp: Date,
+): Promise<ServerBundleTicketResponse> {
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  const token = resolveWanloggerToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const timezone = options.timezone?.trim();
+  const filenamePattern = options.filenamePattern?.trim();
+  const body: ServerBundleTicketRequest = {
+    entries: entries.map((entry) => ({
+      sid: entry.sid,
+      ...(entry.sourceName !== undefined ? { source_name: entry.sourceName } : {}),
+      ...(entry.encoding !== undefined ? { encoding: entry.encoding } : {}),
+    })),
+    format: options.format,
+    timestamp_ms: timestamp.getTime(),
+    ...(timezone ? { tz: timezone } : {}),
+    ...(filenamePattern ? { filename_pattern: filenamePattern } : {}),
+  };
+  const response = await fetch(sessionExportBundleTicketUrl(), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(detail || `bundle export ticket failed: HTTP ${response.status}`);
+  }
+  return response.json() as Promise<ServerBundleTicketResponse>;
+}
+
+function serverBundleEntryNames(
+  entries: SessionExportZipEntry[],
+  options: SessionExportZipOptions,
+  timestamp: Date,
+): string[] {
+  const folder = sessionExportZipBaseName(options.format, timestamp);
+  const used = new Set<string>();
+  return entries.map((entry) => {
+    const filename = renderSessionExportFilename(options.filenamePattern, {
+      sid: entry.sid,
+      format: options.format,
+      sourceName: entry.sourceName,
+      timestamp,
+    });
+    return `${folder}/${uniqueName(filename, used)}`;
+  });
 }
 
 function uniqueName(name: string, used: Set<string>): string {
@@ -283,7 +364,16 @@ export async function downloadSessionExportZip(
   entries: SessionExportZipEntry[],
   options: SessionExportZipOptions,
 ): Promise<SessionExportZipResult> {
-  const result = await createSessionExportZip(entries, options);
-  downloadBlob(result.blob, result.filename);
-  return result;
+  if (entries.length === 0) throw new Error("no persisted sources to export");
+  const timestamp = timestampDate(options.timestamp);
+  const { ticket } = await requestSessionExportBundleTicket(entries, options, timestamp);
+  const filename = sessionExportZipFilename(options.format, timestamp);
+  const url = sessionExportBundleDownloadUrl(ticket);
+  downloadUrl(url, filename);
+  options.onProgress?.({ completed: entries.length, total: entries.length, sid: "" });
+  return {
+    filename,
+    entryNames: serverBundleEntryNames(entries, options, timestamp),
+    downloadUrl: url,
+  };
 }

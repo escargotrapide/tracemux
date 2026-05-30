@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchSessionExportBlob,
   renderSessionExportFilename,
+  sessionExportDownloadUrl,
   sessionExportFilename,
   sessionExportUrl,
 } from "../../src/adapters/sessionExport";
@@ -32,9 +33,11 @@ describe("sessionExport", () => {
         format: "jsonl",
         timezone: "GMT+9",
         encoding: "shift_jis",
+        filenamePattern: "{source}.{ext}",
+        sourceName: "COM7",
       }),
     ).toBe(
-      "http://127.0.0.1:9000/api/sessions/abc/export?format=jsonl&tz=GMT%2B9&encoding=shift_jis",
+      "http://127.0.0.1:9000/api/sessions/abc/export?format=jsonl&tz=GMT%2B9&encoding=shift_jis&filename=COM7.jsonl",
     );
   });
 
@@ -75,8 +78,37 @@ describe("sessionExport", () => {
 
     expect(await blob.text()).toBe("export body");
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:9000/api/sessions/sid-fetch/export?format=text",
+      "http://127.0.0.1:9000/api/sessions/sid-fetch/export?format=text&filename=wanlogger-sid-fetch.txt",
       { headers: {} },
+    );
+  });
+
+  it("adds a one-time ticket to native download URLs when auth is configured", async () => {
+    // REQ: FR-UI-018
+    stubLocation();
+    vi.stubEnv("VITE_WANLOGGER_TOKEN", "secret-token");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ticket: "ticket-1",
+      expires_in_ms: 60_000,
+      expires_at_ms: 1_780_134_200_000,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const url = await sessionExportDownloadUrl("sid-ticket", {
+      format: "pcapng",
+      filenamePattern: "{source}.{ext}",
+      sourceName: "Loopback",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:9000/api/sessions/sid-ticket/export-ticket?format=pcapng",
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer secret-token" },
+      },
+    );
+    expect(url).toBe(
+      "http://127.0.0.1:9000/api/sessions/sid-ticket/export?format=pcapng&filename=Loopback.pcapng&ticket=ticket-1",
     );
   });
 });

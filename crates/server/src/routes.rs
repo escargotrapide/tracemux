@@ -14,9 +14,14 @@
 //! WSS (`/ws`) and TLS termination remain in the critical-path
 //! modules and are not wired here.
 
+use std::time::Duration;
+
+use axum::http::header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
+use axum::http::{HeaderValue, Method};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use wanlogger_core::detect::pcap::PcapInterfaceInfo;
 
 /// Public version metadata returned by `/api/version`.
@@ -59,6 +64,10 @@ impl VersionInfo {
 
 /// Build the public router.
 pub fn build() -> Router {
+    with_http_api_layers(base_routes())
+}
+
+fn base_routes() -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
@@ -70,7 +79,7 @@ pub fn build() -> Router {
 
 /// Build the public router plus authenticated session export.
 pub fn build_with_exports(export_state: crate::export_api::ExportRouteState) -> Router {
-    build().merge(crate::export_api::router(export_state))
+    with_http_api_layers(base_routes().merge(crate::export_api::router(export_state)))
 }
 
 /// Build the public router plus authenticated session export and annotations.
@@ -78,7 +87,33 @@ pub fn build_with_exports_and_annotations(
     export_state: crate::export_api::ExportRouteState,
     annotation_state: crate::annotation_api::AnnotationRouteState,
 ) -> Router {
-    build_with_exports(export_state).merge(crate::annotation_api::router(annotation_state))
+    with_http_api_layers(
+        base_routes()
+            .merge(crate::export_api::router(export_state))
+            .merge(crate::annotation_api::router(annotation_state)),
+    )
+}
+
+fn with_http_api_layers(router: Router) -> Router {
+    router.layer(dev_cors_layer())
+}
+
+fn dev_cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list([
+            HeaderValue::from_static("http://127.0.0.1:5173"),
+            HeaderValue::from_static("http://localhost:5173"),
+        ]))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .expose_headers([CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE])
+        .max_age(Duration::from_secs(600))
 }
 
 async fn healthz() -> &'static str {

@@ -229,6 +229,37 @@ Suggested content type:
 - `application/vnd.tcpdump.pcapng` if accepted by clients.
 - otherwise `application/octet-stream` is a safe fallback.
 
+## HTTP/UI export downloads
+
+The browser UI should use native browser downloads for exported artifacts rather
+than reading large responses into `Blob` objects. This is especially important
+for pcapng and multi-source ZIP exports, where browser memory pressure can abort
+otherwise valid server responses.
+
+Server-side behavior:
+
+- `GET /api/sessions/{sid}/export` streams a temporary export file to the
+  response body and removes the temporary file after the stream finishes or is
+  dropped.
+- Authenticated native downloads use short-lived, one-use tickets from
+  `POST /api/sessions/{sid}/export-ticket` so the browser can navigate to a
+  normal download URL without sending custom headers.
+- Bulk exports are built on the server. The UI requests a one-use ticket with
+  `POST /api/exports/bundle-ticket` and then downloads
+  `GET /api/exports/bundle?ticket=...` as a ZIP.
+- Empty optional parameters from forms, such as timezone or filename pattern,
+  are treated as omitted.
+
+UI-side behavior:
+
+- Single-source export buttons call `downloadSessionExport`, which constructs a
+  native download URL and triggers browser download navigation.
+- "Export all sources" buttons call `downloadSessionExportZip`, which uses the
+  server-side ZIP path for production downloads. The client-side ZIP builder is
+  kept only for small tests and fallback-style helpers.
+- Dev CORS exposes `Content-Disposition`, `Content-Length`, and `Content-Type`
+  so browser tooling can inspect export responses during local UI development.
+
 ## Direct pcapng streaming
 
 Direct pcapng writing is implemented by `PcapngStreamWriter` and is fed from

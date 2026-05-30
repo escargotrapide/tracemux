@@ -89,6 +89,12 @@ and BPF filter behavior.
    `save=both` mode this prevents silent divergence between the session-dir and
    the direct artifact; operators should treat any partial pcapng as suspect and
    export from the session-dir when available.
+- UI downloads for session exports are native browser downloads backed by the
+   server export API. Large pcapng and multi-source ZIP downloads should be
+   requested from the UI buttons instead of by copying browser-fetched blobs.
+- Bulk "Export all sources" ZIP downloads are assembled on the server through a
+   short-lived one-use download ticket, which avoids loading all source artifacts
+   into browser memory.
 - Captured packet timestamps are interpreted as libpcap's default microsecond
   `timeval` values and converted to Unix nanoseconds for `ts_origin`.
 - Kernel/backend drops are surfaced through pcap statistics when the backend

@@ -11,6 +11,12 @@ export interface SessionExportOptions {
   timestamp?: Date | number | string;
 }
 
+export interface ExportTicketResponse {
+  ticket: string;
+  expires_in_ms: number;
+  expires_at_ms: number;
+}
+
 export const DEFAULT_SESSION_EXPORT_FILENAME_PATTERN = "wanlogger-{sid}.{ext}";
 
 export function sessionExportUrl(sid: string, options: SessionExportOptions): string {
@@ -19,7 +25,24 @@ export function sessionExportUrl(sid: string, options: SessionExportOptions): st
   if (timezone) params.set("tz", timezone);
   const encoding = options.encoding?.trim();
   if (encoding) params.set("encoding", encoding);
+  const filename = renderSessionExportFilename(options.filenamePattern, {
+    sid,
+    format: options.format,
+    sourceName: options.sourceName,
+    timestamp: options.timestamp,
+  });
+  params.set("filename", filename);
   const base = resolveWanloggerHttpUrl(`/api/sessions/${encodeURIComponent(sid)}/export`);
+  return `${base}?${params}`;
+}
+
+export function sessionExportTicketUrl(sid: string, options: SessionExportOptions): string {
+  const params = new URLSearchParams({ format: options.format });
+  const timezone = options.timezone?.trim();
+  if (timezone) params.set("tz", timezone);
+  const encoding = options.encoding?.trim();
+  if (encoding) params.set("encoding", encoding);
+  const base = resolveWanloggerHttpUrl(`/api/sessions/${encodeURIComponent(sid)}/export-ticket`);
   return `${base}?${params}`;
 }
 
@@ -92,6 +115,37 @@ export async function fetchSessionExportBlob(
   return response.blob();
 }
 
+export async function requestSessionExportTicket(
+  sid: string,
+  options: SessionExportOptions,
+): Promise<ExportTicketResponse> {
+  const headers: HeadersInit = {};
+  const token = resolveWanloggerToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(sessionExportTicketUrl(sid, options), {
+    method: "POST",
+    headers,
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(detail || `export ticket failed: HTTP ${response.status}`);
+  }
+  return response.json() as Promise<ExportTicketResponse>;
+}
+
+export async function sessionExportDownloadUrl(
+  sid: string,
+  options: SessionExportOptions,
+): Promise<string> {
+  const url = new URL(sessionExportUrl(sid, options));
+  if (resolveWanloggerToken()) {
+    const { ticket } = await requestSessionExportTicket(sid, options);
+    url.searchParams.set("ticket", ticket);
+  }
+  return url.toString();
+}
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const href = URL.createObjectURL(blob);
   try {
@@ -106,15 +160,24 @@ export function downloadBlob(blob: Blob, filename: string): void {
   }
 }
 
+export function downloadUrl(url: string, filename: string): void {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 export async function downloadSessionExport(
   sid: string,
   options: SessionExportOptions,
 ): Promise<void> {
-  const blob = await fetchSessionExportBlob(sid, options);
-  downloadBlob(blob, renderSessionExportFilename(options.filenamePattern, {
+  const filename = renderSessionExportFilename(options.filenamePattern, {
     sid,
     format: options.format,
     sourceName: options.sourceName,
     timestamp: options.timestamp,
-  }));
+  });
+  downloadUrl(await sessionExportDownloadUrl(sid, options), filename);
 }
