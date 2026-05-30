@@ -299,8 +299,12 @@ encodes text as UTF-8 and sends it as a `write` frame to the selected
 ### FR-UI-014  Display settings
 The web UI exposes display settings for terminal scrollback, tile
 scrollback, tile sizing, timestamp/log-type/source metadata prefixes,
-and display timezone. These settings are persisted as UI preferences
-and applied without storing log data in the browser.
+display timezone, and display text encoding. Text encoding can be
+changed from the terminal toolbar, the Sources row actions, or source
+details; source and channel overrides re-render existing browser-side
+terminal/tile buffers without restarting the source or storing log data
+in the browser. Source-start defaults still apply only to newly started
+sources unless the user explicitly restarts a source with that encoding.
 
 ### FR-UI-015  Multiple terminal panels
 The web UI can open additional independent Terminal panels. Existing

@@ -30,4 +30,4 @@ if ($NoSidecar) {
 } else {
     Write-Host "  Sidecar bind: $Bind" -ForegroundColor DarkCyan
 }
-& pnpm --filter ./app-tauri dev
+& (Join-Path $PSScriptRoot 'pnpm.ps1') --filter ./app-tauri dev

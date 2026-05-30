@@ -57,7 +57,8 @@ fn ci_matrix_keeps_tier1_and_musl_targets() {
         "x86_64-pc-windows-msvc",
         "x86_64-unknown-linux-gnu",
         "x86_64-unknown-linux-musl",
-        "cargo test --workspace --all-features",
+        "cargo clippy --workspace --all-targets --features serial,metrics,desktop,headless",
+        "cargo test --workspace --features serial,metrics,desktop,headless",
     ] {
         assert!(ci.contains(expected), "CI missing {expected}");
     }

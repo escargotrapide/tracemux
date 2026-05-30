@@ -36,6 +36,7 @@ describe("source encodings", () => {
     ).toEqual({
       sid1: { sid: "sid1", encoding: "shift_jis", updatedAt: 3 },
       "sid1/1": { sid: "sid1", ch: 1, encoding: "euc-jp", updatedAt: 4 },
+      sid2: { sid: "sid2", encoding: "utf-8", updatedAt: 0 },
     });
   });
 
@@ -72,6 +73,18 @@ describe("source encodings", () => {
 
     expect(updateChannelEncoding("sid1", 1, "cp932", storage)).toBeNull();
     expect(loadSourceEncodings(storage)[channelEncodingKey("sid1", 1)]).toBeUndefined();
+  });
+
+  it("stores utf-8 as an override when inherited encoding is not utf-8", () => {
+    const storage = new FakeStorage();
+    const record = updateChannelEncoding("sid-inherited", 0, "utf-8", storage, 20, "cp932");
+
+    expect(record).toEqual({ sid: "sid-inherited", ch: 0, encoding: "utf-8", updatedAt: 20 });
+    expect(encodingForChannel("sid-inherited", 0, "cp932")).toBe("utf-8");
+    expect(loadSourceEncodings(storage)[channelEncodingKey("sid-inherited", 0)]?.encoding).toBe("utf-8");
+
+    expect(updateChannelEncoding("sid-inherited", 0, "cp932", storage, 21, "cp932")).toBeNull();
+    expect(loadSourceEncodings(storage)[channelEncodingKey("sid-inherited", 0)]).toBeUndefined();
   });
 
   it("ignores malformed stored data", () => {

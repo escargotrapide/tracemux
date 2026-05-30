@@ -30,9 +30,11 @@ $steps = @(
     @{ name = 'rtm';            cmd = 'pwsh'; words = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/gen-rtm.ps1') }
 )
 if ($IncludeOptional) {
-    $steps += @{ name = 'web-typecheck'; cmd = 'pnpm.cmd'; words = @('--filter', './web', 'typecheck') }
-    $steps += @{ name = 'web-test';      cmd = 'pnpm.cmd'; words = @('--filter', './web', 'test') }
-    $steps += @{ name = 'web-build';     cmd = 'pnpm.cmd'; words = @('--filter', './web', 'build') }
+    $pnpmScript = Join-Path $PSScriptRoot 'pnpm.ps1'
+    $pnpmWords = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $pnpmScript)
+    $steps += @{ name = 'web-typecheck'; cmd = 'pwsh'; words = [string[]]($pnpmWords + @('--filter', './web', 'typecheck')) }
+    $steps += @{ name = 'web-test';      cmd = 'pwsh'; words = [string[]]($pnpmWords + @('--filter', './web', 'test')) }
+    $steps += @{ name = 'web-build';     cmd = 'pwsh'; words = [string[]]($pnpmWords + @('--filter', './web', 'build')) }
 }
 
 function Invoke-VerifyStep {

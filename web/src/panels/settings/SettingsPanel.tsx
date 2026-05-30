@@ -25,6 +25,7 @@ import {
   updateLogTypeNote,
 } from "~/state/logTypeNotes";
 import {
+  normalizeEncoding,
   sourceStartOptions,
   type DetectionMode,
   SUPPORTED_DETECTION_MODES,
@@ -40,6 +41,12 @@ type AnnotationSyncStatus = "idle" | "loading" | "syncing" | "synced" | "error";
 
 function annotationSyncLabel(status: AnnotationSyncStatus): string {
   return t(`annotations.sync.${status}`);
+}
+
+function encodingOptions(currentEncoding: string): string[] {
+  const options = [...SUPPORTED_SOURCE_ENCODINGS] as string[];
+  const current = normalizeEncoding(currentEncoding);
+  return options.includes(current) ? options : [current, ...options];
 }
 
 export function SettingsPanel() {
@@ -172,18 +179,15 @@ export function SettingsPanel() {
         <h2>{t("settings.source_start.title")}</h2>
         <label class="wl-settings-row">
           <span>{t("settings.source_start.encoding")}</span>
-          <input
-            type="text"
-            list="wl-settings-source-encodings"
+          <select
             value={sourceStartOptions.encoding}
-            onInput={(ev) => updateSourceStartOptions({ encoding: ev.currentTarget.value })}
-          />
+            onChange={(ev) => updateSourceStartOptions({ encoding: ev.currentTarget.value })}
+          >
+            <For each={encodingOptions(sourceStartOptions.encoding)}>
+              {(encoding) => <option value={encoding}>{encoding}</option>}
+            </For>
+          </select>
         </label>
-        <datalist id="wl-settings-source-encodings">
-          <For each={SUPPORTED_SOURCE_ENCODINGS}>
-            {(encoding) => <option value={encoding} />}
-          </For>
-        </datalist>
         <label class="wl-settings-row">
           <span>{t("settings.source_start.detection_mode")}</span>
           <select

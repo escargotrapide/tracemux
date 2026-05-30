@@ -4,6 +4,7 @@
 // the slow coalescing bucket (NFR-PERF-001).
 //
 // REQ: FR-UI-012
+// REQ: FR-UI-014
 // REQ: FR-UI-018
 
 import { createEffect, createMemo, For, onCleanup, onMount } from "solid-js";
@@ -30,10 +31,8 @@ import {
 } from "~/state/displayFrames";
 import { sourceAliases } from "~/state/sourceAliases";
 import {
-  channelEncodingKey,
   encodingForChannel,
-  sourceEncodings,
-  sourceEncodingKey,
+  sourceEncodingsVersion,
 } from "~/state/sourceEncodings";
 import { sourceStartOptions } from "~/state/sourceStartOptions";
 import { observeVisibility, TILE_COUNT } from "~/state/visibility";
@@ -74,6 +73,11 @@ function Tile(props: TileBinding) {
   let renderedRecords = 0;
 
   const label = createMemo(() => labelForSid(props.sid, sourcesStore, sourceAliases));
+  const currentEncoding = createMemo(() => {
+    sourceEncodingsVersion();
+    const fallback = sourcesStore[props.sid]?.encoding ?? sourceStartOptions.encoding;
+    return encodingForChannel(props.sid, props.ch, fallback);
+  });
 
   function safeFit(): void {
     try {
@@ -160,8 +164,7 @@ function Tile(props: TileBinding) {
 
   function renderFrame(p: DataPayload, enforceLimit = true): void {
     const sourceLabel = sourceDisplayName(p, sourcesStore, sourceAliases);
-    const fallback = sourcesStore[p.sid]?.encoding ?? sourceStartOptions.encoding;
-    const encoding = encodingForChannel(p.sid, p.ch, fallback);
+    const encoding = currentEncoding();
     const extraTags = clientClassificationTags(p, enabledClassificationRules(), encoding);
     const rendered = renderPayload(p, displaySettings, sourceLabel, { encoding, extraTags });
     renderedRecords += 1;
@@ -176,7 +179,7 @@ function Tile(props: TileBinding) {
     if (!term) return;
     const scroll = captureScroll(forceFollow);
     renderedRecords = 0;
-    term.clear();
+    term.reset();
     for (const frame of getChannelFrames(props.sid, props.ch, displaySettings.tileMaxRecords)) {
       renderFrame(frame, false);
     }
@@ -187,6 +190,8 @@ function Tile(props: TileBinding) {
     term = new Terminal({
       convertEol: true,
       cursorBlink: false,
+      fontFamily:
+        '"Cascadia Mono","Consolas","Hiragino Sans","Noto Sans Mono CJK JP",monospace',
       fontSize: 10,
       scrollback: displaySettings.tileScrollback,
       theme: { background: "#0e1116", foreground: "#c9d1d9" },
@@ -213,10 +218,7 @@ function Tile(props: TileBinding) {
     displaySettings.timezone;
     displaySettings.tileMaxRecords;
     displayClearVersion();
-    sourceEncodings[sourceEncodingKey(props.sid)]?.encoding;
-    sourceEncodings[channelEncodingKey(props.sid, props.ch)]?.encoding;
-    sourcesStore[props.sid]?.encoding;
-    sourceStartOptions.encoding;
+    currentEncoding();
     enabledClassificationRules();
     redrawFromBuffer();
     requestAnimationFrame(safeFit);
@@ -230,7 +232,7 @@ function Tile(props: TileBinding) {
   });
 
   return (
-    <div class="wl-tile" data-sid={props.sid} data-ch={props.ch}>
+    <div class="wl-tile" data-sid={props.sid} data-ch={props.ch} data-encoding={currentEncoding()}>
       <div class="wl-tile-header">
         {label()} / ch {props.ch}
       </div>

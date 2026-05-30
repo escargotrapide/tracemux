@@ -6,6 +6,7 @@
 // REQ: FR-UI-010
 // REQ: FR-UI-011
 // REQ: FR-UI-013
+// REQ: FR-UI-014
 // REQ: FR-UI-018
 
 import {
@@ -45,12 +46,13 @@ import {
 } from "~/state/displayFrames";
 import { sourceAliases } from "~/state/sourceAliases";
 import {
-  channelEncodingKey,
   encodingForChannel,
   sourceEncodings,
+  sourceEncodingsVersion,
   sourceEncodingKey,
+  updateChannelEncoding,
 } from "~/state/sourceEncodings";
-import { sourceStartOptions } from "~/state/sourceStartOptions";
+import { sourceStartOptions, SUPPORTED_SOURCE_ENCODINGS } from "~/state/sourceStartOptions";
 import { observeVisibility } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
 
@@ -111,6 +113,21 @@ export function TerminalPanel(props: TerminalPanelProps) {
     return s ? s.channels : [ch()];
   });
   const hasActiveSource = createMemo(() => Boolean(sourcesStore[sid()]));
+  const currentEncodingFallback = createMemo(() => {
+    sourceEncodingsVersion();
+    return sourceEncodings[sourceEncodingKey(sid())]?.encoding
+      ?? sourcesStore[sid()]?.encoding
+      ?? sourceStartOptions.encoding;
+  });
+  const currentEncoding = createMemo(() => {
+    sourceEncodingsVersion();
+    return encodingForChannel(sid(), ch(), currentEncodingFallback());
+  });
+  const encodingOptions = createMemo(() => {
+    const options = [...SUPPORTED_SOURCE_ENCODINGS] as string[];
+    const current = currentEncoding();
+    return options.includes(current) ? options : [current, ...options];
+  });
   const targetLabel = createMemo(() => {
     if (!hasActiveSource()) return t("terminal.no_source");
     return `${labelForSid(sid(), sourcesStore, sourceAliases)} / ch ${ch()}`;
@@ -199,7 +216,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
   function redrawFromBuffer(): void {
     if (!term || !hasActiveSource()) return;
     renderedRecords = 0;
-    term.clear();
+    term.reset();
     for (const frame of getChannelFrames(sid(), ch(), displaySettings.terminalMaxRecords)) {
       renderFrame(frame, false);
     }
@@ -280,6 +297,18 @@ export function TerminalPanel(props: TerminalPanelProps) {
     }
   }
 
+  function updateTerminalEncoding(encoding: string): void {
+    if (!hasActiveSource()) return;
+    updateChannelEncoding(
+      sid(),
+      ch(),
+      encoding,
+      undefined,
+      Date.now(),
+      currentEncodingFallback(),
+    );
+  }
+
   function showSendErrorToast(): void {
     const now = Date.now();
     if (now - lastSendErrorToastMs < 1_500) return;
@@ -350,10 +379,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
     displaySettings.timezone;
     displaySettings.terminalMaxRecords;
     displayClearVersion();
-    sourceEncodings[sourceEncodingKey(sid())]?.encoding;
-    sourceEncodings[channelEncodingKey(sid(), ch())]?.encoding;
-    sourcesStore[sid()]?.encoding;
-    sourceStartOptions.encoding;
+    currentEncoding();
     enabledClassificationRules();
     redrawFromBuffer();
   });
@@ -374,16 +400,9 @@ export function TerminalPanel(props: TerminalPanelProps) {
         height: "100%",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          gap: "6px",
-          padding: "4px 6px",
-          "border-bottom": "1px solid var(--wl-border)",
-          background: "var(--wl-bg-elev)",
-        }}
-      >
+      <div class="wl-terminal-toolbar">
         <select
+          class="wl-terminal-select wl-terminal-source-select"
           value={sid()}
           onChange={(e) => {
             const nextSid = e.currentTarget.value;
@@ -408,6 +427,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
           </For>
         </select>
         <select
+          class="wl-terminal-select wl-terminal-ch-select"
           value={ch()}
           onChange={(e) => {
             const nextCh = Number(e.currentTarget.value);
@@ -424,9 +444,24 @@ export function TerminalPanel(props: TerminalPanelProps) {
             {(c) => <option value={c}>ch {c}</option>}
           </For>
         </select>
-        <label>
-          {t("terminal.log_type_switch")} {" "}
+        <label class="wl-terminal-field">
+          <span class="wl-terminal-field-label">{t("terminal.encoding")}</span>
           <select
+            class="wl-terminal-select wl-terminal-encoding-select"
+            value={currentEncoding()}
+            onChange={(e) => updateTerminalEncoding(e.currentTarget.value)}
+            aria-label={t("terminal.encoding")}
+            disabled={!hasActiveSource()}
+          >
+            <For each={encodingOptions()}>
+              {(encoding) => <option value={encoding}>{encoding}</option>}
+            </For>
+          </select>
+        </label>
+        <label class="wl-terminal-field">
+          <span class="wl-terminal-field-label">{t("terminal.log_type_switch")}</span>
+          <select
+            class="wl-terminal-select wl-terminal-log-type-select"
             value={logTypeSelection()}
             onChange={(e) => applyLogTypeSelection(e.currentTarget.value as LogTypeSelection)}
             aria-label={t("terminal.log_type_switch")}
@@ -436,9 +471,10 @@ export function TerminalPanel(props: TerminalPanelProps) {
             </For>
           </select>
         </label>
-        <label>
-          {t("terminal.filter_kind")} {" "}
+        <label class="wl-terminal-field">
+          <span class="wl-terminal-field-label">{t("terminal.filter_kind")}</span>
           <select
+            class="wl-terminal-select wl-terminal-kind-select"
             value={filterKind()}
             onChange={(e) => {
               setFilterKind(e.currentTarget.value as DisplayFilter["kind"]);
@@ -453,6 +489,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
           </select>
         </label>
         <input
+          class="wl-terminal-search"
           type="search"
           value={filterTag()}
           onInput={(e) => {
@@ -461,17 +498,16 @@ export function TerminalPanel(props: TerminalPanelProps) {
           }}
           placeholder={t("terminal.filter_tag_placeholder")}
           aria-label={t("terminal.filter_tag")}
-          style={{ width: "120px" }}
         />
         <input
+          class="wl-terminal-search"
           type="search"
           value={filterSource()}
           onInput={(e) => setFilterSource(e.currentTarget.value)}
           placeholder={t("terminal.filter_source_placeholder")}
           aria-label={t("terminal.filter_source")}
-          style={{ width: "120px" }}
         />
-        <span title={sid()} style={{ color: "var(--wl-fg-muted)", "align-self": "center" }}>
+        <span class="wl-terminal-target" title={sid()}>
           {t("terminal.target")}: {targetLabel()}
         </span>
         <form
@@ -479,28 +515,30 @@ export function TerminalPanel(props: TerminalPanelProps) {
             e.preventDefault();
             sendTextInput();
           }}
-          style={{ display: "flex", gap: "4px", "margin-left": "auto" }}
+          class="wl-terminal-send"
           aria-label={t("terminal.send_label")}
         >
           <input
+            class="wl-terminal-send-input"
             type="text"
             value={txText()}
             onInput={(e) => setTxText(e.currentTarget.value)}
             placeholder={t("terminal.send_placeholder")}
             disabled={!hasActiveSource()}
-            style={{ width: "260px" }}
             aria-label={t("terminal.send_label")}
           />
           <button type="submit" disabled={!hasActiveSource() || txText().length === 0}>
             {t("terminal.send")}
           </button>
         </form>
-        <button type="button" onClick={clearClientDisplay}>
-          {t("terminal.clear")}
-        </button>
-        <button type="button" onClick={copySelection}>
-          {t("terminal.copy_selection")}
-        </button>
+        <div class="wl-terminal-actions">
+          <button type="button" onClick={clearClientDisplay}>
+            {t("terminal.clear")}
+          </button>
+          <button type="button" onClick={copySelection}>
+            {t("terminal.copy_selection")}
+          </button>
+        </div>
       </div>
       <div ref={host!} style={{ flex: "1 1 auto", "min-height": 0 }} />
     </div>

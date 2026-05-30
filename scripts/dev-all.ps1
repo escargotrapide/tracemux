@@ -20,6 +20,7 @@ $port = ($Bind -split ':')[-1]
 if (-not $Url) { $Url = "ws://127.0.0.1:$port/ws" }
 
 $root = $PSScriptRoot ? (Split-Path $PSScriptRoot) : $PWD
+$pnpmScript = Join-Path $root "scripts\pnpm.ps1"
 
 Write-Host "Launching backend server ($Bind) ..." -ForegroundColor Cyan
 $serverArgs = @("-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
@@ -35,11 +36,11 @@ Start-Sleep 3
 Write-Host "Launching Web UI (backend: $Url) ..." -ForegroundColor Cyan
 $env:VITE_WANLOGGER_URL = $Url
 $webJob = Start-Job -ScriptBlock {
-    param($r, $u)
+    param($r, $u, $pnpm)
     $env:VITE_WANLOGGER_URL = $u
     Set-Location $r
-    & pnpm --filter ./web dev
-} -ArgumentList $root, $Url
+    & $pnpm --filter ./web dev
+} -ArgumentList $root, $Url, $pnpmScript
 
 Write-Host ""
 Write-Host "Both processes started." -ForegroundColor Green

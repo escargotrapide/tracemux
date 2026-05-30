@@ -2,6 +2,7 @@
 // controls. Server is the source of truth.
 //
 // REQ: FR-UI-008
+// REQ: FR-UI-014
 // REQ: FR-UI-018
 
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
@@ -56,6 +57,7 @@ import {
 } from "~/state/annotationSync";
 import { sourceNotes, updateSourceNote } from "~/state/sourceNotes";
 import {
+  normalizeEncoding,
   sourceStartOptions,
   startCtlOptions,
   SUPPORTED_SOURCE_ENCODINGS,
@@ -141,6 +143,30 @@ function onOpenNewTerminal(sid: string, channels: number[]): void {
 
 function sourceTextEncodingFallback(sid: string): string {
   return sourcesStore[sid]?.encoding ?? sourceStartOptions.encoding;
+}
+
+function updateSourceDisplayEncoding(sid: string, encoding: string): void {
+  updateSourceEncoding(sid, encoding, undefined, Date.now(), sourceTextEncodingFallback(sid));
+}
+
+function updateChannelDisplayEncoding(sid: string, ch: number, encoding: string): void {
+  const inheritedEncoding = sourceEncodings[sourceEncodingKey(sid)]?.encoding
+    ?? sourceTextEncodingFallback(sid);
+  updateChannelEncoding(sid, ch, encoding, undefined, Date.now(), inheritedEncoding);
+}
+
+function encodingOptions(currentEncoding: string): string[] {
+  const options = [...SUPPORTED_SOURCE_ENCODINGS] as string[];
+  const current = normalizeEncoding(currentEncoding);
+  return options.includes(current) ? options : [current, ...options];
+}
+
+function sourceDisplayEncoding(sid: string): string {
+  return sourceEncodings[sourceEncodingKey(sid)]?.encoding ?? sourceTextEncodingFallback(sid);
+}
+
+function channelDisplayEncoding(sid: string, ch: number): string {
+  return encodingForChannel(sid, ch, sourceTextEncodingFallback(sid));
 }
 
 function suggestedEncodingForSource(source: SourceInfo): string | null {
@@ -459,13 +485,15 @@ export function SourcesPanel() {
       >
         <label>
           {t("sources.start.encoding")} {" "}
-          <input
-            type="text"
-            list="wl-source-encoding-options"
+          <select
             value={sourceStartOptions.encoding}
-            onInput={(ev) => updateSourceStartOptions({ encoding: ev.currentTarget.value })}
+            onChange={(ev) => updateSourceStartOptions({ encoding: ev.currentTarget.value })}
             aria-label={t("sources.start.encoding")}
-          />
+          >
+            <For each={encodingOptions(sourceStartOptions.encoding)}>
+              {(encoding) => <option value={encoding}>{encoding}</option>}
+            </For>
+          </select>
         </label>
         <label>
           {t("sources.start.session_pattern")} {" "}
@@ -485,11 +513,6 @@ export function SourcesPanel() {
           />
           <span>{t("sources.start.send_rules")}</span>
         </label>
-        <datalist id="wl-source-encoding-options">
-          <For each={SUPPORTED_SOURCE_ENCODINGS}>
-            {(encoding) => <option value={encoding} />}
-          </For>
-        </datalist>
         <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
           {t("sources.start.options_help")}
         </div>
@@ -727,7 +750,8 @@ export function SourcesPanel() {
           </div>
         }
       >
-        <table style={{ width: "100%", "border-collapse": "collapse" }}>
+        <div class="wl-sources-table-wrap">
+        <table class="wl-sources-table">
           <thead>
             <tr style={{ "text-align": "left", color: "var(--wl-fg-muted)" }}>
               <th>{t("sources.column.name")}</th>
@@ -763,6 +787,17 @@ export function SourcesPanel() {
                     {s.lastTsMs ? new Date(s.lastTsMs).toISOString() : "-"}
                   </td>
                   <td>
+                    <div class="wl-source-actions">
+                      <select
+                        aria-label={`${s.name} encoding`}
+                        title={t("sources.detail.encoding")}
+                        value={sourceDisplayEncoding(s.sid)}
+                        onChange={(ev) => updateSourceDisplayEncoding(s.sid, ev.currentTarget.value)}
+                      >
+                        <For each={encodingOptions(sourceDisplayEncoding(s.sid))}>
+                          {(encoding) => <option value={encoding}>{encoding}</option>}
+                        </For>
+                      </select>
                     <button
                       type="button"
                       onClick={() => setSelectedSid(s.sid)}
@@ -806,12 +841,14 @@ export function SourcesPanel() {
                     >
                       {t("sources.action.remove")}
                     </button>
+                    </div>
                   </td>
                 </tr>
               )}
             </For>
           </tbody>
         </table>
+        </div>
       </Show>
       <Show when={selectedSource()}>
         {(source) => (
@@ -863,16 +900,16 @@ export function SourcesPanel() {
               <dt>{t("sources.detail.encoding")}</dt>
               <dd>
                 <div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-                  <input
-                    type="text"
-                    list="wl-source-encoding-options"
+                  <select
                     aria-label={t("sources.detail.encoding")}
-                    value={sourceEncodings[sourceEncodingKey(source().sid)]?.encoding
-                      ?? sourceTextEncodingFallback(source().sid)}
-                    onInput={(ev) => updateSourceEncoding(source().sid, ev.currentTarget.value)}
-                    placeholder={sourceTextEncodingFallback(source().sid)}
+                    value={sourceDisplayEncoding(source().sid)}
+                    onChange={(ev) => updateSourceDisplayEncoding(source().sid, ev.currentTarget.value)}
                     style={{ flex: 1 }}
-                  />
+                  >
+                    <For each={encodingOptions(sourceDisplayEncoding(source().sid))}>
+                      {(encoding) => <option value={encoding}>{encoding}</option>}
+                    </For>
+                  </select>
                   <button
                     type="button"
                     onClick={() => onRestartWithServerEncoding(source().sid)}
@@ -935,20 +972,16 @@ export function SourcesPanel() {
                     {(channel) => (
                       <label style={{ display: "flex", gap: "6px", "align-items": "center" }}>
                         <span>ch {channel}</span>
-                        <input
-                          type="text"
-                          list="wl-source-encoding-options"
+                        <select
                           aria-label={`${t("sources.detail.channel_encoding")} ch ${channel}`}
-                          value={encodingForChannel(
-                            source().sid,
-                            channel,
-                            sourceTextEncodingFallback(source().sid),
-                          )}
-                          onInput={(ev) => updateChannelEncoding(source().sid, channel, ev.currentTarget.value)}
-                          placeholder={sourceEncodings[sourceEncodingKey(source().sid)]?.encoding
-                            ?? sourceTextEncodingFallback(source().sid)}
+                          value={channelDisplayEncoding(source().sid, channel)}
+                          onChange={(ev) => updateChannelDisplayEncoding(source().sid, channel, ev.currentTarget.value)}
                           style={{ flex: 1 }}
-                        />
+                        >
+                          <For each={encodingOptions(channelDisplayEncoding(source().sid, channel))}>
+                            {(encoding) => <option value={encoding}>{encoding}</option>}
+                          </For>
+                        </select>
                         <Show when={sourceEncodings[channelEncodingKey(source().sid, channel)]?.encoding}>
                           <span style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>override</span>
                         </Show>

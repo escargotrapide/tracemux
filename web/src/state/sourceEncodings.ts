@@ -1,3 +1,8 @@
+// Browser-local display encoding overrides for source/channel rendering.
+//
+// REQ: FR-UI-014
+
+import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { DEFAULT_SOURCE_ENCODING, normalizeEncoding } from "~/state/sourceStartOptions";
 import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
@@ -60,7 +65,7 @@ export function normalizeSourceEncodings(value: unknown): SourceEncodings {
   const out: SourceEncodings = {};
   for (const [sid, raw] of Object.entries(value as Record<string, unknown>)) {
     const record = normalizeRecord(raw, sid);
-    if (record && record.encoding !== DEFAULT_SOURCE_ENCODING) out[recordKey(record)] = record;
+    if (record) out[recordKey(record)] = record;
   }
   return out;
 }
@@ -87,8 +92,14 @@ export function saveSourceEncodings(
 const [sourceEncodingsStore, setSourceEncodingsStore] = createStore<SourceEncodings>(
   loadSourceEncodings(),
 );
+const [sourceEncodingsVersionState, setSourceEncodingsVersionState] = createSignal(0);
 
 export const sourceEncodings = sourceEncodingsStore;
+export const sourceEncodingsVersion = sourceEncodingsVersionState;
+
+function bumpSourceEncodingsVersion(): void {
+  setSourceEncodingsVersionState((version) => version + 1);
+}
 
 export function encodingForSource(sid: string, fallback = DEFAULT_SOURCE_ENCODING): string {
   return sourceEncodingsStore[sourceEncodingKey(sid)]?.encoding ?? fallback;
@@ -108,15 +119,17 @@ export function updateSourceEncoding(
   encoding: string,
   storage = browserStorage(),
   now = Date.now(),
+  inheritedEncoding = DEFAULT_SOURCE_ENCODING,
 ): SourceEncoding | null {
   const record = normalizeRecord({ sid, encoding, updatedAt: now }, sid);
-  if (!record || record.encoding === DEFAULT_SOURCE_ENCODING) {
+  if (!record || record.encoding === normalizeEncoding(inheritedEncoding)) {
     deleteSourceEncoding(sid, storage);
     return null;
   }
   const key = recordKey(record);
   setSourceEncodingsStore(key, record);
   saveSourceEncodings({ ...sourceEncodingsStore, [key]: record }, storage);
+  bumpSourceEncodingsVersion();
   return record;
 }
 
@@ -126,15 +139,17 @@ export function updateChannelEncoding(
   encoding: string,
   storage = browserStorage(),
   now = Date.now(),
+  inheritedEncoding = encodingForSource(sid),
 ): SourceEncoding | null {
   const key = channelEncodingKey(sid, ch);
   const record = normalizeRecord({ sid, ch, encoding, updatedAt: now }, key);
-  if (!record || record.encoding === encodingForSource(sid)) {
+  if (!record || record.encoding === normalizeEncoding(inheritedEncoding)) {
     deleteChannelEncoding(sid, ch, storage);
     return null;
   }
   setSourceEncodingsStore(key, record);
   saveSourceEncodings({ ...sourceEncodingsStore, [key]: record }, storage);
+  bumpSourceEncodingsVersion();
   return record;
 }
 
@@ -144,6 +159,7 @@ export function deleteSourceEncoding(sid: string, storage = browserStorage()): v
   const next = { ...sourceEncodingsStore };
   delete next[key];
   saveSourceEncodings(next, storage);
+  bumpSourceEncodingsVersion();
 }
 
 export function deleteChannelEncoding(
@@ -156,4 +172,5 @@ export function deleteChannelEncoding(
   const next = { ...sourceEncodingsStore };
   delete next[key];
   saveSourceEncodings(next, storage);
+  bumpSourceEncodingsVersion();
 }

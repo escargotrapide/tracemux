@@ -16,4 +16,4 @@ if ($Token) { $env:VITE_WANLOGGER_TOKEN = $Token }
 
 Write-Host "Starting Web UI dev server (backend: $Url)" -ForegroundColor Cyan
 Write-Host "  Open: http://localhost:5173" -ForegroundColor DarkCyan
-& pnpm --filter ./web dev
+& (Join-Path $PSScriptRoot 'pnpm.ps1') --filter ./web dev

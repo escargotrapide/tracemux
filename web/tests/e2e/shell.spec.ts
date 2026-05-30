@@ -99,6 +99,23 @@ test("injected ctl error frame surfaces a toast", async ({ page }) => {
   });
   await expect(page.getByText("bad token in e2e")).toBeVisible();
   await expect(page.getByText("E-2001")).toBeVisible();
+
+  await page.getByTestId("notification-button").click();
+  const center = page.getByTestId("notification-center");
+  await expect(center.getByText("bad token in e2e")).toBeVisible();
+  await expect(center.getByText("E-2001")).toBeVisible();
+});
+
+test("dock tabs expose distinct panel accent bands", async ({ page }) => {
+  await page.goto("/");
+
+  const accents = await page.locator(".wl-dock-tab").evaluateAll((nodes) => (
+    nodes.map((node) => getComputedStyle(node).getPropertyValue("--wl-panel-accent").trim())
+      .filter(Boolean)
+  ));
+
+  expect(accents.length).toBeGreaterThanOrEqual(6);
+  expect(new Set(accents).size).toBeGreaterThanOrEqual(5);
 });
 
 test("injected data frame populates the sources panel", async ({ page }) => {
@@ -126,6 +143,55 @@ test("injected data frame populates the sources panel", async ({ page }) => {
       },
   });
   await expect(page.getByRole("cell", { name: "uart-e2e" })).toBeVisible();
+});
+
+test("terminal toolbar changes the selected channel text encoding", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "33333333-3333-4333-8333-333333333333",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([0x82, 0xa0]),
+      source: "serial:COM11",
+    },
+  });
+
+  const terminal = page.locator('div.wl-panel-content[data-panel-kind="terminal"]').first();
+  await expect(terminal.getByText(/COM11 \/ ch 0/)).toBeVisible();
+  await expect(terminal.getByLabel(/Text encoding|文字コード/)).toBeEnabled();
+  await terminal.getByLabel(/Text encoding|文字コード/).selectOption("shift_jis");
+  await expect.poll(() => page.evaluate(async () => {
+    const { sourceEncodings } = await import("/src/state/sourceEncodings.ts");
+    return sourceEncodings["33333333-3333-4333-8333-333333333333/0"]?.encoding ?? "";
+  })).toBe("shift_jis");
+
+  await expect.poll(() => page.evaluate(async () => {
+    const { getChannelFrames } = await import("/src/state/channelBuffers.ts");
+    const { bodyText } = await import("/src/state/displayFrames.ts");
+    const { encodingForChannel } = await import("/src/state/sourceEncodings.ts");
+    const sid = "33333333-3333-4333-8333-333333333333";
+    const frame = getChannelFrames(sid, 0, 1)[0];
+    return frame ? bodyText(frame, encodingForChannel(sid, 0, "utf-8")) : "";
+  })).toBe("あ");
+  await expect(page.locator(".wl-tile").filter({ hasText: "COM11" })).toHaveAttribute(
+    "data-encoding",
+    "shift_jis",
+  );
 });
 
 test("source alias updates terminal and tile labels", async ({ page }) => {
@@ -346,7 +412,10 @@ test("source detail export button calls the HTTP export API", async ({ page }) =
     exportUrl = route.request().url();
     await route.fulfill({
       status: 200,
-      headers: { "content-type": "text/plain; charset=utf-8" },
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "content-disposition": "attachment; filename=export-source.txt",
+      },
       body: "2024-01-01T09:00:00+09:00\tvirt-peer-e2e\n",
     });
   });
@@ -377,23 +446,42 @@ test("source detail export button calls the HTTP export API", async ({ page }) =
   await page.getByRole("button", { name: "Details" }).click();
   await page.getByLabel("Export timezone").fill("GMT+9");
   await page.getByLabel("Export filename pattern").fill("{source}_{timestamp}.{ext}");
+  const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download text" }).click();
+  const download = await downloadPromise;
 
   await expect.poll(() => exportUrl).toContain("/api/sessions/11111111-1111-4111-8111-111111111111/export");
   expect(exportUrl).toContain("format=text");
   expect(exportUrl).toContain("tz=GMT%2B9");
+  expect(await download.failure()).toBeNull();
   await expect(page.getByText("Export download requested")).toBeVisible();
 });
 
 test("source panel can bulk export all persisted sources as one zip", async ({ page }) => {
   // REQ: FR-UI-018
-  const requested = new Set<string>();
-  await page.route("http://127.0.0.1:9000/api/sessions/**/export?**", async (route) => {
-    requested.add(route.request().url());
+  let bundleTicketBody: unknown;
+  let bundleDownloadUrl = "";
+  await page.route("http://127.0.0.1:9000/api/exports/bundle-ticket", async (route) => {
+    bundleTicketBody = route.request().postDataJSON();
     await route.fulfill({
       status: 200,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-      body: `export:${route.request().url()}`,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ticket: "bundle-ticket",
+        expires_in_ms: 60_000,
+        expires_at_ms: 1_780_134_200_000,
+      }),
+    });
+  });
+  await page.route("http://127.0.0.1:9000/api/exports/bundle?**", async (route) => {
+    bundleDownloadUrl = route.request().url();
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "application/zip",
+        "content-disposition": "attachment; filename=wanlogger-all.zip",
+      },
+      body: "PK\x03\x04bundle",
     });
   });
 
@@ -439,15 +527,22 @@ test("source panel can bulk export all persisted sources as one zip", async ({ p
   });
 
   await page.getByLabel("All sources timezone").fill("UTC");
+  const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Zip all text" }).click();
+  const download = await downloadPromise;
 
-  await expect.poll(() => requested.size).toBe(2);
-  const urls = [...requested].join("\n");
-  expect(urls).toContain("/api/sessions/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/export");
-  expect(urls).toContain("/api/sessions/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/export");
-  expect(urls).not.toContain("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
-  expect(urls).toContain("format=text");
-  expect(urls).toContain("tz=UTC");
+  await expect.poll(() => bundleTicketBody).toBeTruthy();
+  expect(bundleTicketBody).toMatchObject({
+    entries: [
+      { sid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", source_name: "Bulk A" },
+      { sid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", source_name: "Bulk B" },
+    ],
+    format: "text",
+    tz: "UTC",
+  });
+  expect(JSON.stringify(bundleTicketBody)).not.toContain("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+  expect(bundleDownloadUrl).toContain("/api/exports/bundle?ticket=bundle-ticket");
+  expect(await download.failure()).toBeNull();
   await expect(page.getByText(/Bulk export ZIP download requested/)).toBeVisible();
 });
 
@@ -457,7 +552,7 @@ test("settings rules and source start defaults are sent with ctl start", async (
   await waitForInject(page);
   await installClientSpy(page);
 
-  await page.getByLabel("Default text encoding").fill("shift_jis");
+  await page.getByLabel("Default text encoding").selectOption("shift_jis");
   await page.getByLabel("Session name pattern").fill("{prefix}_{kind}_{iface}_{unix_ns}");
   await page.getByPlaceholder("ERROR, WARN, voltage...").fill("ERROR");
   await page.getByPlaceholder("fault, warning, power...").fill("fault");
@@ -523,13 +618,15 @@ test("source details expose persistence, per-source display settings, and notes"
     },
   });
 
+  await expect(page.getByLabel("COM7 Logger encoding")).toHaveValue("utf-8");
+  await page.getByLabel("COM7 Logger encoding").selectOption("cp932");
   await page.getByRole("button", { name: "Details" }).click();
   await expect(page.getByText("Saved to session-dir")).toBeVisible();
   await expect(page.getByText("C:/logs/COM7-session")).toBeVisible();
   await expect(page.getByText("Source note sync failed; kept in this browser.")).toHaveCount(0);
+  await expect(page.getByLabel("Display encoding")).toHaveValue("cp932");
 
-  await page.getByLabel("Display encoding").fill("cp932");
-  await page.getByLabel("Channel encoding ch 1").fill("shift_jis");
+  await page.getByLabel("Channel encoding ch 1").selectOption("shift_jis");
   await page.getByLabel("Display alias").fill("Motor COM7");
   await page.getByLabel("Notes").fill("Investigate boot noise");
   await page.getByRole("button", { name: "Restart with encoding" }).click();

@@ -94,7 +94,7 @@ const uiPerfCounters: UiPerfSnapshot = {
   toastsDismissed: 0,
   activeSubscriptions: 0,
   toastCount: 0,
-  maxToasts: 64,
+  maxToasts: 4,
   lastFrameTsMs: 0,
 };
 const [uiPerf, setUiPerf] = createSignal<UiPerfSnapshot>({ ...uiPerfCounters });
@@ -106,10 +106,40 @@ export interface ToastInfo {
   message: string;
   errorId?: string;
   ts: number;
+  lastTs: number;
+  count: number;
+  expiresAt: number;
 }
+
+export interface NotificationInfo {
+  id: number;
+  level: ToastInfo["level"];
+  message: string;
+  errorId?: string;
+  ts: number;
+  lastTs: number;
+  count: number;
+}
+
+type PushToastInput = {
+  level: ToastInfo["level"];
+  message: string;
+  errorId?: string;
+  ttlMs?: number;
+};
+
 const [toasts, setToasts] = createStore<ToastInfo[]>([]);
-const MAX_TOASTS = 64;
+const [notificationHistory, setNotificationHistory] = createStore<NotificationInfo[]>([]);
+const MAX_TOASTS = 4;
+const MAX_NOTIFICATION_HISTORY = 128;
+const DUPLICATE_TOAST_WINDOW_MS = 2_000;
+const TOAST_TTL_MS: Record<ToastInfo["level"], number> = {
+  info: 3_000,
+  warn: 5_000,
+  error: 8_000,
+};
 let toastSeq = 1;
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
 uiPerfCounters.maxToasts = MAX_TOASTS;
 
@@ -138,25 +168,144 @@ function recordUiPerf(update: (snapshot: UiPerfSnapshot) => void): void {
   queueUiPerfPublish();
 }
 
-export function pushToast(t: Omit<ToastInfo, "id" | "ts">): number {
-  const id = toastSeq++;
-  const dropped = Math.max(0, toasts.length + 1 - MAX_TOASTS);
-  setToasts((prev) => [...prev, { ...t, id, ts: Date.now() }].slice(-MAX_TOASTS));
+function toastSignature(t: Pick<ToastInfo, "level" | "message" | "errorId">): string {
+  return `${t.level}\u0000${t.message}\u0000${t.errorId ?? ""}`;
+}
+
+function clearToastTimer(id: number): void {
+  const timer = toastTimers.get(id);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  toastTimers.delete(id);
+}
+
+function expireToast(id: number): void {
+  clearToastTimer(id);
+  setToasts((prev) => prev.filter((t) => t.id !== id));
+  queueUiPerfPublish();
+}
+
+function scheduleToastExpiry(id: number, ttlMs: number): void {
+  clearToastTimer(id);
+  toastTimers.set(id, setTimeout(() => expireToast(id), ttlMs));
+}
+
+function upsertNotificationHistory(t: NotificationInfo): void {
+  const signature = toastSignature(t);
+  const duplicate = notificationHistory.find(
+    (item) => toastSignature(item) === signature && t.ts - item.lastTs <= DUPLICATE_TOAST_WINDOW_MS,
+  );
+  if (duplicate) {
+    setNotificationHistory((prev) => prev.map((item) => (
+      item.id === duplicate.id
+        ? { ...item, lastTs: t.lastTs, count: item.count + 1 }
+        : item
+    )));
+    return;
+  }
+  setNotificationHistory((prev) => [...prev, t].slice(-MAX_NOTIFICATION_HISTORY));
+}
+
+export function pushToast(t: PushToastInput): number {
+  const now = Date.now();
+  const ttlMs = t.ttlMs ?? TOAST_TTL_MS[t.level];
+  const expiresAt = now + ttlMs;
+  const duplicate = toasts.find(
+    (item) => toastSignature(item) === toastSignature(t) && now - item.lastTs <= DUPLICATE_TOAST_WINDOW_MS,
+  );
   recordUiPerf((p) => {
     p.toastsPushed += 1;
-    p.toastsDropped += dropped;
+  });
+  if (duplicate) {
+    scheduleToastExpiry(duplicate.id, ttlMs);
+    setToasts((prev) => prev.map((item) => (
+      item.id === duplicate.id
+        ? { ...item, lastTs: now, count: item.count + 1, expiresAt }
+        : item
+    )));
+    upsertNotificationHistory({
+      id: duplicate.id,
+      level: t.level,
+      message: t.message,
+      ...(t.errorId ? { errorId: t.errorId } : {}),
+      ts: now,
+      lastTs: now,
+      count: 1,
+    });
+    return duplicate.id;
+  }
+  const id = toastSeq++;
+  const { ttlMs: _ttlMs, ...toastInput } = t;
+  const toast: ToastInfo = {
+    ...toastInput,
+    id,
+    ts: now,
+    lastTs: now,
+    count: 1,
+    expiresAt,
+  };
+  const droppedToasts = toasts.length + 1 > MAX_TOASTS
+    ? toasts.slice(0, toasts.length + 1 - MAX_TOASTS)
+    : [];
+  for (const dropped of droppedToasts) clearToastTimer(dropped.id);
+  setToasts((prev) => [...prev, toast].slice(-MAX_TOASTS));
+  scheduleToastExpiry(id, ttlMs);
+  upsertNotificationHistory({
+    id,
+    level: t.level,
+    message: t.message,
+    ...(t.errorId ? { errorId: t.errorId } : {}),
+    ts: now,
+    lastTs: now,
+    count: 1,
+  });
+  recordUiPerf((p) => {
+    p.toastsDropped += droppedToasts.length;
   });
   return id;
 }
 
 export function dismissToast(id: number): void {
+  const existed = toasts.some((t) => t.id === id);
+  clearToastTimer(id);
   setToasts((prev) => prev.filter((t) => t.id !== id));
+  if (!existed) {
+    queueUiPerfPublish();
+    return;
+  }
   recordUiPerf((p) => {
     p.toastsDismissed += 1;
   });
 }
 
+export function dismissAllToasts(): void {
+  const count = toasts.length;
+  for (const toast of toasts) clearToastTimer(toast.id);
+  setToasts([]);
+  if (count === 0) {
+    queueUiPerfPublish();
+    return;
+  }
+  recordUiPerf((p) => {
+    p.toastsDismissed += count;
+  });
+}
+
+export function clearNotificationHistory(): void {
+  setNotificationHistory([]);
+  queueUiPerfPublish();
+}
+
+function resetNotificationsForTest(): void {
+  for (const id of toastTimers.keys()) clearToastTimer(id);
+  setToasts([]);
+  setNotificationHistory([]);
+  toastSeq = 1;
+  queueUiPerfPublish();
+}
+
 export const toastsStore = toasts;
+export const notificationHistoryStore = notificationHistory;
 
 let client: WireClient | null = null;
 let suppressedWireErrors = 0;
@@ -492,6 +641,7 @@ export function __setClientForTest(next: Pick<WireClient, "send"> | null): void 
   client = next as WireClient | null;
   channelListeners.clear();
   clearChannelFrames();
+  resetNotificationsForTest();
   setTerminalChannelState(null);
   setTerminalFocusRequestState(null);
   setTerminalOpenRequestState(null);

@@ -166,7 +166,14 @@ mod tests {
         let report = detect_report();
 
         assert!(report.kinds.contains(&"pcap"));
-        assert!(report.pcap_interfaces.is_empty());
+        if cfg!(feature = "pcap-capture") {
+            assert!(report
+                .pcap_interfaces
+                .iter()
+                .all(|iface| !iface.device.trim().is_empty() && iface.addresses.is_empty()));
+        } else {
+            assert!(report.pcap_interfaces.is_empty());
+        }
     }
 
     #[tokio::test]

@@ -32,6 +32,7 @@
   "terminal.send_error": "Failed to send",
   "terminal.new": "Open a new terminal panel",
   "terminal.new_short": "New terminal",
+  "terminal.encoding": "Text encoding",
   "terminal.filter_kind": "Type",
   "terminal.filter_all": "all",
   "terminal.filter_tag": "Log type/tag filter",

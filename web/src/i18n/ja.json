@@ -32,6 +32,7 @@
   "terminal.send_error": "送信に失敗しました",
   "terminal.new": "新しいターミナルパネルを開く",
   "terminal.new_short": "新規ターミナル",
+  "terminal.encoding": "文字コード",
   "terminal.filter_kind": "種別",
   "terminal.filter_all": "すべて",
   "terminal.filter_tag": "ログ種別/タグフィルタ",

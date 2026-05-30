@@ -100,6 +100,11 @@ rtm:
 
 # ---- E2E ------------------------------------------------------------------
 
+[windows]
+e2e:
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/pnpm.ps1 --filter ./web e2e
+
+[unix]
 e2e:
     pnpm --filter ./web e2e
 
@@ -177,6 +182,12 @@ dev-all:
 dev-all:
     bash scripts/dev-all.sh
 
+# Start backend + web UI + virtual peer together (TCP listen on port 9001).
+# Connect wanlogger to tcp://127.0.0.1:9001 via the UI to see device traffic.
+[windows]
+dev-all-with-peer:
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev-all-with-peer.ps1
+
 # ---- Release --------------------------------------------------------------
 
 [windows]
@@ -189,9 +200,19 @@ release-gate:
 
 # ---- Tauri / Web ----------------------------------------------------------
 
+[windows]
+web-dev:
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/pnpm.ps1 --filter ./web dev
+
+[unix]
 web-dev:
     pnpm --filter ./web dev
 
+[windows]
+web-build:
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/pnpm.ps1 --filter ./web build
+
+[unix]
 web-build:
     pnpm --filter ./web build
 

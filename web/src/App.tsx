@@ -3,10 +3,12 @@
 import { Show, createEffect, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import {
+  DefaultTab,
   createDockview,
   type DockviewApi,
-  type DockviewPanelApi,
+  type GroupPanelPartInitParameters,
   type IContentRenderer,
+  type ITabRenderer,
 } from "dockview-core";
 import {
   connState,
@@ -27,6 +29,40 @@ interface PanelParams {
   sid?: string;
   ch?: number;
   followSelection?: boolean;
+  panelKind?: PanelKind;
+}
+
+type PanelKind = "sources" | "metrics" | "packet" | "terminal" | "tiles" | "settings";
+
+function panelKindClass(kind: PanelKind | undefined): string {
+  return kind ? `wl-panel-kind-${kind}` : "";
+}
+
+function panelKindForComponent(component: string | undefined): PanelKind | undefined {
+  if (component === "sources") return "sources";
+  if (component === "metrics") return "metrics";
+  if (component === "packetCapture") return "packet";
+  if (component === "terminal") return "terminal";
+  if (component === "tiles") return "tiles";
+  if (component === "settings") return "settings";
+  return undefined;
+}
+
+function panelKindForId(id: string | undefined): PanelKind | undefined {
+  if (id === "sources") return "sources";
+  if (id === "metrics") return "metrics";
+  if (id === "packetCapture") return "packet";
+  if (id === "terminal" || id?.startsWith("terminal-")) return "terminal";
+  if (id === "tiles") return "tiles";
+  if (id === "settings") return "settings";
+  return undefined;
+}
+
+function panelKindFromInit(parameters: GroupPanelPartInitParameters): PanelKind | undefined {
+  const params = parameters.api.getParameters<PanelParams>();
+  return params.panelKind
+    ?? panelKindForComponent(parameters.api.component)
+    ?? panelKindForId(parameters.api.id);
 }
 
 class SolidPanel implements IContentRenderer {
@@ -34,17 +70,42 @@ class SolidPanel implements IContentRenderer {
   private _cleanup?: () => void;
   constructor(private factory: (params: PanelParams) => unknown) {
     this.element = document.createElement("div");
+    this.element.className = "wl-panel-content";
     this.element.style.width = "100%";
     this.element.style.height = "100%";
   }
-  init(parameters: { params: PanelParams; api: DockviewPanelApi }): void {
+  init(parameters: GroupPanelPartInitParameters): void {
+    const kind = panelKindFromInit(parameters);
+    if (kind) {
+      this.element.dataset.panelKind = kind;
+      this.element.classList.add(panelKindClass(kind));
+    }
     this._cleanup = render(
-      () => this.factory(parameters.params) as never,
+      () => this.factory(parameters.params as PanelParams) as never,
       this.element,
     );
   }
   dispose(): void {
     this._cleanup?.();
+  }
+}
+
+class PanelTab implements ITabRenderer {
+  private readonly tab = new DefaultTab();
+  readonly element = this.tab.element;
+
+  init(parameters: GroupPanelPartInitParameters): void {
+    const kind = panelKindFromInit(parameters);
+    this.element.classList.add("wl-dock-tab");
+    if (kind) {
+      this.element.dataset.panelKind = kind;
+      this.element.classList.add(panelKindClass(kind));
+    }
+    this.tab.init(parameters);
+  }
+
+  dispose(): void {
+    this.tab.dispose();
   }
 }
 
@@ -82,7 +143,7 @@ export function App() {
       id,
       component: "terminal",
       title: `${t("panel.terminal")} ${terminalSeq}`,
-      params: { sid, ch, followSelection: false },
+      params: { sid, ch, followSelection: false, panelKind: "terminal" },
       position: { referencePanel: "terminal", direction: "right" },
     });
     terminalSeq += 1;
@@ -107,6 +168,7 @@ export function App() {
     getClient();
 
     api = createDockview(dockHost, {
+      defaultTabComponent: "wl-default-tab",
       createComponent: (options) => {
         const factory = components[options.name];
         if (!factory) {
@@ -114,42 +176,48 @@ export function App() {
         }
         return factory();
       },
+      createTabComponent: () => new PanelTab(),
     });
 
     api.addPanel({
       id: "sources",
       component: "sources",
       title: t("panel.sources"),
+      params: { panelKind: "sources" },
     });
     api.addPanel({
       id: "metrics",
       component: "metrics",
       title: t("panel.metrics"),
+      params: { panelKind: "metrics" },
       position: { referencePanel: "sources", direction: "right" },
     });
     api.addPanel({
       id: "packetCapture",
       component: "packetCapture",
       title: t("panel.packetCapture"),
+      params: { panelKind: "packet" },
       position: { referencePanel: "metrics", direction: "below" },
     });
     api.addPanel({
       id: "terminal",
       component: "terminal",
       title: t("panel.terminal"),
-      params: { sid: "", ch: 0 },
+      params: { sid: "", ch: 0, panelKind: "terminal" },
       position: { referencePanel: "sources", direction: "below" },
     });
     api.addPanel({
       id: "tiles",
       component: "tiles",
       title: t("panel.tiles"),
+      params: { panelKind: "tiles" },
       position: { referencePanel: "terminal", direction: "right" },
     });
     api.addPanel({
       id: "settings",
       component: "settings",
       title: t("panel.settings"),
+      params: { panelKind: "settings" },
       position: { referencePanel: "packetCapture", direction: "below" },
     });
   });
@@ -209,8 +277,8 @@ export function App() {
       <footer class="wl-statusbar">
         <span class={`wl-status-dot ${statusClass()}`} />
         <span>{t(`status.${connState().status}`)}</span>
+        <Toasts />
       </footer>
-      <Toasts />
     </div>
   );
 }

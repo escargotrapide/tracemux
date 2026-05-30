@@ -435,8 +435,8 @@ async fn export_bundle(
             &zip_path,
             jobs,
             format,
-            timezone,
-            filename_pattern,
+            timezone.as_deref(),
+            filename_pattern.as_deref(),
             timestamp_ms,
         )
     })
@@ -609,8 +609,8 @@ fn create_bundle_zip(
     zip_path: &Path,
     jobs: Vec<BundleExportJob>,
     format: ExportFormat,
-    timezone: Option<String>,
-    filename_pattern: Option<String>,
+    timezone: Option<&str>,
+    filename_pattern: Option<&str>,
     timestamp_ms: u64,
 ) -> Result<(), ExportApiError> {
     let mut zip = StoredZipWriter::create(zip_path)?;
@@ -622,11 +622,11 @@ fn create_bundle_zip(
             format,
             &job.session_dir,
             export_tmp.path(),
-            timezone.as_deref(),
+            timezone,
             job.encoding.as_deref(),
         )?;
         let filename = render_bundle_entry_filename(
-            filename_pattern.as_deref(),
+            filename_pattern,
             job.sid,
             job.source_name.as_deref(),
             format,
@@ -701,11 +701,7 @@ fn render_bundle_entry_filename(
     let ext = format.extension();
     let source = source_name
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| {
-            // The fallback is stable and avoids leaking filesystem paths when the UI
-            // did not provide a source label.
-            "source"
-        });
+        .unwrap_or("source");
     let template = pattern
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("wanlogger-{sid}.{ext}");
@@ -789,7 +785,7 @@ struct CentralDirectoryEntry {
 
 impl StoredZipWriter {
     fn create(path: &Path) -> Result<Self, ExportApiError> {
-        let out = File::create(path).map_err(|e| io_error("creating bundle zip", e))?;
+        let out = File::create(path).map_err(|e| io_error("creating bundle zip", &e))?;
         Ok(Self {
             out: BufWriter::new(out),
             central: Vec::new(),
@@ -828,13 +824,13 @@ impl StoredZipWriter {
         write_u16(&mut self.out, 0)?;
         self.out
             .write_all(&name_bytes)
-            .map_err(|e| io_error("writing ZIP local header", e))?;
+            .map_err(|e| io_error("writing ZIP local header", &e))?;
         self.offset += 30 + u64::from(name_len);
 
         let mut input =
-            BufReader::new(File::open(path).map_err(|e| io_error("opening export", e))?);
+            BufReader::new(File::open(path).map_err(|e| io_error("opening export", &e))?);
         let copied = std::io::copy(&mut input, &mut self.out)
-            .map_err(|e| io_error("writing ZIP entry", e))?;
+            .map_err(|e| io_error("writing ZIP entry", &e))?;
         if copied != size {
             return Err(ExportApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -887,7 +883,7 @@ impl StoredZipWriter {
             write_u32(&mut self.out, entry.local_offset as u32)?;
             self.out
                 .write_all(&entry.name)
-                .map_err(|e| io_error("writing ZIP central directory", e))?;
+                .map_err(|e| io_error("writing ZIP central directory", &e))?;
             central_size += 46 + u64::from(name_len);
         }
         if self.central.len() > 0xffff
@@ -910,19 +906,19 @@ impl StoredZipWriter {
         write_u16(&mut self.out, 0)?;
         self.out
             .flush()
-            .map_err(|e| io_error("flushing bundle zip", e))
+            .map_err(|e| io_error("flushing bundle zip", &e))
     }
 }
 
 fn crc32_file(path: &Path) -> Result<(u32, u64), ExportApiError> {
-    let mut input = BufReader::new(File::open(path).map_err(|e| io_error("opening export", e))?);
-    let mut buf = [0_u8; 64 * 1024];
+    let mut input = BufReader::new(File::open(path).map_err(|e| io_error("opening export", &e))?);
+    let mut buf = vec![0_u8; 64 * 1024];
     let mut crc = 0xffff_ffff_u32;
     let mut size = 0_u64;
     loop {
         let read = input
             .read(&mut buf)
-            .map_err(|e| io_error("reading export", e))?;
+            .map_err(|e| io_error("reading export", &e))?;
         if read == 0 {
             break;
         }
@@ -943,15 +939,15 @@ fn crc32_file(path: &Path) -> Result<(u32, u64), ExportApiError> {
 
 fn write_u16(out: &mut impl Write, value: u16) -> Result<(), ExportApiError> {
     out.write_all(&value.to_le_bytes())
-        .map_err(|e| io_error("writing ZIP", e))
+        .map_err(|e| io_error("writing ZIP", &e))
 }
 
 fn write_u32(out: &mut impl Write, value: u32) -> Result<(), ExportApiError> {
     out.write_all(&value.to_le_bytes())
-        .map_err(|e| io_error("writing ZIP", e))
+        .map_err(|e| io_error("writing ZIP", &e))
 }
 
-fn io_error(context: &str, error: std::io::Error) -> ExportApiError {
+fn io_error(context: &str, error: &std::io::Error) -> ExportApiError {
     ExportApiError {
         status: StatusCode::INTERNAL_SERVER_ERROR,
         error_id: "E-1001",
@@ -1114,8 +1110,7 @@ fn timestamp_token(timestamp_ms: u64) -> String {
     match OffsetDateTime::from_unix_timestamp(seconds) {
         Ok(value) => value
             .format(&Rfc3339)
-            .map(|value| value.replace(":", ""))
-            .unwrap_or_else(|_| timestamp_ms.to_string()),
+            .map_or_else(|_| timestamp_ms.to_string(), |value| value.replace(':', "")),
         Err(_) => timestamp_ms.to_string(),
     }
 }
@@ -1506,7 +1501,9 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(artifact.filename.ends_with(".pcapng"));
+        assert!(Path::new(&artifact.filename)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pcapng")));
         assert_eq!(artifact.content_type, "application/vnd.tcpdump.pcapng");
         let cleanup_path = artifact.cleanup_path.clone();
         assert!(cleanup_path.exists());
@@ -1571,7 +1568,9 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(artifact.filename.ends_with(".zip"));
+        assert!(Path::new(&artifact.filename)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("zip")));
         assert_eq!(artifact.content_type, "application/zip");
         let body = artifact_bytes(artifact).await;
         assert!(body.starts_with(b"PK\x03\x04"));

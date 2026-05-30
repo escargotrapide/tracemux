@@ -13,8 +13,11 @@ import {
   terminalOpenRequest,
   sourcesStore,
   toastsStore,
+  notificationHistoryStore,
   pushToast,
   dismissToast,
+  dismissAllToasts,
+  clearNotificationHistory,
   openNewTerminalChannel,
   openTerminalChannel,
   selectTerminalChannel,
@@ -28,6 +31,7 @@ import { getChannelFrames } from "../../src/state/channelBuffers";
 describe("state frame handler", () => {
   afterEach(() => {
     __setClientForTest(null);
+    vi.useRealTimers();
   });
 
   it("updates sourcesStore on data frames", () => {
@@ -365,6 +369,7 @@ describe("state frame handler", () => {
     const t = toastsStore[toastsStore.length - 1];
     expect(t.level).toBe("error");
     expect(t.errorId).toBe("E-2001");
+    expect(notificationHistoryStore[notificationHistoryStore.length - 1]?.errorId).toBe("E-2001");
   });
 
   it("ctl lifecycle ack frames produce info toasts", () => {
@@ -463,19 +468,74 @@ describe("state frame handler", () => {
   it("pushToast / dismissToast round-trip", () => {
     const id = pushToast({ level: "info", message: "hi" });
     expect(toastsStore.find((t) => t.id === id)?.message).toBe("hi");
+    expect(notificationHistoryStore.find((t) => t.id === id)?.message).toBe("hi");
     dismissToast(id);
+    expect(toastsStore.find((t) => t.id === id)).toBeUndefined();
+    expect(notificationHistoryStore.find((t) => t.id === id)?.message).toBe("hi");
+  });
+
+  it("auto-dismisses visible toasts while retaining notification history", () => {
+    vi.useFakeTimers();
+    const id = pushToast({ level: "info", message: "short-lived" });
+
+    expect(toastsStore.find((t) => t.id === id)).toBeDefined();
+    expect(notificationHistoryStore.find((t) => t.id === id)).toBeDefined();
+
+    vi.advanceTimersByTime(2_999);
+    expect(toastsStore.find((t) => t.id === id)).toBeDefined();
+    vi.advanceTimersByTime(1);
+
+    expect(toastsStore.find((t) => t.id === id)).toBeUndefined();
+    expect(notificationHistoryStore.find((t) => t.id === id)?.message).toBe("short-lived");
+  });
+
+  it("coalesces duplicate toasts and extends their visible lifetime", () => {
+    vi.useFakeTimers();
+    const id = pushToast({ level: "warn", message: "same issue" });
+    vi.advanceTimersByTime(500);
+    const duplicateId = pushToast({ level: "warn", message: "same issue" });
+
+    expect(duplicateId).toBe(id);
+    expect(toastsStore).toHaveLength(1);
+    expect(toastsStore[0]?.count).toBe(2);
+    expect(notificationHistoryStore).toHaveLength(1);
+    expect(notificationHistoryStore[0]?.count).toBe(2);
+
+    vi.advanceTimersByTime(4_999);
+    expect(toastsStore.find((t) => t.id === id)).toBeDefined();
+    vi.advanceTimersByTime(1);
     expect(toastsStore.find((t) => t.id === id)).toBeUndefined();
   });
 
-  it("caps toast history", () => {
+  it("clears notification history separately from visible toasts", () => {
+    const id = pushToast({ level: "error", message: "history item" });
+
+    clearNotificationHistory();
+
+    expect(notificationHistoryStore).toHaveLength(0);
+    expect(toastsStore.find((t) => t.id === id)?.message).toBe("history item");
+  });
+
+  it("dismisses all visible toasts without clearing notification history", () => {
+    pushToast({ level: "info", message: "one" });
+    pushToast({ level: "warn", message: "two" });
+
+    dismissAllToasts();
+
+    expect(toastsStore).toHaveLength(0);
+    expect(notificationHistoryStore.map((t) => t.message)).toEqual(["one", "two"]);
+  });
+
+  it("caps visible toasts and notification history", () => {
     const before = __flushUiPerfForTest();
-    for (let i = 0; i < 70; i += 1) {
+    for (let i = 0; i < 140; i += 1) {
       pushToast({ level: "info", message: `toast ${i}` });
     }
 
-    expect(toastsStore.length).toBeLessThanOrEqual(64);
+    expect(toastsStore.length).toBeLessThanOrEqual(4);
+    expect(notificationHistoryStore.length).toBeLessThanOrEqual(128);
     const after = __flushUiPerfForTest();
-    expect(after.toastsPushed).toBe(before.toastsPushed + 70);
+    expect(after.toastsPushed).toBe(before.toastsPushed + 140);
     expect(after.toastsDropped).toBeGreaterThan(before.toastsDropped);
   });
 });
