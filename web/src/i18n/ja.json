@@ -227,6 +227,7 @@
   "sources.export_all.failed": "一括エクスポートに失敗しました",
   "sources.export_all.help": "サーバー側で1つのZIPを作成し、ブラウザのダウンロードとして保存します。対象",
   "sources.export_all.unavailable": "保存済みソースがまだありません。",
+  "sources.export_all.pcapng_unavailable": "保存済みpcapソースがまだありません。",
   "sources.detail.channels": "チャンネル",
   "sources.detail.bytes": "受信バイト",
   "sources.detail.last": "最終受信",

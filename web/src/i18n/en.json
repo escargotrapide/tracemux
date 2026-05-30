@@ -227,6 +227,7 @@
   "sources.export_all.failed": "Bulk export failed",
   "sources.export_all.help": "Builds one ZIP on the server and downloads it through the browser. Sources",
   "sources.export_all.unavailable": "No persisted sources are available yet.",
+  "sources.export_all.pcapng_unavailable": "No persisted pcap sources are available yet.",
   "sources.detail.channels": "Channels",
   "sources.detail.bytes": "Bytes in",
   "sources.detail.last": "Last received",

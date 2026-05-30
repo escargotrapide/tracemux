@@ -219,6 +219,10 @@ export function SourcesPanel() {
     return sid ? sourcesStore[sid] : undefined;
   };
   const persistentSources = createMemo(() => Object.values(sourcesStore).filter((source) => source.persistent));
+  const exportableSources = (format: SessionExportFormat) => {
+    const sources = persistentSources();
+    return format === "pcapng" ? sources.filter((source) => source.kind === "pcap") : sources;
+  };
   const bulkProgressLabel = createMemo(() => {
     const progress = bulkProgress();
     if (!progress) return "";
@@ -385,9 +389,16 @@ export function SourcesPanel() {
   }
 
   async function onDownloadAllExports(format: SessionExportFormat): Promise<void> {
-    const sources = persistentSources();
+    const sources = exportableSources(format);
     if (sources.length === 0) {
-      pushToast({ level: "warn", message: t("sources.export_all.unavailable") });
+      pushToast({
+        level: "warn",
+        message: t(
+          format === "pcapng"
+            ? "sources.export_all.pcapng_unavailable"
+            : "sources.export_all.unavailable",
+        ),
+      });
       return;
     }
     const entries: SessionExportZipEntry[] = sources.map((source) => ({
@@ -728,7 +739,16 @@ export function SourcesPanel() {
             <button
               type="button"
               onClick={() => void onDownloadAllExports(format)}
-              disabled={persistentSources().length === 0 || bulkExporting() !== null}
+              disabled={exportableSources(format).length === 0 || bulkExporting() !== null}
+              title={
+                exportableSources(format).length === 0
+                  ? t(
+                    format === "pcapng"
+                      ? "sources.export_all.pcapng_unavailable"
+                      : "sources.export_all.unavailable",
+                  )
+                  : t(`sources.export_all.${format}`)
+              }
             >
               {bulkExporting() === format
                 ? `${t("sources.export_all.downloading")} ${bulkProgressLabel()}`.trim()
