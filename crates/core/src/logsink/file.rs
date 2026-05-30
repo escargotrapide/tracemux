@@ -104,6 +104,9 @@ impl LogSink for FileLogSink {
             .raw
             .append(&data)
             .map_err(|e| log_err("appending raw.bin", e))?;
+        self.raw
+            .flush()
+            .map_err(|e| log_err("flushing raw.bin", e))?;
         let mut entry =
             IndexEntry::from_envelope(ts, self.sid, direction_to_dir(dir), Kind::Bytes, off, len);
         entry.source.clone_from(&self.source);
@@ -111,6 +114,9 @@ impl LogSink for FileLogSink {
         self.index
             .append(&entry)
             .map_err(|e| log_err("appending index.jsonl", e))?;
+        self.index
+            .flush()
+            .map_err(|e| log_err("flushing index.jsonl", e))?;
         Ok(())
     }
 
@@ -284,5 +290,24 @@ mod tests {
         let meta = std::fs::read_to_string(dir.join("meta.toml")).unwrap();
         assert!(meta.contains("log_format_version = \"1.0.0\""));
         assert!(meta.contains(&sid.to_string()));
+    }
+
+    #[tokio::test]
+    async fn raw_and_index_payload_are_visible_before_close() {
+        let dir = tempdir();
+        let sid = Uuid::new_v4();
+        let mut sink = FileLogSink::create(&dir, sid).unwrap();
+
+        sink.append_raw(&ts(), Direction::In, Bytes::from_static(b"live"))
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read(dir.join("raw.bin")).unwrap(), b"live");
+        let index = std::fs::read_to_string(dir.join("index.jsonl")).unwrap();
+        let index_row: serde_json::Value = serde_json::from_str(index.trim()).unwrap();
+        assert_eq!(index_row["sid"], sid.to_string());
+        assert_eq!(index_row["off"], 0);
+        assert_eq!(index_row["len"], 4);
+        sink.close().await.unwrap();
     }
 }
