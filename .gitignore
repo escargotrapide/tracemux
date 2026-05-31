@@ -27,6 +27,7 @@ Thumbs.db
 *.local.toml
 *.local.json
 .tracemux/
+tracemux-sessions/
 fixtures/private/
 target-mutants/
 target-fuzz/
