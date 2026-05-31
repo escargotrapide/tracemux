@@ -18,7 +18,7 @@ version = "0.1.0-dev"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/wanlogger/tracemux"
+repository = "https://github.com/escargotrapide/tracemux"
 authors = ["TraceMux contributors"]
 
 [workspace.lints.rust]
