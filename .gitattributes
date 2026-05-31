@@ -1,0 +1,9 @@
+# Force LF for source files; reject mixed line endings on Windows.
+* text=auto eol=lf
+
+# Binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.parquet binary
+*.zst binary

@@ -1,0 +1,752 @@
+// E2E shell test driving the UI through the dev-only
+// `window.__tracemuxInject` hook (no real WSS server needed).
+//
+// REQ: FR-UI-001
+// REQ: FR-UI-002
+// REQ: FR-UI-003
+// REQ: FR-UI-005
+// REQ: FR-UI-008
+// REQ: FR-UI-009
+
+import { test, expect, type Page } from "@playwright/test";
+
+async function waitForInject(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { __tracemuxInject?: unknown })
+        .__tracemuxInject === "function",
+  );
+}
+
+async function injectFrame(page: Page, frame: unknown): Promise<void> {
+  await page.evaluate((payload) => {
+    const fn = (
+      window as unknown as { __tracemuxInject: (f: unknown) => void }
+    ).__tracemuxInject;
+    fn(payload);
+  }, frame);
+}
+
+async function installClientSpy(page: Page, sendResult = true): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { __tracemuxSetClient?: unknown })
+        .__tracemuxSetClient === "function",
+  );
+  await page.evaluate((result) => {
+    const sent: unknown[] = [];
+    const win = window as unknown as {
+      __tracemuxSetClient: (client: { send: (frame: unknown) => boolean }) => void;
+      __tracemuxSentFrames: unknown[];
+    };
+    win.__tracemuxSentFrames = sent;
+    win.__tracemuxSetClient({
+      send: (frame: unknown) => {
+        sent.push(frame);
+        return result;
+      },
+    });
+  }, sendResult);
+}
+
+async function setConnState(page: Page, state: unknown): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { __tracemuxSetConnState?: unknown })
+        .__tracemuxSetConnState === "function",
+  );
+  await page.evaluate((next) => {
+    const fn = (
+      window as unknown as { __tracemuxSetConnState: (s: unknown) => void }
+    ).__tracemuxSetConnState;
+    fn(next);
+  }, state);
+}
+
+async function sentFrames(page: Page): Promise<unknown[]> {
+  return page.evaluate(
+    () => (window as unknown as { __tracemuxSentFrames?: unknown[] }).__tracemuxSentFrames ?? [],
+  );
+}
+
+test("loads shell and shows top-bar title", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("tracemux").first()).toBeVisible();
+  await expect(page.getByText(/Terminal|\u30bf\u30fc\u30df\u30ca\u30eb/).first()).toBeVisible();
+  await expect(page.getByText("Log type note sync failed; kept in this browser.")).toHaveCount(0);
+});
+
+test("language toggle switches between ja and en", async ({ page }) => {
+  await page.goto("/");
+  const toggle = page.getByRole("button", { name: /JA|EN/ });
+  const before = await toggle.textContent();
+  await toggle.click();
+  const after = await toggle.textContent();
+  expect(after).not.toEqual(before);
+});
+
+test("injected ctl error frame surfaces a toast", async ({ page }) => {
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+      type: "ctl",
+      seq: 1,
+      payload: {
+        event: "auth_failed",
+        message: "bad token in e2e",
+        error_id: "E-2001",
+      },
+  });
+  await expect(page.getByText("bad token in e2e")).toBeVisible();
+  await expect(page.getByText("E-2001")).toBeVisible();
+
+  await page.getByTestId("notification-button").click();
+  const center = page.getByTestId("notification-center");
+  await expect(center.getByText("bad token in e2e")).toBeVisible();
+  await expect(center.getByText("E-2001")).toBeVisible();
+});
+
+test("dock tabs expose distinct panel accent bands", async ({ page }) => {
+  await page.goto("/");
+
+  const accents = await page.locator(".wl-dock-tab").evaluateAll((nodes) => (
+    nodes.map((node) => getComputedStyle(node).getPropertyValue("--wl-panel-accent").trim())
+      .filter(Boolean)
+  ));
+
+  expect(accents.length).toBeGreaterThanOrEqual(6);
+  expect(new Set(accents).size).toBeGreaterThanOrEqual(5);
+});
+
+test("injected data frame populates the sources panel", async ({ page }) => {
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+      type: "data",
+      seq: 1,
+      payload: {
+        ts_origin: 0,
+        ts_ingest: 1_000_000,
+        mono_ns: 0,
+        boot_id: "b",
+        node_id: "n",
+        clock_offset_ms: 0,
+        clock_quality: "best-effort",
+        drift_ppm: 0,
+        clock_source: "system",
+        sid: "e2e-source",
+        ch: 0,
+        dir: "in",
+        kind: "bytes",
+        body: new Uint8Array([72, 73]),
+        source: "uart-e2e",
+      },
+  });
+  await expect(page.getByRole("cell", { name: "uart-e2e" })).toBeVisible();
+});
+
+test("terminal toolbar changes the selected channel text encoding", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "33333333-3333-4333-8333-333333333333",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([0x82, 0xa0]),
+      source: "serial:COM11",
+    },
+  });
+
+  const terminal = page.locator('div.wl-panel-content[data-panel-kind="terminal"]').first();
+  await expect(terminal.getByText(/COM11 \/ ch 0/)).toBeVisible();
+  await expect(terminal.getByLabel(/Text encoding|文字コード/)).toBeEnabled();
+  await terminal.getByLabel(/Text encoding|文字コード/).selectOption("shift_jis");
+  await expect.poll(() => page.evaluate(async () => {
+    const { sourceEncodings } = await import("/src/state/sourceEncodings.ts");
+    return sourceEncodings["33333333-3333-4333-8333-333333333333/0"]?.encoding ?? "";
+  })).toBe("shift_jis");
+
+  await expect.poll(() => page.evaluate(async () => {
+    const { getChannelFrames } = await import("/src/state/channelBuffers.ts");
+    const { bodyText } = await import("/src/state/displayFrames.ts");
+    const { encodingForChannel } = await import("/src/state/sourceEncodings.ts");
+    const sid = "33333333-3333-4333-8333-333333333333";
+    const frame = getChannelFrames(sid, 0, 1)[0];
+    return frame ? bodyText(frame, encodingForChannel(sid, 0, "utf-8")) : "";
+  })).toBe("あ");
+  await expect(page.locator(".wl-tile").filter({ hasText: "COM11" })).toHaveAttribute(
+    "data-encoding",
+    "shift_jis",
+  );
+});
+
+test("source alias updates terminal and tile labels", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "alias-source",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73]),
+      source: "serial:COM7",
+    },
+  });
+
+  await expect(page.getByText(/COM7 \/ ch 0/).first()).toBeVisible();
+  await page.getByRole("button", { name: /Details|詳細/ }).first().click();
+  await page.getByLabel(/Display alias|表示名エイリアス/).fill("Motor UART");
+
+  await expect(page.getByText(/Motor UART \/ ch 0/).first()).toBeVisible();
+  await expect(page.locator(".wl-tile-header").filter({ hasText: "Motor UART" })).toBeVisible();
+});
+
+test("tile xterm viewport remains mouse-scrollable", async ({ page }) => {
+  // REQ: FR-UI-012
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "tile-scroll-source",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73, 10]),
+      source: "serial:COM8",
+    },
+  });
+
+  const viewport = page.locator(".wl-tile-body .xterm-viewport").first();
+  await expect(viewport).toBeVisible();
+
+  const styles = await viewport.evaluate((node) => {
+    const viewportStyle = window.getComputedStyle(node);
+    const bodyStyle = window.getComputedStyle(node.closest(".wl-tile-body") as Element);
+    return {
+      viewportOverflowY: viewportStyle.overflowY,
+      pointerEvents: viewportStyle.pointerEvents,
+      bodyOverflowY: bodyStyle.overflowY,
+    };
+  });
+
+  expect(styles.viewportOverflowY).not.toBe("hidden");
+  expect(styles.bodyOverflowY).toBe("hidden");
+  expect(styles.pointerEvents).not.toBe("none");
+});
+
+test("tile viewport auto-follows the newest log while at bottom", async ({ page }) => {
+  // REQ: FR-UI-012
+  await page.goto("/");
+  await waitForInject(page);
+
+  for (let seq = 0; seq < 80; seq += 1) {
+    await injectFrame(page, {
+      type: "data",
+      seq,
+      payload: {
+        ts_origin: seq,
+        ts_ingest: seq + 1,
+        mono_ns: 0,
+        boot_id: "b",
+        node_id: "n",
+        clock_offset_ms: 0,
+        clock_quality: "best-effort",
+        drift_ppm: 0,
+        clock_source: "system",
+        sid: "tile-follow-source",
+        ch: 0,
+        dir: "in",
+        kind: "bytes",
+        body: new TextEncoder().encode(`line-${seq}\n`),
+        source: "serial:COM9",
+      },
+    });
+  }
+
+  const viewport = page.locator(".wl-tile-body .xterm-viewport").first();
+  await expect(viewport).toBeVisible();
+  await expect.poll(async () => viewport.evaluate((node) => (
+    node.scrollHeight - node.scrollTop - node.clientHeight
+  ))).toBeLessThan(8);
+});
+
+test("tile viewport preserves manual scroll and resumes bottom follow", async ({ page }) => {
+  // REQ: FR-UI-012
+  await page.goto("/");
+  await waitForInject(page);
+
+  for (let seq = 0; seq < 90; seq += 1) {
+    await injectFrame(page, {
+      type: "data",
+      seq,
+      payload: {
+        ts_origin: seq,
+        ts_ingest: seq + 1,
+        mono_ns: 0,
+        boot_id: "b",
+        node_id: "n",
+        clock_offset_ms: 0,
+        clock_quality: "best-effort",
+        drift_ppm: 0,
+        clock_source: "system",
+        sid: "tile-manual-scroll-source",
+        ch: 0,
+        dir: "in",
+        kind: "bytes",
+        body: new TextEncoder().encode(`before-${seq}\n`),
+        source: "serial:COM10",
+      },
+    });
+  }
+
+  const viewport = page.locator(".wl-tile-body .xterm-viewport").first();
+  await expect(viewport).toBeVisible();
+  await expect.poll(async () => viewport.evaluate((node) => (
+    node.scrollHeight - node.scrollTop - node.clientHeight
+  ))).toBeLessThan(8);
+
+  await viewport.evaluate((node) => {
+    node.scrollTop = 0;
+    node.dispatchEvent(new Event("scroll"));
+  });
+
+  await injectFrame(page, {
+    type: "data",
+    seq: 91,
+    payload: {
+      ts_origin: 91,
+      ts_ingest: 92,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "tile-manual-scroll-source",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new TextEncoder().encode("while-reading-old-lines\n"),
+      source: "serial:COM10",
+    },
+  });
+
+  await expect.poll(async () => viewport.evaluate((node) => (
+    node.scrollHeight - node.scrollTop - node.clientHeight
+  ))).toBeGreaterThan(16);
+
+  await viewport.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+    node.dispatchEvent(new Event("scroll"));
+  });
+  await injectFrame(page, {
+    type: "data",
+    seq: 92,
+    payload: {
+      ts_origin: 92,
+      ts_ingest: 93,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "tile-manual-scroll-source",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new TextEncoder().encode("follow-again\n"),
+      source: "serial:COM10",
+    },
+  });
+
+  await expect.poll(async () => viewport.evaluate((node) => (
+    node.scrollHeight - node.scrollTop - node.clientHeight
+  ))).toBeLessThan(8);
+});
+
+test("source detail export button calls the HTTP export API", async ({ page }) => {
+  // REQ: FR-EXP-001
+  let exportUrl = "";
+  await page.route("http://127.0.0.1:9000/api/sessions/**/export?**", async (route) => {
+    exportUrl = route.request().url();
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "content-disposition": "attachment; filename=export-source.txt",
+      },
+      body: "2024-01-01T09:00:00+09:00\tvirt-peer-e2e\n",
+    });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 2,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "11111111-1111-4111-8111-111111111111",
+          name: "Export Source",
+          kind: "tcp",
+          status: "stopped",
+          channels: [0],
+          bytes_in: 42,
+          persistent: true,
+          session_dir: "C:/tmp/tracemux-session",
+        },
+      ],
+    },
+  });
+
+  await expect(page.getByRole("cell", { name: "Export Source" })).toBeVisible();
+  await page.getByRole("button", { name: "Details" }).click();
+  await page.getByLabel("Export timezone").fill("GMT+9");
+  await page.getByLabel("Export filename pattern").fill("{source}_{timestamp}.{ext}");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download text" }).click();
+  const download = await downloadPromise;
+
+  await expect.poll(() => exportUrl).toContain("/api/sessions/11111111-1111-4111-8111-111111111111/export");
+  expect(exportUrl).toContain("format=text");
+  expect(exportUrl).toContain("tz=GMT%2B9");
+  expect(await download.failure()).toBeNull();
+  await expect(page.getByText("Export download requested")).toBeVisible();
+});
+
+test("source panel can bulk export all persisted sources as one zip", async ({ page }) => {
+  // REQ: FR-UI-018
+  let bundleTicketBody: unknown;
+  let bundleDownloadUrl = "";
+  await page.route("http://127.0.0.1:9000/api/exports/bundle-ticket", async (route) => {
+    bundleTicketBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ticket: "bundle-ticket",
+        expires_in_ms: 60_000,
+        expires_at_ms: 1_780_134_200_000,
+      }),
+    });
+  });
+  await page.route("http://127.0.0.1:9000/api/exports/bundle?**", async (route) => {
+    bundleDownloadUrl = route.request().url();
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "application/zip",
+        "content-disposition": "attachment; filename=tracemux-all.zip",
+      },
+      body: "PK\x03\x04bundle",
+    });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 20,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          name: "Bulk A",
+          kind: "tcp",
+          status: "stopped",
+          channels: [0],
+          bytes_in: 42,
+          persistent: true,
+          session_dir: "C:/tmp/bulk-a",
+        },
+        {
+          sid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Bulk B",
+          kind: "serial",
+          status: "stopped",
+          channels: [0],
+          bytes_in: 64,
+          persistent: true,
+          session_dir: "C:/tmp/bulk-b",
+        },
+        {
+          sid: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          name: "Live Only",
+          kind: "mock",
+          status: "running",
+          channels: [0],
+          bytes_in: 1,
+          persistent: false,
+        },
+      ],
+    },
+  });
+
+  await page.getByLabel("All sources timezone").fill("UTC");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Zip all text" }).click();
+  const download = await downloadPromise;
+
+  await expect.poll(() => bundleTicketBody).toBeTruthy();
+  expect(bundleTicketBody).toMatchObject({
+    entries: [
+      { sid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", source_name: "Bulk A" },
+      { sid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", source_name: "Bulk B" },
+    ],
+    format: "text",
+    tz: "UTC",
+  });
+  expect(JSON.stringify(bundleTicketBody)).not.toContain("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+  expect(bundleDownloadUrl).toContain("/api/exports/bundle?ticket=bundle-ticket");
+  expect(await download.failure()).toBeNull();
+  await expect(page.getByText(/Bulk export ZIP download requested/)).toBeVisible();
+});
+
+test("settings rules and source start defaults are sent with ctl start", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page);
+
+  await page.getByLabel("Default text encoding").selectOption("shift_jis");
+  await page.getByLabel("Session name pattern").fill("{prefix}_{kind}_{iface}_{unix_ns}");
+  await page.getByPlaceholder("ERROR, WARN, voltage...").fill("ERROR");
+  await page.getByPlaceholder("fault, warning, power...").fill("fault");
+  await page.getByRole("button", { name: "Add rule" }).click();
+  await expect(page.getByRole("cell", { name: "fault", exact: true })).toBeVisible();
+
+  await page.getByLabel("Source spec").fill("mock://phase3-ui");
+  await page.getByRole("button", { name: "Add source" }).click();
+  await expect(page.getByText("Source start requested")).toBeVisible();
+
+  const frames = await sentFrames(page);
+  const start = frames.find((frame) => {
+    const candidate = frame as { type?: string; payload?: { action?: string } };
+    return candidate.type === "ctl" && candidate.payload?.action === "start";
+  }) as {
+    payload?: {
+      encoding?: string;
+      session_name_pattern?: string;
+      classifier?: Array<{ contains?: string; tag?: string }>;
+    };
+  } | undefined;
+
+  expect(start?.payload?.encoding).toBe("shift_jis");
+  expect(start?.payload?.session_name_pattern).toBe("{prefix}_{kind}_{iface}_{unix_ns}");
+  expect(start?.payload?.classifier).toContainEqual({ contains: "ERROR", tag: "fault" });
+});
+
+test("connection banner and unsent source command are visible", async ({ page }) => {
+  // REQ: FR-UI-009
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page, false);
+  await setConnState(page, { status: "closed", code: 1006, reason: "lost" });
+
+  await expect(page.getByText(/Disconnected from the tracemux server/)).toBeVisible();
+  await page.getByLabel("Source spec").fill("mock://disconnected-e2e");
+  await page.getByRole("button", { name: "Add source" }).click();
+  await expect(page.getByText(/Request was not sent/)).toBeVisible();
+});
+
+test("source details expose persistence, per-source display settings, and notes", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 3,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "22222222-2222-4222-8222-222222222222",
+          name: "COM7 Logger",
+          kind: "serial",
+          status: "running",
+          channels: [0, 1],
+          bytes_in: 128,
+          persistent: true,
+          session_dir: "C:/logs/COM7-session",
+        },
+      ],
+    },
+  });
+
+  await expect(page.getByLabel("COM7 Logger encoding")).toHaveValue("utf-8");
+  await page.getByLabel("COM7 Logger encoding").selectOption("cp932");
+  await page.getByRole("button", { name: "Details" }).click();
+  await expect(page.getByText("Saved to session-dir")).toBeVisible();
+  await expect(page.getByText("C:/logs/COM7-session")).toBeVisible();
+  await expect(page.getByText("Source note sync failed; kept in this browser.")).toHaveCount(0);
+  await expect(page.getByLabel("Display encoding")).toHaveValue("cp932");
+
+  await page.getByLabel("Channel encoding ch 1").selectOption("shift_jis");
+  await page.getByLabel("Display alias").fill("Motor COM7");
+  await page.getByLabel("Notes").fill("Investigate boot noise");
+  await page.getByRole("button", { name: "Restart with encoding" }).click();
+  await expect(page.getByText(/Motor COM7 \/ ch 0/).first()).toBeVisible();
+
+  const frames = await sentFrames(page);
+  const restart = frames.find((frame) => {
+    const candidate = frame as { type?: string; sid?: string; payload?: { action?: string } };
+    return candidate.type === "ctl" && candidate.sid === "22222222-2222-4222-8222-222222222222" && candidate.payload?.action === "restart";
+  }) as { payload?: { encoding?: string } } | undefined;
+  expect(restart?.payload?.encoding).toBe("cp932");
+});
+
+test("source notes load from and sync to the annotation API", async ({ page }) => {
+  // REQ: FR-UI-017
+  const sid = "44444444-4444-4444-8444-444444444444";
+  let savedBody: unknown = null;
+  await page.route("http://127.0.0.1:9000/api/annotations**", async (route) => {
+    const request = route.request();
+    if (request.method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify([
+          {
+            id: "55555555-5555-5555-8555-555555555555",
+            target: { kind: "session", sid },
+            text: "server memo",
+            updated_at: "2026-05-20T00:00:00Z",
+            deleted: false,
+          },
+        ]),
+      });
+      return;
+    }
+    if (request.method() === "PUT") {
+      savedBody = JSON.parse(request.postData() ?? "{}");
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "55555555-5555-5555-8555-555555555555",
+          ...(savedBody as Record<string, unknown>),
+          updated_at: "2026-05-20T00:00:01Z",
+          deleted: false,
+        }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 4,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid,
+          name: "Annotated Source",
+          kind: "serial",
+          status: "running",
+          channels: [0],
+          bytes_in: 1,
+          persistent: true,
+          session_dir: "C:/logs/annotated",
+        },
+      ],
+    },
+  });
+  await setConnState(page, { status: "open", since: Date.now() });
+
+  await page.getByRole("button", { name: "Details" }).click();
+  const details = page.locator("aside");
+  await expect(details.getByLabel("Notes")).toHaveValue("server memo");
+  await expect(details.getByText("Synced", { exact: true })).toBeVisible();
+
+  await details.getByLabel("Notes").fill("client memo");
+  await details.getByRole("button", { name: "Sync now" }).click();
+  await expect.poll(() => savedBody).toMatchObject({
+    target: { kind: "session", sid },
+    text: "client memo",
+  });
+  await expect(details.getByText("Synced", { exact: true })).toBeVisible();
+});
+
+test("source note annotation sync failure is visible but non-fatal", async ({ page }) => {
+  // REQ: FR-UI-017
+  await page.route("http://127.0.0.1:9000/api/annotations**", async (route) => {
+    await route.fulfill({ status: 500, body: "annotation store down" });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 5,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "66666666-6666-4666-8666-666666666666",
+          name: "Failing Annotation Source",
+          kind: "serial",
+          status: "running",
+          channels: [0],
+          bytes_in: 1,
+          persistent: true,
+          session_dir: "C:/logs/failing-annotation",
+        },
+      ],
+    },
+  });
+  await setConnState(page, { status: "open", since: Date.now() });
+
+  await page.getByRole("button", { name: "Details" }).click();
+  const details = page.locator("aside");
+  await expect(details.getByText("Sync failed")).toBeVisible();
+  await expect(page.getByText("Source note sync failed; kept in this browser.")).toBeVisible();
+});

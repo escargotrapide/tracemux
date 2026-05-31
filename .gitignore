@@ -1,0 +1,40 @@
+# --- Rust ---
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# --- Node / Web ---
+node_modules/
+dist/
+.pnpm-store/
+.vite/
+
+# --- Tauri ---
+src-tauri/target/
+# Tauri sidecar binary and generated icons (created by scripts/dev-prepare)
+app-tauri/src-tauri/binaries/
+app-tauri/src-tauri/icons/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# --- Local data / secrets ---
+*.local.toml
+*.local.json
+.tracemux/
+tracemux-sessions/
+fixtures/private/
+target-mutants/
+target-fuzz/
+
+# --- Coverage / bench artifacts ---
+*.profraw
+lcov.info
+target/lcov.info
+target/criterion/
+target/ai-verify.json

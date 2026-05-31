@@ -1,0 +1,7 @@
+[toolchain]
+# Bumped from 1.78 to 1.88 because the `time` crate (and several others
+# in the dep graph) now require edition2024 in patch releases.
+# Edition2024 stabilised in Rust 1.85.
+channel = "1.88.0"
+components = ["rustfmt", "clippy", "rust-src"]
+profile = "minimal"

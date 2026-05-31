@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TraceMux",
+  "version": "0.1.0-dev",
+  "identifier": "io.github.tracemux",
+  "build": {
+    "beforeDevCommand": "pnpm --filter ../web dev",
+    "beforeBuildCommand": "pnpm --filter ../web build",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "TraceMux",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 480,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' wss://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "externalBin": [
+      "binaries/tracemux"
+    ]
+  }
+}

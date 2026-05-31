@@ -1,0 +1,22 @@
+[package]
+name = "tracemux-replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "tracemux session-dir replay engine"
+
+[lints]
+workspace = true
+
+[dependencies]
+tracemux-core = { path = "../core" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }

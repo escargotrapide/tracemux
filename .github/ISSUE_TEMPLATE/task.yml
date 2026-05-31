@@ -1,0 +1,16 @@
+name: Task
+description: Internal / chore / refactor task
+labels: ["type:task"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs doing
+    validations:
+      required: true
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of done
+    validations:
+      required: true

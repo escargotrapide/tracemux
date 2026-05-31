@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracemux.dev/cli-output/v1/version.schema.json",
+  "title": "tracemux --version JSON output",
+  "type": "object",
+  "required": ["schema", "name", "version"],
+  "properties": {
+    "schema": { "type": "string", "const": "tracemux/version/v1" },
+    "name": { "type": "string" },
+    "version": { "type": "string" },
+    "commit": { "type": ["string", "null"] },
+    "rust_version": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

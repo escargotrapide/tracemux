@@ -1,0 +1,49 @@
+name: label-critical
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changed
+        uses: tj-actions/changed-files@v45
+        with:
+          files: |
+            docs/protocols/**
+            docs/adr/**
+            docs/requirements.md
+            docs/invariants.md
+            crates/core/src/source/mod.rs
+            crates/core/src/sink/mod.rs
+            crates/core/src/framer/mod.rs
+            crates/core/src/decoder/mod.rs
+            crates/core/src/logsink/mod.rs
+            crates/core/src/time/mod.rs
+            crates/core/src/log/wal.rs
+            crates/core/src/log/group_commit.rs
+            crates/core/src/log/rotate.rs
+            crates/core/src/config/migrate.rs
+            crates/core/src/secret.rs
+            crates/server/src/wire.rs
+            crates/server/src/auth.rs
+            crates/server/src/tls.rs
+            crates/server/src/fingerprint.rs
+            Cargo.lock
+            rust-toolchain.toml
+            deny.toml
+            .github/workflows/release.yml
+            SECURITY.md
+      - if: steps.changed.outputs.any_changed == 'true'
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          labels: human-review-required

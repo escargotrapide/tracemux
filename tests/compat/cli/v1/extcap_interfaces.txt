@@ -1,0 +1,2 @@
+extcap {version=0.1.0}{help=https://example.invalid/tracemux}
+interface {value=tracemux}{display=tracemux universal logger}

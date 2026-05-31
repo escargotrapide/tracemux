@@ -1,0 +1,107 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/cli",
+    "crates/server",
+    "crates/replay",
+    "tools/virt-peer",
+]
+# The Tauri shell has its own non-workspace Cargo.toml so that
+# `cargo build --workspace` does not require the Tauri toolchain.
+exclude = [
+    "app-tauri/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0-dev"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/escargotrapide/tracemux"
+authors = ["TraceMux contributors"]
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Allow practical lints that fight the architecture
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Pedantic lints that produce too much noise on this codebase.
+similar_names = "allow"
+manual_let_else = "allow"
+single_match_else = "allow"
+needless_lifetimes = "allow"
+derivable_impls = "allow"
+redundant_closure_for_method_calls = "allow"
+manual_repeat_n = "allow"
+doc_markdown = "allow"
+# Numeric casts: many call sites guard the value upstream; the
+# pedantic lints below produce more noise than signal in v0.1.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+
+[workspace.dependencies]
+# async
+tokio = { version = "1.38", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures = "0.3"
+async-trait = "0.1"
+# bytes / encoding
+bytes = "1.6"
+encoding_rs = "0.8"
+# serde / formats
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+rmp-serde = "1.3"
+rmpv = { version = "1.3", features = ["with-serde"] }
+regex = "1"
+etherparse = "=0.20.0"
+pcap-file = "2.0"
+pcap = { version = "2.4", default-features = false }
+# time
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+# logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# error
+thiserror = "1.0"
+anyhow = "1.0"
+# ids
+uuid = { version = "1.10", features = ["v4", "serde"] }
+# crypto / tls
+rcgen = "0.13"
+rustls = "0.23"
+rustls-pemfile = "2"
+argon2 = "0.5"
+sha2 = "0.10"
+# network / web
+axum = { version = "0.7", features = ["ws", "macros"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
+# cli
+clap = { version = "4", features = ["derive", "env"] }
+# misc
+parking_lot = "0.12"
+dashmap = "6"
+# serial
+tokio-serial = "5.4"
+serialport = "4.3"
+# compression
+zstd = "0.13"
+# checksums
+crc32fast = "1.4"
+# secrets
+keyring = "2"
+# test helpers
+tempfile = "3"

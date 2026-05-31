@@ -1,0 +1,122 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  encoding:
+    name: text files are UTF-8
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: validate UTF-8 + LF line endings
+        run: |
+          set -euo pipefail
+          bad=0
+          while IFS= read -r -d '' f; do
+            if ! iconv -f UTF-8 -t UTF-8 "$f" >/dev/null 2>&1; then
+              echo "::error file=$f::not valid UTF-8"
+              bad=1
+            fi
+            if grep -qP '\r' "$f"; then
+              echo "::error file=$f::contains CR (use LF)"
+              bad=1
+            fi
+          done < <(git ls-files -z -- '*.rs' '*.ts' '*.tsx' '*.js' '*.jsx' '*.css' '*.html' '*.md' '*.toml' '*.yml' '*.yaml' '*.sh' '*.ps1' '*.json' '*.jsonl' '*.txt' justfile)
+          exit "$bad"
+
+  rust:
+    name: rust ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: rustfmt, clippy
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --features serial,metrics,desktop,headless -- -D warnings
+      - name: test
+        run: cargo test --workspace --features serial,metrics,desktop,headless
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: install cargo-audit
+        run: cargo install cargo-audit --locked
+      - run: cargo audit
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  web:
+    name: web typecheck / test / build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+      - name: install web dependencies
+        run: pnpm install --frozen-lockfile
+      - name: typecheck
+        run: pnpm --filter ./web typecheck
+      - name: unit tests
+        run: pnpm --filter ./web test
+      - name: production build
+        run: pnpm --filter ./web build
+
+  compat:
+    name: compat fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: wire compat fixtures
+        run: cargo test -p tracemux-server --test wire_compat --features serial,metrics
+      - name: log compat fixtures
+        run: cargo test -p tracemux-replay --test log_compat
+      - name: cli compat fixtures
+        run: cargo test -p tracemux-cli --test cli_compat --features serial,metrics,desktop,headless
+
+  rtm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: regenerate RTM and diff
+        run: |
+          bash scripts/gen-rtm.sh
+          git diff --exit-code -- docs/rtm.md

@@ -1,0 +1,49 @@
+[package]
+name = "tracemux-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "tracemux server: axum + rustls + WSS mux"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+metrics = ["tracemux-core/metrics"]
+serial = ["tracemux-core/serial"]
+pcap-capture = ["tracemux-core/pcap-capture"]
+
+[dependencies]
+tracemux-core = { path = "../core" }
+axum = { workspace = true }
+axum-server = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+rmpv = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+rcgen = { workspace = true }
+argon2 = { workspace = true }
+sha2 = { workspace = true }
+bytes = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+uuid = { workspace = true }
+futures = { workspace = true }
+tokio-tungstenite = "0.24"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
