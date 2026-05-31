@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
-export const CLASSIFICATION_RULES_STORAGE_KEY = "wanlogger.classificationRules.v1";
+export const CLASSIFICATION_RULES_STORAGE_KEY = "tracemux.classificationRules.v1";
 export const MAX_CLASSIFICATION_RULES = 200;
 export const MAX_CLASSIFICATION_TEXT_LENGTH = 160;
 

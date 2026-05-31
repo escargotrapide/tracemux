@@ -1,4 +1,4 @@
-//! `wanlogger log` ? record a channel into a v0.1 session-dir.
+//! `tracemux log` ? record a channel into a v0.1 session-dir.
 //!
 //! Layout (see `docs/protocols/log-format.md`):
 //! ```text
@@ -9,7 +9,7 @@
 //! ```
 //!
 //! v0.1 writes the **plain** raw.bin path (the WAL/group-commit/zstd
-//! pipeline lives in `wanlogger-core::log::wal` / `group_commit` and
+//! pipeline lives in `tracemux-core::log::wal` / `group_commit` and
 //! is a frozen critical path applied by the server when bound).
 
 use std::path::PathBuf;
@@ -18,16 +18,16 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use uuid::Uuid;
-use wanlogger_core::classify::{ClassificationRule, LogClassifier};
-use wanlogger_core::codec::decode;
-use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
-use wanlogger_core::log::raw::RawWriter;
-use wanlogger_core::session_name::{
+use tracemux_core::classify::{ClassificationRule, LogClassifier};
+use tracemux_core::codec::decode;
+use tracemux_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
+use tracemux_core::log::raw::RawWriter;
+use tracemux_core::session_name::{
     render_session_name, SessionNameParts, DEFAULT_CLI_SESSION_NAME_PATTERN,
 };
-use wanlogger_core::source::{ChannelSpec, ControlEvt, Frame};
-use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
+use tracemux_core::source::{ChannelSpec, ControlEvt, Frame};
+use tracemux_core::time::{ClockQuality, ClockSource, DualTimestamp};
+use uuid::Uuid;
 
 use super::spec;
 
@@ -64,13 +64,13 @@ pub struct Options {
 /// Returns an `anyhow::Error` for spec / I/O / source failure.
 pub async fn run(options: Options) -> Result<()> {
     let s = spec::parse(&options.spec).context("parsing channel spec")?;
-    let prefix = options.prefix.as_deref().unwrap_or("wanlogger");
+    let prefix = options.prefix.as_deref().unwrap_or("tracemux");
     let classifier = classifier_from_specs(&options.classify, &options.classify_regex)?;
     let now = OffsetDateTime::now_utc();
     let stamp = format_session_stamp(now);
     let kind = spec::kind_tag(&s);
     let iface = spec::iface_tag(&s);
-    let unix_ns = wanlogger_core::time::unix_ns_now();
+    let unix_ns = tracemux_core::time::unix_ns_now();
     let dir_name = render_session_name(
         options
             .name_pattern
@@ -233,7 +233,7 @@ fn frame_payload(f: &Frame) -> (Vec<u8>, Kind) {
 /// `ts_ingest`. For the standalone `log` subcommand, we approximate
 /// both with `now` and mark the quality as `BestEffort`.
 fn synth_dual_ts() -> DualTimestamp {
-    let now_ns = wanlogger_core::time::unix_ns_now();
+    let now_ns = tracemux_core::time::unix_ns_now();
     DualTimestamp {
         ts_origin_ns: now_ns,
         ts_ingest_ns: now_ns,

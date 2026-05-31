@@ -1,4 +1,4 @@
-# AGENTS.md — wanlogger
+# AGENTS.md — TraceMux
 
 > Central instructions for AI coding agents (GitHub Copilot, Claude, Cursor, etc.)
 > working in this repository. Human contributors should read it too.
@@ -17,7 +17,7 @@ If you change architecture, **update this file in the same PR**.
 
 ## 1. Project mission
 
-`wanlogger` is *"that one unified terminal to view and maintain all the logs,
+TraceMux is *"that one unified terminal to view and maintain all the logs,
 either local or over networks"*. It is a lightweight, high-functionality,
 multi-connection debug terminal + log platform.
 
@@ -39,7 +39,7 @@ Plus orthogonal: **Sink** (write-back), **Importer / Exporter**,
 Process layout:
 
 ```
-  [browser / Tauri shell]  ──WSS (subprotocol "wanlogger.v1", MessagePack)──▶  [wanlogger serve]
+  [browser / Tauri shell]  ──WSS (subprotocol "tracemux.v1", MessagePack)──▶  [tracemux serve]
                                                                                   │
                                                                                   ▼
                                                           Source registry → Framer → Decoder → LogSink
@@ -126,7 +126,7 @@ under `<!-- map.toml -->`. Keep both in sync.
 | `crates/core/src/eventbus.rs`       | broadcast bus (drop-on-lag)                   | stable        |
 | `crates/core/src/metrics.rs`        | Prometheus metrics (feature `metrics`)        | stable        |
 | `crates/server/`                    | axum + rustls + WSS mux + ingest + ai_api     | **stable**    |
-| `crates/cli/`                       | `wanlogger` binary (clap)                     | stable        |
+| `crates/cli/`                       | `tracemux` binary (clap)                     | stable        |
 | `crates/replay/`                    | replay engine (offline session-dir → fan-out) | stable        |
 | `crates/fuzz/`                      | cargo-fuzz targets                            | experimental  |
 | `app-tauri/`                        | Tauri 2 shell (sidecar `serve` + WSS UI)      | stable        |
@@ -181,7 +181,7 @@ The list is mirrored verbatim in `<!-- map.toml -->.critical_paths`.
 Three surfaces are independently semver-versioned and **must not** change
 without an ADR + bumped version + a fixture-corpus compatibility test in CI:
 
-1. **wire-protocol** (WSS subprotocol `wanlogger.v1`, MessagePack frames).
+1. **wire-protocol** (WSS subprotocol `tracemux.v1`, MessagePack frames).
    Spec: `docs/protocols/wire-protocol.md`. Compat: `tests/compat/wire/*`.
 2. **log-format** (`session-dir/` layout). Spec:
    `docs/protocols/log-format.md`. Compat: `tests/compat/log/*` and
@@ -272,7 +272,7 @@ from the PR.
 
 <!-- map.toml
 [map]
-schema = "wanlogger/agents-map/v1"
+schema = "tracemux/agents-map/v1"
 
 [[entries]]
 path = "crates/core/src/source/mod.rs"

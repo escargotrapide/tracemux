@@ -10,14 +10,14 @@
 //!
 //! ```json
 //! {
-//!   "schema": "wanlogger/tofu/v1",
+//!   "schema": "tracemux/tofu/v1",
 //!   "pins": {
 //!     "127.0.0.1:7443": "sha256:ab12...beef"
 //!   }
 //! }
 //! ```
 //!
-//! [`E-2103`]: wanlogger_core::ErrorId::E2103TofuMismatch
+//! [`E-2103`]: tracemux_core::ErrorId::E2103TofuMismatch
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,11 +25,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use wanlogger_core::{ErrorId, WanloggerError};
+use tracemux_core::{ErrorId, TraceMuxError};
 
 /// Schema string written into the pin file. Bump when the on-disk
 /// shape changes.
-pub const SCHEMA: &str = "wanlogger/tofu/v1";
+pub const SCHEMA: &str = "tracemux/tofu/v1";
 
 /// Errors produced by the TOFU pin store.
 #[derive(Debug, Error)]
@@ -69,10 +69,10 @@ impl FingerprintError {
     }
 }
 
-impl From<FingerprintError> for WanloggerError {
+impl From<FingerprintError> for TraceMuxError {
     fn from(e: FingerprintError) -> Self {
         let id = e.id();
-        WanloggerError::new(id, e.to_string())
+        TraceMuxError::new(id, e.to_string())
     }
 }
 
@@ -207,7 +207,7 @@ impl PinStore {
     }
 
     /// Force the pinned fingerprint for `host`. Mostly for tests and
-    /// the `wanlogger trust` admin command.
+    /// the `tracemux trust` admin command.
     ///
     /// # Errors
     /// Returns [`FingerprintError::Io`] / [`FingerprintError::Json`].
@@ -255,7 +255,7 @@ mod tests {
     fn tmp(name: &str) -> PathBuf {
         let mut p = std::env::temp_dir();
         p.push(format!(
-            "wanlogger-fp-{}-{}",
+            "tracemux-fp-{}-{}",
             name,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn schema_mismatch_rejected() {
         let path = tmp("schema");
-        std::fs::write(&path, br#"{"schema":"wanlogger/tofu/v999","pins":{}}"#).unwrap();
+        std::fs::write(&path, br#"{"schema":"tracemux/tofu/v999","pins":{}}"#).unwrap();
         let err = PinStore::open(&path).unwrap_err();
         assert!(matches!(err, FingerprintError::Schema(_)));
         std::fs::remove_file(&path).ok();
@@ -328,8 +328,8 @@ mod tests {
     }
 
     #[test]
-    fn wanlogger_error_carries_canonical_id() {
-        let e: WanloggerError = FingerprintError::Mismatch {
+    fn tracemux_error_carries_canonical_id() {
+        let e: TraceMuxError = FingerprintError::Mismatch {
             host: "h".into(),
             pinned: "p".into(),
             got: "g".into(),

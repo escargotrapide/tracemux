@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
-export const SOURCE_NOTES_STORAGE_KEY = "wanlogger.sourceNotes.v1";
+export const SOURCE_NOTES_STORAGE_KEY = "tracemux.sourceNotes.v1";
 export const MAX_SOURCE_NOTE_LENGTH = 20_000;
 
 export interface SourceNote {

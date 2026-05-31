@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::{Direction, LogSink};
 use crate::decoder::{Level, Record};
-use crate::error_id::{ErrorId, WanloggerError};
+use crate::error_id::{ErrorId, TraceMuxError};
 use crate::log::frames::{FrameEntry, FramesWriter};
 use crate::log::index::{format_rfc3339_ns, Dir, IndexEntry, IndexWriter, Kind};
 use crate::log::lines::{LineEntry, LinesWriter};
@@ -185,7 +185,7 @@ fn write_meta(
         decoder,
     };
     let body = toml::to_string_pretty(&meta).map_err(|e| {
-        WanloggerError::new(ErrorId::E1001PipelineGeneric, "serialising meta.toml").with_source(e)
+        TraceMuxError::new(ErrorId::E1001PipelineGeneric, "serialising meta.toml").with_source(e)
     })?;
     std::fs::write(dir.join("meta.toml"), body).map_err(|e| log_err("writing meta.toml", e))
 }
@@ -208,8 +208,8 @@ const fn level_token(level: Level) -> &'static str {
     }
 }
 
-fn log_err(ctx: &'static str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, ctx).with_source(e)
+fn log_err(ctx: &'static str, e: std::io::Error) -> TraceMuxError {
+    TraceMuxError::new(ErrorId::E1001PipelineGeneric, ctx).with_source(e)
 }
 
 #[cfg(test)]
@@ -220,7 +220,7 @@ mod tests {
     use crate::time::{ClockQuality, ClockSource};
 
     fn tempdir() -> PathBuf {
-        let p = std::env::temp_dir().join(format!("wanlogger-file-sink-{}", Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!("tracemux-file-sink-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }

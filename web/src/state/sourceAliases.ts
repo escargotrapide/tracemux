@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
-export const SOURCE_ALIASES_STORAGE_KEY = "wanlogger.sourceAliases.v1";
+export const SOURCE_ALIASES_STORAGE_KEY = "tracemux.sourceAliases.v1";
 export const MAX_SOURCE_ALIAS_LENGTH = 80;
 
 export interface SourceAlias {

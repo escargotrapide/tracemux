@@ -1,1 +1,1 @@
-//! Remote `wanlogger serve` proxy [`Source`] — deferred stub.
+//! Remote `tracemux serve` proxy [`Source`] — deferred stub.

@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://wanlogger.dev/cli-output/v1/watch-frame.schema.json",
-  "title": "wanlogger watch frame",
-  "description": "One JSONL row emitted by `wanlogger watch` for a WSS data frame.",
+  "$id": "https://tracemux.dev/cli-output/v1/watch-frame.schema.json",
+  "title": "tracemux watch frame",
+  "description": "One JSONL row emitted by `tracemux watch` for a WSS data frame.",
   "type": "object",
   "required": ["schema", "seq", "sid", "ch", "kind", "body"],
   "properties": {
-    "schema": { "type": "string", "const": "wanlogger/watch-frame/v1" },
+    "schema": { "type": "string", "const": "tracemux/watch-frame/v1" },
     "seq": { "type": "integer", "minimum": 0 },
     "sid": { "type": "string", "format": "uuid" },
     "ch": { "type": "integer", "minimum": 0 },

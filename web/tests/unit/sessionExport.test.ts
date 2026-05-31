@@ -42,10 +42,10 @@ describe("sessionExport", () => {
   });
 
   it("uses stable file extensions", () => {
-    expect(sessionExportFilename("sid", "text")).toBe("wanlogger-sid.txt");
-    expect(sessionExportFilename("sid", "csv")).toBe("wanlogger-sid.csv");
-    expect(sessionExportFilename("sid", "jsonl")).toBe("wanlogger-sid.jsonl");
-    expect(sessionExportFilename("sid", "pcapng")).toBe("wanlogger-sid.pcapng");
+    expect(sessionExportFilename("sid", "text")).toBe("tracemux-sid.txt");
+    expect(sessionExportFilename("sid", "csv")).toBe("tracemux-sid.csv");
+    expect(sessionExportFilename("sid", "jsonl")).toBe("tracemux-sid.jsonl");
+    expect(sessionExportFilename("sid", "pcapng")).toBe("tracemux-sid.pcapng");
   });
 
   it("renders safe custom download filenames", () => {
@@ -78,7 +78,7 @@ describe("sessionExport", () => {
 
     expect(await blob.text()).toBe("export body");
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:9000/api/sessions/sid-fetch/export?format=text&filename=wanlogger-sid-fetch.txt",
+      "http://127.0.0.1:9000/api/sessions/sid-fetch/export?format=text&filename=tracemux-sid-fetch.txt",
       { headers: {} },
     );
   });
@@ -86,7 +86,7 @@ describe("sessionExport", () => {
   it("adds a one-time ticket to native download URLs when auth is configured", async () => {
     // REQ: FR-UI-018
     stubLocation();
-    vi.stubEnv("VITE_WANLOGGER_TOKEN", "secret-token");
+    vi.stubEnv("VITE_TRACEMUX_TOKEN", "secret-token");
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ticket: "ticket-1",
       expires_in_ms: 60_000,

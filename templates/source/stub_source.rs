@@ -3,8 +3,8 @@
 
 use async_trait::async_trait;
 
-use wanlogger_core::source::{ChannelMeta, ControlEvt, Frame, Source};
-use wanlogger_core::Result;
+use tracemux_core::source::{ChannelMeta, ControlEvt, Frame, Source};
+use tracemux_core::Result;
 
 /// TODO: rename me.
 #[derive(Debug, Default)]

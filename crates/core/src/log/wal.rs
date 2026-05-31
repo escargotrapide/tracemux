@@ -22,7 +22,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use crate::error_id::{ErrorId, WanloggerError};
+use crate::error_id::{ErrorId, TraceMuxError};
 
 /// Magic bytes at the start of every WAL file.
 pub const MAGIC: &[u8; 4] = b"WLOG";
@@ -50,7 +50,7 @@ pub struct WalWriter {
 
 impl WalWriter {
     /// Open or create a WAL at `path`. Performs torn-tail recovery.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, WanloggerError> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, TraceMuxError> {
         let path = path.as_ref().to_path_buf();
         let mut file = OpenOptions::new()
             .read(true)
@@ -81,15 +81,15 @@ impl WalWriter {
 
     /// Append one record. Returns the byte offset of the record's
     /// payload (i.e. of the first payload byte, after `len`+`crc`).
-    pub fn append(&mut self, payload: &[u8]) -> Result<u64, WanloggerError> {
+    pub fn append(&mut self, payload: &[u8]) -> Result<u64, TraceMuxError> {
         let len = u32::try_from(payload.len()).map_err(|_| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1001PipelineGeneric,
                 format!("wal: payload {} > u32::MAX", payload.len()),
             )
         })?;
         if len > MAX_PAYLOAD {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1003FramerOverflow,
                 format!("wal: payload {len} > MAX_PAYLOAD={MAX_PAYLOAD}"),
             ));
@@ -111,7 +111,7 @@ impl WalWriter {
     }
 
     /// fsync the file. Maps any error to [`ErrorId::E1401WalFsync`].
-    pub fn sync(&mut self) -> Result<(), WanloggerError> {
+    pub fn sync(&mut self) -> Result<(), TraceMuxError> {
         self.file.sync_data().map_err(fsync_err)
     }
 
@@ -145,7 +145,7 @@ pub struct WalRecord {
 
 impl WalReader {
     /// Open `path` for reading. Verifies the header.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, WanloggerError> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, TraceMuxError> {
         let mut file = File::open(path).map_err(io_err)?;
         verify_header(&mut file)?;
         Ok(Self {
@@ -155,7 +155,7 @@ impl WalReader {
 
     /// Read all valid records up to the first torn-tail / CRC error.
     /// Returns the records read plus the offset where scanning stopped.
-    pub fn read_all(mut self) -> Result<(Vec<WalRecord>, u64), WanloggerError> {
+    pub fn read_all(mut self) -> Result<(Vec<WalRecord>, u64), TraceMuxError> {
         let mut out = Vec::new();
         let mut pos = HEADER_LEN;
         loop {
@@ -191,26 +191,26 @@ impl WalReader {
     }
 }
 
-fn write_header(file: &mut File) -> Result<(), WanloggerError> {
+fn write_header(file: &mut File) -> Result<(), TraceMuxError> {
     let mut h = [0u8; HEADER_LEN as usize];
     h[0..4].copy_from_slice(MAGIC);
     h[4..6].copy_from_slice(&FORMAT_VERSION.to_le_bytes());
     file.write_all(&h).map_err(io_err)
 }
 
-fn verify_header(file: &mut File) -> Result<(), WanloggerError> {
+fn verify_header(file: &mut File) -> Result<(), TraceMuxError> {
     file.seek(SeekFrom::Start(0)).map_err(io_err)?;
     let mut h = [0u8; HEADER_LEN as usize];
     file.read_exact(&mut h).map_err(io_err)?;
     if &h[0..4] != MAGIC {
-        return Err(WanloggerError::new(
+        return Err(TraceMuxError::new(
             ErrorId::E1001PipelineGeneric,
             "wal: bad magic",
         ));
     }
     let ver = u16::from_le_bytes([h[4], h[5]]);
     if ver != FORMAT_VERSION {
-        return Err(WanloggerError::new(
+        return Err(TraceMuxError::new(
             ErrorId::E1001PipelineGeneric,
             format!("wal: unsupported version {ver}"),
         ));
@@ -218,7 +218,7 @@ fn verify_header(file: &mut File) -> Result<(), WanloggerError> {
     Ok(())
 }
 
-fn scan_valid_end(file: &mut File, len: u64) -> Result<u64, WanloggerError> {
+fn scan_valid_end(file: &mut File, len: u64) -> Result<u64, TraceMuxError> {
     file.seek(SeekFrom::Start(HEADER_LEN)).map_err(io_err)?;
     let mut reader = BufReader::new(file);
     let mut pos = HEADER_LEN;
@@ -256,12 +256,12 @@ fn scan_valid_end(file: &mut File, len: u64) -> Result<u64, WanloggerError> {
     Ok(pos)
 }
 
-fn io_err(e: io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("wal io: {e}")).with_source(e)
+fn io_err(e: io::Error) -> TraceMuxError {
+    TraceMuxError::new(ErrorId::E1001PipelineGeneric, format!("wal io: {e}")).with_source(e)
 }
 
-fn fsync_err(e: io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1401WalFsync, format!("wal fsync: {e}")).with_source(e)
+fn fsync_err(e: io::Error) -> TraceMuxError {
+    TraceMuxError::new(ErrorId::E1401WalFsync, format!("wal fsync: {e}")).with_source(e)
 }
 
 #[cfg(test)]

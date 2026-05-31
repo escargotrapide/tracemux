@@ -12,7 +12,7 @@ use serde::Serialize;
 /// Structured error body for the range endpoint.
 #[derive(Debug, Serialize)]
 pub struct RangeError {
-    /// Stable wanlogger error id.
+    /// Stable tracemux error id.
     pub error_id: &'static str,
     /// Human-readable message.
     pub message: String,

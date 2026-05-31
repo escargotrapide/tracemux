@@ -1,4 +1,4 @@
-import { resolveWanloggerHttpUrl } from "~/adapters/wss";
+import { resolveTraceMuxHttpUrl } from "~/adapters/wss";
 
 export interface DetectReport {
   kinds: string[];
@@ -81,7 +81,7 @@ function normalizeDetectReport(value: unknown): DetectReport {
 }
 
 export async function detectSources(fetchImpl: FetchLike = fetch): Promise<DetectReport> {
-  const response = await fetchImpl(resolveWanloggerHttpUrl("/api/detect"));
+  const response = await fetchImpl(resolveTraceMuxHttpUrl("/api/detect"));
   if (!response.ok) {
     throw new Error(`detect failed: HTTP ${response.status}`);
   }

@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use parking_lot::RwLock;
+use tracemux_core::session::registry::{Registry, SessionState};
 use uuid::Uuid;
-use wanlogger_core::session::registry::{Registry, SessionState};
 
 /// Counters per ingest task.
 #[derive(Debug, Default, Clone)]

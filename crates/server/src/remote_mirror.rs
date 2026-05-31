@@ -2,7 +2,7 @@
 //!
 //! This module keeps remote aggregation outside the frozen `Source` trait:
 //! the edge server remains the source of truth for the physical COM/TCP
-//! channel, while the central server subscribes over `wanlogger.v1`, stamps
+//! channel, while the central server subscribes over `tracemux.v1`, stamps
 //! central ingest time, persists the mirrored bytes, and proxies write-back.
 
 use std::collections::HashMap;
@@ -18,18 +18,18 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
+use tracemux_core::logsink::{Direction, LogSink};
+use tracemux_core::secret::{resolve, KeyringResolver, SecretRef};
+use tracemux_core::sink::Sink;
+use tracemux_core::time::{ClockQuality, ClockSource, DualTimestamp, TimeSource};
+use tracemux_core::{ErrorId, Result as CoreResult, TraceMuxError};
 use uuid::Uuid;
-use wanlogger_core::logsink::{Direction, LogSink};
-use wanlogger_core::secret::{resolve, KeyringResolver, SecretRef};
-use wanlogger_core::sink::Sink;
-use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp, TimeSource};
-use wanlogger_core::{ErrorId, Result as CoreResult, WanloggerError};
 
 use crate::ingest::Ingest;
 use crate::runner::{encode_data_envelope, RunnerStats};
 use crate::wire::{decode, encode, Envelope, FrameType};
 
-const SUBPROTOCOL: &str = "wanlogger.v1";
+const SUBPROTOCOL: &str = "tracemux.v1";
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
 type PendingWrites = HashMap<u64, oneshot::Sender<anyhow::Result<()>>>;
@@ -471,8 +471,8 @@ fn clock_source(value: &str) -> Option<ClockSource> {
     }
 }
 
-fn sink_err(message: impl Into<String>) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, message)
+fn sink_err(message: impl Into<String>) -> TraceMuxError {
+    TraceMuxError::new(ErrorId::E1001PipelineGeneric, message)
 }
 
 #[cfg(test)]
@@ -537,7 +537,7 @@ mod tests {
     fn parse_remote_url_reads_token_from_env() {
         // REQ: FR-REMOTE-001
         let sid = Uuid::new_v4();
-        let var = format!("WANLOGGER_TEST_REMOTE_TOKEN_{}", Uuid::new_v4().simple());
+        let var = format!("TRACEMUX_TEST_REMOTE_TOKEN_{}", Uuid::new_v4().simple());
         std::env::set_var(&var, "edge-token");
         let target =
             RemoteTarget::parse(&format!("ws://127.0.0.1:8080/ws?sid={sid}&token_env={var}"))

@@ -1,24 +1,24 @@
 [package]
-name = "wanlogger-server"
+name = "tracemux-server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "wanlogger server: axum + rustls + WSS mux"
+description = "tracemux server: axum + rustls + WSS mux"
 
 [lints]
 workspace = true
 
 [features]
 default = []
-metrics = ["wanlogger-core/metrics"]
-serial = ["wanlogger-core/serial"]
-pcap-capture = ["wanlogger-core/pcap-capture"]
+metrics = ["tracemux-core/metrics"]
+serial = ["tracemux-core/serial"]
+pcap-capture = ["tracemux-core/pcap-capture"]
 
 [dependencies]
-wanlogger-core = { path = "../core" }
+tracemux-core = { path = "../core" }
 axum = { workspace = true }
 axum-server = { workspace = true }
 tower = { workspace = true }

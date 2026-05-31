@@ -24,7 +24,7 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// Maximum bytes read per `recv()` call.
 pub const READ_CHUNK: usize = 8 * 1024;
@@ -57,7 +57,7 @@ impl FileSource {
 impl Source for FileSource {
     async fn open(&mut self) -> Result<()> {
         let f = File::open(&self.path).await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("file open {}: {e}", self.path.display()),
             )
@@ -73,7 +73,7 @@ impl Source for FileSource {
             let f = match self.file.as_mut() {
                 Some(f) => f,
                 None => {
-                    return Err(WanloggerError::new(
+                    return Err(TraceMuxError::new(
                         ErrorId::E1102SourceClosed,
                         "file source not open",
                     ))
@@ -81,7 +81,7 @@ impl Source for FileSource {
             };
             let mut buf = vec![0u8; READ_CHUNK];
             let n = f.read(&mut buf).await.map_err(|e| {
-                WanloggerError::new(ErrorId::E1102SourceClosed, format!("file read: {e}"))
+                TraceMuxError::new(ErrorId::E1102SourceClosed, format!("file read: {e}"))
                     .with_source(e)
             })?;
             if n > 0 {
@@ -138,7 +138,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        p.push(format!("wanlogger-file-src-{pid}-{nonce}.txt"));
+        p.push(format!("tracemux-file-src-{pid}-{nonce}.txt"));
         let mut f = std::fs::File::create(&p).unwrap();
         f.write_all(contents).unwrap();
         p

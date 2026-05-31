@@ -39,11 +39,11 @@ async fn run_listener(addr: &str, scenario: Scenario, transcript: Arc<Transcript
     let local = listener
         .local_addr()
         .context("reading TCP listener address")?;
-    println!("wanlogger-virt-peer tcp listening {local}");
+    println!("tracemux-virt-peer tcp listening {local}");
     transcript.record_event("tcp", Some(&local.to_string()), "listening")?;
 
     let (stream, peer) = listener.accept().await.context("accepting TCP peer")?;
-    println!("wanlogger-virt-peer tcp connected {peer}");
+    println!("tracemux-virt-peer tcp connected {peer}");
     run_stream(stream, peer.to_string(), scenario, transcript).await
 }
 
@@ -51,7 +51,7 @@ async fn run_connector(addr: &str, scenario: Scenario, transcript: Arc<Transcrip
     let stream = TcpStream::connect(addr)
         .await
         .with_context(|| format!("connecting TCP peer {addr}"))?;
-    println!("wanlogger-virt-peer tcp connected {addr}");
+    println!("tracemux-virt-peer tcp connected {addr}");
     run_stream(stream, addr.to_string(), scenario, transcript).await
 }
 

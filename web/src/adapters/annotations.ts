@@ -1,4 +1,4 @@
-import { resolveWanloggerHttpUrl, resolveWanloggerToken } from "~/adapters/wss";
+import { resolveTraceMuxHttpUrl, resolveTraceMuxToken } from "~/adapters/wss";
 
 export type AnnotationTargetKind = "session" | "log_type";
 
@@ -33,7 +33,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function authHeaders(json = false): HeadersInit {
   const headers: Record<string, string> = {};
-  const token = resolveWanloggerToken();
+  const token = resolveTraceMuxToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (json) headers["Content-Type"] = "application/json";
   return headers;
@@ -89,7 +89,7 @@ export function normalizeServerAnnotations(value: unknown): ServerAnnotation[] {
 }
 
 export function serverAnnotationsUrl(options: ListServerAnnotationsOptions = {}): string {
-  const base = resolveWanloggerHttpUrl("/api/annotations");
+  const base = resolveTraceMuxHttpUrl("/api/annotations");
   const sid = options.sid?.trim();
   if (!sid) return base;
   const params = new URLSearchParams({ sid });
@@ -120,7 +120,7 @@ export async function putServerAnnotation(
   fetchImpl: FetchLike = fetch,
 ): Promise<ServerAnnotation> {
   const response = await fetchImpl(
-    resolveWanloggerHttpUrl(`/api/annotations/${encodeURIComponent(id)}`),
+    resolveTraceMuxHttpUrl(`/api/annotations/${encodeURIComponent(id)}`),
     {
       method: "PUT",
       headers: authHeaders(true),
@@ -140,7 +140,7 @@ export async function deleteServerAnnotation(
   fetchImpl: FetchLike = fetch,
 ): Promise<void> {
   const response = await fetchImpl(
-    resolveWanloggerHttpUrl(`/api/annotations/${encodeURIComponent(id)}`),
+    resolveTraceMuxHttpUrl(`/api/annotations/${encodeURIComponent(id)}`),
     {
       method: "DELETE",
       headers: authHeaders(),

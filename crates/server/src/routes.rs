@@ -22,12 +22,12 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use wanlogger_core::detect::pcap::PcapInterfaceInfo;
+use tracemux_core::detect::pcap::PcapInterfaceInfo;
 
 /// Public version metadata returned by `/api/version`.
 #[derive(Debug, Clone, Serialize)]
 pub struct VersionInfo {
-    /// Cargo package version of `wanlogger-server`.
+    /// Cargo package version of `tracemux-server`.
     pub version: &'static str,
     /// Wire-protocol subprotocol token.
     pub subprotocol: &'static str,
@@ -56,7 +56,7 @@ impl VersionInfo {
     pub const fn current() -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION"),
-            subprotocol: "wanlogger.v1",
+            subprotocol: "tracemux.v1",
             log_format: "1.0.0",
         }
     }
@@ -133,8 +133,8 @@ async fn version() -> Json<VersionInfo> {
 pub fn detect_report() -> DetectReport {
     DetectReport {
         kinds: DETECT_KINDS,
-        serial_candidates: wanlogger_core::detect::serial::list(),
-        pcap_interfaces: wanlogger_core::detect::pcap::list(),
+        serial_candidates: tracemux_core::detect::serial::list(),
+        pcap_interfaces: tracemux_core::detect::pcap::list(),
     }
 }
 
@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn version_info_is_compile_time() {
         let v = VersionInfo::current();
-        assert_eq!(v.subprotocol, "wanlogger.v1");
+        assert_eq!(v.subprotocol, "tracemux.v1");
         assert_eq!(v.log_format, "1.0.0");
         assert!(!v.version.is_empty());
     }

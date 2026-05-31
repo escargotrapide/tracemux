@@ -70,7 +70,7 @@ else
   summary="$failed failed"
 fi
 cat > "$REPORT_PATH" <<JSON
-{"schema":"wanlogger/ai-verify/v1","summary":"$summary","steps":[$json_steps]}
+{"schema":"tracemux/ai-verify/v1","summary":"$summary","steps":[$json_steps]}
 JSON
 echo "Wrote $REPORT_PATH"
 exit $failed

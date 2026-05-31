@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Packr } from "msgpackr";
-import { WireClient, resolveWanloggerHttpUrl, resolveWanloggerUrl } from "../../src/adapters/wss";
+import { WireClient, resolveTraceMuxHttpUrl, resolveTraceMuxUrl } from "../../src/adapters/wss";
 
 const packr = new Packr({ useRecords: false, mapsAsObjects: true });
 
@@ -65,16 +65,16 @@ function packed(value: unknown): ArrayBuffer {
   return buffer;
 }
 
-describe("resolveWanloggerUrl", () => {
+describe("resolveTraceMuxUrl", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     FakeWebSocket.instances = [];
   });
 
-  it("honors VITE_WANLOGGER_URL", () => {
-    vi.stubEnv("VITE_WANLOGGER_URL", "ws://example.test/ws");
-    expect(resolveWanloggerUrl()).toBe("ws://example.test/ws");
+  it("honors VITE_TRACEMUX_URL", () => {
+    vi.stubEnv("VITE_TRACEMUX_URL", "ws://example.test/ws");
+    expect(resolveTraceMuxUrl()).toBe("ws://example.test/ws");
   });
 
   it("uses the loopback backend for the Vite dev server", () => {
@@ -84,8 +84,8 @@ describe("resolveWanloggerUrl", () => {
       host: "127.0.0.1:5173",
       port: "5173",
     });
-    expect(resolveWanloggerUrl()).toBe("ws://127.0.0.1:9000/ws");
-    expect(resolveWanloggerHttpUrl("/api/detect")).toBe(
+    expect(resolveTraceMuxUrl()).toBe("ws://127.0.0.1:9000/ws");
+    expect(resolveTraceMuxHttpUrl("/api/detect")).toBe(
       "http://127.0.0.1:9000/api/detect",
     );
   });
@@ -97,8 +97,8 @@ describe("resolveWanloggerUrl", () => {
       host: "logs.example.test",
       port: "",
     });
-    expect(resolveWanloggerUrl()).toBe("wss://logs.example.test/ws");
-    expect(resolveWanloggerHttpUrl("/api/version")).toBe(
+    expect(resolveTraceMuxUrl()).toBe("wss://logs.example.test/ws");
+    expect(resolveTraceMuxHttpUrl("/api/version")).toBe(
       "https://logs.example.test/api/version",
     );
   });
@@ -110,7 +110,7 @@ describe("resolveWanloggerUrl", () => {
       host: "localhost",
       port: "",
     });
-    expect(resolveWanloggerUrl()).toBe("ws://127.0.0.1:9000/ws");
+    expect(resolveTraceMuxUrl()).toBe("ws://127.0.0.1:9000/ws");
   });
 
   it("reports whether send actually reached an open socket", () => {

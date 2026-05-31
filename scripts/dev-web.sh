@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the wanlogger SolidJS web UI dev server.
+# Start the tracemux SolidJS web UI dev server.
 # Usage: bash scripts/dev-web.sh [--url <wss://...>] [--token <bearer>]
 set -euo pipefail
 
@@ -14,8 +14,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-export VITE_WANLOGGER_URL="$URL"
-[[ -n "$TOKEN" ]] && export VITE_WANLOGGER_TOKEN="$TOKEN"
+export VITE_TRACEMUX_URL="$URL"
+[[ -n "$TOKEN" ]] && export VITE_TRACEMUX_TOKEN="$TOKEN"
 
 echo "Starting Web UI dev server (backend: $URL)"
 echo "  Open: http://localhost:5173"

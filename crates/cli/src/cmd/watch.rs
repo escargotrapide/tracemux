@@ -1,4 +1,4 @@
-//! `wanlogger watch` -> subscribe to a running server session and emit JSONL.
+//! `tracemux watch` -> subscribe to a running server session and emit JSONL.
 //!
 //! REQ: FR-CLI-009
 
@@ -12,12 +12,12 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tracemux_core::codec::decode as decode_text;
+use tracemux_server::wire::{decode, encode, Envelope, FrameType};
 use uuid::Uuid;
-use wanlogger_core::codec::decode as decode_text;
-use wanlogger_server::wire::{decode, encode, Envelope, FrameType};
 
-const SUBPROTOCOL: &str = "wanlogger.v1";
-const WATCH_SCHEMA: &str = "wanlogger/watch-frame/v1";
+const SUBPROTOCOL: &str = "tracemux.v1";
+const WATCH_SCHEMA: &str = "tracemux/watch-frame/v1";
 
 /// CLI options for the watch command.
 #[derive(Debug)]

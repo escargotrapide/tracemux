@@ -1,6 +1,6 @@
-//! Integration: `wanlogger import text` -> `wanlogger export text` round-trip.
+//! Integration: `tracemux import text` -> `tracemux export text` round-trip.
 //!
-//! Drives the compiled `wanlogger` binary via `Command` and asserts
+//! Drives the compiled `tracemux` binary via `Command` and asserts
 //! that each line of the source text appears in the exported text.
 
 #![allow(clippy::missing_panics_doc)]
@@ -9,11 +9,11 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_wanlogger"))
+    PathBuf::from(env!("CARGO_BIN_EXE_tracemux"))
 }
 
 fn must_succeed(c: &mut Command) {
-    let out = c.output().expect("spawn wanlogger");
+    let out = c.output().expect("spawn tracemux");
     assert!(
         out.status.success(),
         "command failed: status={} stderr={}",

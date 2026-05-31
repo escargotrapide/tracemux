@@ -5,16 +5,16 @@
 //! known tokens, and the rendered result is sanitised so it is safe as
 //! a single directory name on Windows and Unix-like systems.
 
-/// Default `wanlogger log` session-dir naming pattern.
+/// Default `tracemux log` session-dir naming pattern.
 pub const DEFAULT_CLI_SESSION_NAME_PATTERN: &str = "{prefix}_{kind}_{iface}_{timestamp}";
 
-/// Default `wanlogger serve` session-dir naming pattern.
-pub const DEFAULT_SERVER_SESSION_NAME_PATTERN: &str = "wanlogger_{kind}_{iface}_{unix_ns}";
+/// Default `tracemux serve` session-dir naming pattern.
+pub const DEFAULT_SERVER_SESSION_NAME_PATTERN: &str = "tracemux_{kind}_{iface}_{unix_ns}";
 
 /// Values available to a session-dir name pattern.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionNameParts<'a> {
-    /// User-visible prefix, typically `wanlogger` or a CLI `--prefix` value.
+    /// User-visible prefix, typically `tracemux` or a CLI `--prefix` value.
     pub prefix: &'a str,
     /// Source kind token such as `serial`, `tcp`, or `file`.
     pub kind: &'a str,
@@ -113,7 +113,7 @@ mod tests {
         // REQ: FR-CLI-007
         assert_eq!(
             render_session_name(DEFAULT_SERVER_SESSION_NAME_PATTERN, &parts()),
-            "wanlogger_serial_COM7_1768999111222333444"
+            "tracemux_serial_COM7_1768999111222333444"
         );
     }
 

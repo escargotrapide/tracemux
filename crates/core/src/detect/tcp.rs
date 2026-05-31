@@ -1,7 +1,7 @@
 //! TCP probe.
 //!
 //! Tries to connect to `addr` with a wall-clock timeout and returns
-//! `true` on success. Used by `wanlogger detect` and tests to verify
+//! `true` on success. Used by `tracemux detect` and tests to verify
 //! that a configured channel target is reachable before the full
 //! pipeline is wired up.
 

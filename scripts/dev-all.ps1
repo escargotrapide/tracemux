@@ -34,10 +34,10 @@ Write-Host "Waiting 3 s for backend to start ..." -ForegroundColor DarkYellow
 Start-Sleep 3
 
 Write-Host "Launching Web UI (backend: $Url) ..." -ForegroundColor Cyan
-$env:VITE_WANLOGGER_URL = $Url
+$env:VITE_TRACEMUX_URL = $Url
 $webJob = Start-Job -ScriptBlock {
     param($r, $u, $pnpm)
-    $env:VITE_WANLOGGER_URL = $u
+    $env:VITE_TRACEMUX_URL = $u
     Set-Location $r
     & $pnpm --filter ./web dev
 } -ArgumentList $root, $Url, $pnpmScript

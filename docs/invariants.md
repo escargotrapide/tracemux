@@ -4,7 +4,7 @@ These are properties that must hold across the whole codebase. CI
 asserts them (lint, tests, fixture compat). Violations are blocking.
 
 1. **No `unsafe`.** `unsafe_code = "deny"` workspace-wide.
-2. **Server-of-truth.** Persistence happens only inside `wanlogger
+2. **Server-of-truth.** Persistence happens only inside `tracemux
    serve`. The UI / Tauri / CLI never write `session-dir/` directly,
    except via the wire protocol's `write` / `ingest` paths.
 3. **Two timestamps.** Every persisted record and every wire `data`

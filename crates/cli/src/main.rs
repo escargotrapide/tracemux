@@ -1,11 +1,11 @@
-//! `wanlogger` — single binary CLI / server.
+//! `tracemux` — single binary CLI / server.
 //!
 //! Subcommands: `serve | connect | send | watch | token-hash | detect | log | profile |
 //! replay | extcap | import | export | ai-verify | json-schema`.
 
 use clap::{Parser, Subcommand};
-use wanlogger_core::config::schema_v1::ConfigV1;
-use wanlogger_server::{
+use tracemux_core::config::schema_v1::ConfigV1;
+use tracemux_server::{
     run_with_session_root_classifier_encoding_pattern_startup_and_options as run_server_with_options,
     ServerRunOptions,
 };
@@ -14,9 +14,9 @@ mod ai_verify;
 mod cmd;
 mod json_schema;
 
-/// wanlogger — unified terminal & log platform.
+/// tracemux — unified terminal & log platform.
 #[derive(Debug, Parser)]
-#[command(name = "wanlogger", version, about)]
+#[command(name = "tracemux", version, about)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -24,7 +24,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Cmd {
-    /// Run the wanlogger server (WSS).
+    /// Run the tracemux server (WSS).
     Serve(ServeArgs),
     /// Open a single channel and pipe to stdout.
     Connect(ConnectArgs),
@@ -136,11 +136,11 @@ struct ConnectArgs {
 
 #[derive(Debug, clap::Args)]
 struct SendArgs {
-    /// WebSocket endpoint for `wanlogger serve`.
+    /// WebSocket endpoint for `tracemux serve`.
     #[arg(long, default_value = "ws://127.0.0.1:9000/ws")]
     url: String,
-    /// Bearer token. Defaults to `WANLOGGER_TOKEN` when set.
-    #[arg(long, env = "WANLOGGER_TOKEN")]
+    /// Bearer token. Defaults to `TRACEMUX_TOKEN` when set.
+    #[arg(long, env = "TRACEMUX_TOKEN")]
     token: Option<String>,
     /// Target session id.
     #[arg(long)]
@@ -170,11 +170,11 @@ struct SendArgs {
 
 #[derive(Debug, clap::Args)]
 struct WatchArgs {
-    /// WebSocket endpoint for `wanlogger serve`.
+    /// WebSocket endpoint for `tracemux serve`.
     #[arg(long, default_value = "ws://127.0.0.1:9000/ws")]
     url: String,
-    /// Bearer token. Defaults to `WANLOGGER_TOKEN` when set.
-    #[arg(long, env = "WANLOGGER_TOKEN")]
+    /// Bearer token. Defaults to `TRACEMUX_TOKEN` when set.
+    #[arg(long, env = "TRACEMUX_TOKEN")]
     token: Option<String>,
     /// Target session id.
     #[arg(long)]
@@ -192,8 +192,8 @@ struct WatchArgs {
 
 #[derive(Debug, clap::Args)]
 struct TokenHashArgs {
-    /// Bearer token to hash. Prefer WANLOGGER_TOKEN over passing secrets on a command line.
-    #[arg(long, env = "WANLOGGER_TOKEN")]
+    /// Bearer token to hash. Prefer TRACEMUX_TOKEN over passing secrets on a command line.
+    #[arg(long, env = "TRACEMUX_TOKEN")]
     token: String,
 }
 
@@ -201,7 +201,7 @@ struct TokenHashArgs {
 struct LogArgs {
     /// Channel spec.
     spec: String,
-    /// Output prefix (defaults to `wanlogger`).
+    /// Output prefix (defaults to `tracemux`).
     #[arg(long)]
     prefix: Option<String>,
     /// Session-dir name pattern using {prefix}, {kind}, {iface}, {timestamp}, {unix_ns}.
@@ -353,7 +353,7 @@ async fn run_cmd(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::Log(args) => run_log(args).await?,
         Cmd::Profile(args) => run_profile(args)?,
         Cmd::Replay(args) => {
-            wanlogger_replay::run(&args.session, args.rate, args.seed).await?;
+            tracemux_replay::run(&args.session, args.rate, args.seed).await?;
         }
         Cmd::Extcap(args) => run_extcap(args).await?,
         Cmd::Import(args) => cmd::import::run(&args.kind, &args.src, &args.dst).await?,
@@ -379,7 +379,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let config = load_serve_config(args.config.as_deref())?;
     let classifier = cmd::log::classifier_from_specs(&args.classify, &args.classify_regex)?;
     let detect_mode = serve_detect_mode(&args, config.as_ref());
-    let detection_mode = wanlogger_core::detect::content::DetectionMode::parse(&detect_mode)
+    let detection_mode = tracemux_core::detect::content::DetectionMode::parse(&detect_mode)
         .ok_or_else(|| {
             anyhow::anyhow!("--detect-mode must be configured, auto, suggest, or off")
         })?;
@@ -400,7 +400,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         classifier,
         encoding,
         session_name_pattern.unwrap_or_else(|| {
-            wanlogger_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()
+            tracemux_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN.to_string()
         }),
         startup,
         ServerRunOptions {
@@ -443,7 +443,7 @@ fn serve_session_root(args: &ServeArgs, config: Option<&ConfigV1>) -> std::path:
     args.session_root
         .clone()
         .or_else(|| config.map(|c| std::path::PathBuf::from(&c.server.session_root)))
-        .unwrap_or_else(|| std::path::PathBuf::from("wanlogger-sessions"))
+        .unwrap_or_else(|| std::path::PathBuf::from("tracemux-sessions"))
 }
 
 fn serve_encoding(args: &ServeArgs, config: Option<&ConfigV1>) -> String {
@@ -470,18 +470,16 @@ fn serve_retention_keep_days(config: Option<&ConfigV1>) -> u32 {
     config.map_or(0, |c| c.retention.keep_days)
 }
 
-fn serve_ws_delivery(config: Option<&ConfigV1>) -> wanlogger_server::ws::WsDeliveryOptions {
-    wanlogger_server::ws::WsDeliveryOptions {
+fn serve_ws_delivery(config: Option<&ConfigV1>) -> tracemux_server::ws::WsDeliveryOptions {
+    tracemux_server::ws::WsDeliveryOptions {
         min_send_interval: std::time::Duration::from_millis(
             config.map_or(0, |c| c.ui.live_flush_ms),
         ),
     }
 }
 
-fn serve_export_defaults(
-    config: Option<&ConfigV1>,
-) -> wanlogger_server::export_api::ExportDefaults {
-    wanlogger_server::export_api::ExportDefaults {
+fn serve_export_defaults(config: Option<&ConfigV1>) -> tracemux_server::export_api::ExportDefaults {
+    tracemux_server::export_api::ExportDefaults {
         timezone: config.and_then(|c| c.export.timezone.clone()),
         encoding: config.and_then(|c| c.export.encoding.clone()),
     }
@@ -541,7 +539,7 @@ fn run_token_hash(args: &TokenHashArgs) -> anyhow::Result<()> {
     if args.token.is_empty() {
         anyhow::bail!("token must not be empty");
     }
-    println!("{}", wanlogger_server::auth::hash_token(&args.token)?);
+    println!("{}", tracemux_server::auth::hash_token(&args.token)?);
     Ok(())
 }
 
@@ -611,13 +609,13 @@ fn extcap_mode(args: ExtcapArgs) -> anyhow::Result<cmd::extcap::Mode> {
 fn serve_startup_sources(
     args: &ServeArgs,
     config: Option<&ConfigV1>,
-) -> wanlogger_server::StartupSources {
-    let mut startup = wanlogger_server::StartupSources::default();
+) -> tracemux_server::StartupSources {
+    let mut startup = tracemux_server::StartupSources::default();
     if let Some(config) = config {
         startup.channels = config
             .channels
             .iter()
-            .map(|(name, channel)| wanlogger_server::StartupChannel {
+            .map(|(name, channel)| tracemux_server::StartupChannel {
                 name: name.clone(),
                 label: channel.label.clone(),
                 spec: channel.spec.clone(),
@@ -632,9 +630,9 @@ fn serve_startup_sources(
         } else {
             Some(args.serial_ports.clone())
         };
-        startup.serial = Some(wanlogger_server::SerialAutostart {
+        startup.serial = Some(tracemux_server::SerialAutostart {
             ports,
-            options: wanlogger_server::source_manager::SerialPortOptions {
+            options: tracemux_server::source_manager::SerialPortOptions {
                 baud: args
                     .serial_baud
                     .or_else(|| config_serial.map(|serial| serial.baud))
@@ -667,14 +665,14 @@ fn serve_security(
     args: &ServeArgs,
     config: Option<&ConfigV1>,
     session_root: &std::path::Path,
-) -> wanlogger_server::ServerSecurity {
+) -> tracemux_server::ServerSecurity {
     let config_tls_dir = config
         .and_then(|c| c.server.tls.dir.as_ref())
         .map(std::path::PathBuf::from);
     let config_tls_enabled = config.is_some_and(|c| c.server.tls.enabled);
     let tls =
         if args.tls || args.tls_dir.is_some() || config_tls_enabled || config_tls_dir.is_some() {
-            Some(wanlogger_server::TlsServeConfig {
+            Some(tracemux_server::TlsServeConfig {
                 dir: args
                     .tls_dir
                     .clone()
@@ -694,7 +692,7 @@ fn serve_security(
         })
         .unwrap_or_default();
     token_phc_files.extend(args.token_phc_files.clone());
-    wanlogger_server::ServerSecurity {
+    tracemux_server::ServerSecurity {
         token_phc: args.token_phc.clone(),
         token_phc_files,
         tls,
@@ -709,7 +707,7 @@ mod tests {
     fn serve_open_all_serial_args_build_startup_config() {
         // REQ: FR-CLI-008
         let cli = Cli::try_parse_from([
-            "wanlogger",
+            "tracemux",
             "serve",
             "--open-all-serial",
             "--serial-port",
@@ -749,7 +747,7 @@ mod tests {
     fn serve_security_args_build_security_config() {
         // REQ: FR-WIRE-002
         let cli = Cli::try_parse_from([
-            "wanlogger",
+            "tracemux",
             "serve",
             "--session-root",
             "sessions",
@@ -825,7 +823,7 @@ mod tests {
         );
         let path_arg = path.to_string_lossy().to_string();
         let cli =
-            Cli::try_parse_from(["wanlogger", "serve", "--config", path_arg.as_str()]).unwrap();
+            Cli::try_parse_from(["tracemux", "serve", "--config", path_arg.as_str()]).unwrap();
 
         let Cmd::Serve(args) = cli.cmd else {
             panic!("expected serve command");
@@ -879,7 +877,7 @@ mod tests {
         assert_eq!(startup.channels[0].name, "demo");
         assert_eq!(startup.channels[0].label.as_deref(), Some("demo source"));
         match &startup.channels[0].spec {
-            wanlogger_core::source::ChannelSpec::Mock { tag } => assert_eq!(tag, "demo"),
+            tracemux_core::source::ChannelSpec::Mock { tag } => assert_eq!(tag, "demo"),
             other => panic!("wrong channel spec: {other:?}"),
         }
     }
@@ -915,7 +913,7 @@ mod tests {
         );
         let path_arg = path.to_string_lossy().to_string();
         let cli = Cli::try_parse_from([
-            "wanlogger",
+            "tracemux",
             "serve",
             "--config",
             path_arg.as_str(),
@@ -995,7 +993,7 @@ mod tests {
         );
         let path_arg = path.to_string_lossy().to_string();
         let cli = Cli::try_parse_from([
-            "wanlogger",
+            "tracemux",
             "export",
             "--config",
             path_arg.as_str(),
@@ -1037,7 +1035,7 @@ mod tests {
 
     #[test]
     fn token_hash_args_parse_token() {
-        let cli = Cli::try_parse_from(["wanlogger", "token-hash", "--token", "secret"]).unwrap();
+        let cli = Cli::try_parse_from(["tracemux", "token-hash", "--token", "secret"]).unwrap();
         let Cmd::TokenHash(args) = cli.cmd else {
             panic!("expected token-hash command");
         };
@@ -1046,12 +1044,12 @@ mod tests {
 
     fn write_temp_config(body: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "wanlogger-cli-config-{}-{}",
+            "tracemux-cli-config-{}-{}",
             std::process::id(),
-            wanlogger_core::time::unix_ns_now()
+            tracemux_core::time::unix_ns_now()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("wanlogger.toml");
+        let path = dir.join("tracemux.toml");
         std::fs::write(&path, body).unwrap();
         path
     }

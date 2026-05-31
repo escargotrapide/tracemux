@@ -26,7 +26,7 @@ Thumbs.db
 # --- Local data / secrets ---
 *.local.toml
 *.local.json
-.wanlogger/
+.tracemux/
 fixtures/private/
 target-mutants/
 target-fuzz/

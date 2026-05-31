@@ -26,7 +26,7 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::error_id::{ErrorId, WanloggerError};
+use crate::error_id::{ErrorId, TraceMuxError};
 use crate::exporter::Exporter;
 use crate::log::frames::FrameEntry;
 use crate::log::index::{IndexEntry, Kind};
@@ -36,7 +36,7 @@ use crate::source::pcap::PcapPacket;
 use crate::Result;
 
 /// Schema id used by pcap packet metadata records in `frames.jsonl`.
-pub const PCAP_PACKET_SCHEMA_ID: &str = "wanlogger.pcap.packet.v1";
+pub const PCAP_PACKET_SCHEMA_ID: &str = "tracemux.pcap.packet.v1";
 
 const DEFAULT_ETHERNET_LINKTYPE: u32 = 1;
 const PCAPNG_NANOSECOND_TSRESOL: u8 = 9;
@@ -393,7 +393,7 @@ fn ensure_interface<W: Write>(
 
 fn timestamp_duration(ts: &str) -> Result<Duration> {
     let parsed = OffsetDateTime::parse(ts, &Rfc3339).map_err(|e| {
-        WanloggerError::new(
+        TraceMuxError::new(
             ErrorId::E1001PipelineGeneric,
             "pcapng-export: parsing ts_origin",
         )
@@ -496,24 +496,24 @@ fn string_field(fields: &Value, key: &str) -> Option<String> {
     fields.get(key)?.as_str().map(str::to_string)
 }
 
-fn err(ctx: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(
+fn err(ctx: &str, e: std::io::Error) -> TraceMuxError {
+    TraceMuxError::new(
         ErrorId::E1001PipelineGeneric,
         format!("pcapng-export: {ctx}"),
     )
     .with_source(e)
 }
 
-fn serde_err(ctx: &str, e: serde_json::Error) -> WanloggerError {
-    WanloggerError::new(
+fn serde_err(ctx: &str, e: serde_json::Error) -> TraceMuxError {
+    TraceMuxError::new(
         ErrorId::E1001PipelineGeneric,
         format!("pcapng-export: {ctx}"),
     )
     .with_source(e)
 }
 
-fn simple(msg: impl Into<String>) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, msg)
+fn simple(msg: impl Into<String>) -> TraceMuxError {
+    TraceMuxError::new(ErrorId::E1001PipelineGeneric, msg)
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
-export const LOG_TYPE_NOTES_STORAGE_KEY = "wanlogger.logTypeNotes.v1";
+export const LOG_TYPE_NOTES_STORAGE_KEY = "tracemux.logTypeNotes.v1";
 export const MAX_LOG_TYPE_NOTE_LENGTH = 20_000;
 export const MAX_LOG_TYPE_KEY_LENGTH = 120;
 

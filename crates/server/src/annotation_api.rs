@@ -27,7 +27,7 @@ pub const MAX_ANNOTATION_TEXT_LEN: usize = 20_000;
 /// Maximum log-type annotation key length, matching the web UI local note limit.
 pub const MAX_LOG_TYPE_KEY_LEN: usize = 120;
 
-const METADATA_DIR: &str = ".wanlogger";
+const METADATA_DIR: &str = ".tracemux";
 const ANNOTATIONS_FILE: &str = "annotations-v1.jsonl";
 
 /// Server-owned annotation store.
@@ -481,8 +481,7 @@ mod tests {
     use tower::Service;
 
     fn temp_root() -> PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("wanlogger-annotation-api-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("tracemux-annotation-api-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         root
     }

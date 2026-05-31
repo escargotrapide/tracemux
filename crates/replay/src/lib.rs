@@ -1,4 +1,4 @@
-//! `wanlogger-replay` — drives a session-dir back through the
+//! `tracemux-replay` — drives a session-dir back through the
 //! pipeline. v0.1 ships a basic walker that emits each indexed
 //! record at `1.0/rate` of the originally-recorded inter-arrival
 //! time. `rate == 0.0` means "as fast as possible" (lockstep). A
@@ -13,7 +13,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Context;
-use wanlogger_core::log::index::IndexEntry;
+use tracemux_core::log::index::IndexEntry;
 
 /// Replay summary returned to callers (and surfaced via tracing).
 #[derive(Debug, Default, Clone)]
@@ -88,8 +88,8 @@ mod tests {
 
     #[tokio::test]
     async fn replays_three_records_lockstep() {
-        use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
-        use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
+        use tracemux_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
+        use tracemux_core::time::{ClockQuality, ClockSource, DualTimestamp};
         let dir = std::env::temp_dir().join(format!("wlg-replay-3-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut iw = IndexWriter::create(&dir).unwrap();

@@ -10,7 +10,7 @@ description: Diagnose and improve throughput / latency without breaking compat
 1. Reproduce numbers with `just bench`. Compare to
    `bench-baseline.json` (CI fails on >10% regression).
 2. Profile:
-   - CPU: `cargo flamegraph -p wanlogger-server`.
+   - CPU: `cargo flamegraph -p tracemux-server`.
    - Allocs: `dhat-rs` or `heaptrack`.
    - Async: `tokio-console` (server already integrates it under the
      `--debug-tokio` flag).

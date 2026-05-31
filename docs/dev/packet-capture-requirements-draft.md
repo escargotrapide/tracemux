@@ -11,7 +11,7 @@ human review.
 
 ### FR-SRC-PCAP  Packet capture source
 
-`wanlogger` provides a source-only packet capture transport backed by
+`tracemux` provides a source-only packet capture transport backed by
 Npcap/libpcap. The source opens a selected capture interface and captures link
 layer packets according to the configured options.
 
@@ -65,7 +65,7 @@ Acceptance criteria:
 - `raw.bin` contains captured packet bytes, not UI-derived data.
 - `index.jsonl` contains one `kind = "datagram"` row per stored packet.
 - `index.jsonl` stores `ts_origin` from the capture backend packet timestamp.
-- `index.jsonl` stores `ts_ingest` from the wanlogger server.
+- `index.jsonl` stores `ts_ingest` from the tracemux server.
 - Structured metadata includes sequence number, captured length, original length,
   link type, interface id, raw offset, and raw length.
 - Persisted data remains readable after stop, EOF, or controlled source error.
@@ -73,7 +73,7 @@ Acceptance criteria:
 
 ### FR-EXP-PCAPNG  pcapng exporter
 
-`wanlogger export pcapng <session-dir> <dst>` and the authenticated server export
+`tracemux export pcapng <session-dir> <dst>` and the authenticated server export
 endpoint can render a packet capture session-dir as pcapng.
 
 Acceptance criteria:

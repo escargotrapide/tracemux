@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the wanlogger Tauri desktop app in dev mode.
+# Start the tracemux Tauri desktop app in dev mode.
 # Usage: bash scripts/dev-tauri.sh [--bind <h:p>] [--url <ws://...>] [--token <bearer>] [--no-sidecar]
 set -euo pipefail
 
@@ -21,10 +21,10 @@ done
 PORT="${BIND##*:}"
 [[ -z "$URL" ]] && URL="ws://127.0.0.1:${PORT}/ws"
 
-export VITE_WANLOGGER_URL="$URL"
-[[ -n "$TOKEN" ]] && export VITE_WANLOGGER_TOKEN="$TOKEN"
-export WANLOGGER_TAURI_BIND="$BIND"
-export WANLOGGER_TAURI_SIDECAR="$SIDECAR"
+export VITE_TRACEMUX_URL="$URL"
+[[ -n "$TOKEN" ]] && export VITE_TRACEMUX_TOKEN="$TOKEN"
+export TRACEMUX_TAURI_BIND="$BIND"
+export TRACEMUX_TAURI_SIDECAR="$SIDECAR"
 
 echo "Starting Tauri desktop app (backend: $URL)"
 if [[ "$SIDECAR" == "0" ]]; then

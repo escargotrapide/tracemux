@@ -19,7 +19,7 @@ use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::ServerConfig;
 use thiserror::Error;
-use wanlogger_core::{ErrorId, WanloggerError};
+use tracemux_core::{ErrorId, TraceMuxError};
 
 /// Default Subject Alternative Names baked into a freshly generated
 /// self-signed certificate.
@@ -64,10 +64,10 @@ impl TlsError {
     }
 }
 
-impl From<TlsError> for WanloggerError {
+impl From<TlsError> for TraceMuxError {
     fn from(e: TlsError) -> Self {
         let id = e.id();
-        WanloggerError::new(id, e.to_string())
+        TraceMuxError::new(id, e.to_string())
     }
 }
 
@@ -234,15 +234,15 @@ mod tests {
     }
 
     #[test]
-    fn wanlogger_error_carries_canonical_id() {
-        let e: WanloggerError = TlsError::Generate("x".into()).into();
+    fn tracemux_error_carries_canonical_id() {
+        let e: TraceMuxError = TlsError::Generate("x".into()).into();
         assert_eq!(e.id, ErrorId::E2102TlsHandshake);
     }
 
     fn tempdir() -> std::path::PathBuf {
         let mut p = std::env::temp_dir();
         p.push(format!(
-            "wanlogger-tls-test-{}",
+            "tracemux-tls-test-{}",
             std::process::id() as u64 ^ rand_u64()
         ));
         std::fs::create_dir_all(&p).unwrap();

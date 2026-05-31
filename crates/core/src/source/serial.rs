@@ -14,7 +14,7 @@ use bytes::Bytes;
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
 use crate::sink::serial::SerialSink;
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 // ---- tokio-serial enabled path ----------------------------------------
 
@@ -97,13 +97,13 @@ mod imp {
 /// Serial-port source.
 ///
 /// # Feature
-/// Requires `wanlogger-core` to be compiled with feature `serial`.
+/// Requires `tracemux-core` to be compiled with feature `serial`.
 /// Without the feature, `open()` returns `E-1101`.
 ///
 /// # Example
 /// ```rust,ignore
-/// use wanlogger_core::source::{serial::SerialSource, Source};
-/// # async fn example() -> wanlogger_core::Result<()> {
+/// use tracemux_core::source::{serial::SerialSource, Source};
+/// # async fn example() -> tracemux_core::Result<()> {
 /// let mut src = SerialSource::new("COM3", 115_200, 8, "none", 1, "none");
 /// src.open().await?;
 /// # Ok(())
@@ -210,7 +210,7 @@ impl SerialSource {
         // REQ: FR-SINK-SERIAL
         let port = port.into();
         let _ = (baud, data_bits, parity.into(), stop_bits, flow.into());
-        Err(WanloggerError::new(
+        Err(TraceMuxError::new(
             ErrorId::E1101SourceOpen,
             format!("serial source {port} requires the `serial` feature"),
         ))
@@ -219,31 +219,31 @@ impl SerialSource {
     #[cfg(feature = "serial")]
     fn open_stream(&self) -> Result<tokio_serial::SerialStream> {
         let db = imp::data_bits(self.data_bits).map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("serial open {}: {e}", self.port),
             )
         })?;
         let par = imp::parity(&self.parity).map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("serial open {}: {e}", self.port),
             )
         })?;
         let sb = imp::stop_bits(self.stop_bits).map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("serial open {}: {e}", self.port),
             )
         })?;
         let fc = imp::flow(&self.flow).map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("serial open {}: {e}", self.port),
             )
         })?;
         imp::open_port(&self.port, self.baud, db, par, sb, fc).map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("serial open {}: {e}", self.port),
             )
@@ -272,7 +272,7 @@ impl Source for SerialSource {
         }
         #[cfg(not(feature = "serial"))]
         {
-            Err(WanloggerError::new(
+            Err(TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 "serial source requires the `serial` feature",
             ))
@@ -306,7 +306,7 @@ impl Source for SerialSource {
                         id: ErrorId::E1001PipelineGeneric,
                         message: e.to_string(),
                     });
-                    Err(WanloggerError::new(
+                    Err(TraceMuxError::new(
                         ErrorId::E1001PipelineGeneric,
                         format!("serial recv {}: {e}", self.port),
                     ))

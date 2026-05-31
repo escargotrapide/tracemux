@@ -5,7 +5,7 @@
 # success.  Exit code is the number of failed steps (0 = green).
 #
 # Steps are defined inline below so this script does not depend on
-# YAML/TOML parsing.  The Rust side (`wanlogger ai-verify`) only
+# YAML/TOML parsing.  The Rust side (`tracemux ai-verify`) only
 # reads the JSON.
 #
 # REQ: FR-AI-001
@@ -87,7 +87,7 @@ foreach ($s in $steps) {
 }
 
 $report = [ordered]@{
-    schema  = 'wanlogger/ai-verify/v1'
+    schema  = 'tracemux/ai-verify/v1'
     summary = if ($failed -eq 0) { 'green' } else { "$failed failed" }
     steps   = $results
 }

@@ -25,7 +25,7 @@
 │   │       ├── codec.rs  secret.rs   error_id.rs
 │   │       └── eventbus.rs   metrics.rs
 │   ├── server/                       # axum + rustls + WSS mux + source lifecycle
-│   ├── cli/                          # `wanlogger` binary
+│   ├── cli/                          # `tracemux` binary
 │   └── replay/                       # session-dir replay engine
 ├── docs/
 │   ├── architecture.md

@@ -1,4 +1,4 @@
-# Copilot instructions for wanlogger
+# Copilot instructions for tracemux
 
 **Read [AGENTS.md](../AGENTS.md) first.** It is the canonical source for
 architecture, critical paths, build commands, and pitfalls. This file is
@@ -11,7 +11,7 @@ the short, Copilot-optimised summary.
   Plus orthogonal `Sink` (write-back), `Importer`, `Exporter`,
   `TimeseriesSink`, `TimeSource`. All traits are **frozen v0.1**.
 - Server is the single source of truth. Browser/Tauri/CLI talk WSS
-  (`wanlogger.v1` MessagePack). Never persist from the UI.
+  (`tracemux.v1` MessagePack). Never persist from the UI.
 - Every record has **dual timestamps**: `ts_origin` + `ts_ingest` plus
   `mono_ns`, `boot_id`, `node_id`, `clock_offset_ms`, `clock_quality`.
 - `unsafe_code = "deny"` workspace-wide. `cargo deny` bans `openssl-sys`.

@@ -1,6 +1,6 @@
 //! Config schema v1 (`config_version = 1`).
 //!
-//! On-disk shape of `wanlogger.toml`. **Frozen v0.1.** New fields
+//! On-disk shape of `tracemux.toml`. **Frozen v0.1.** New fields
 //! must remain backwards-compatible (`#[serde(default)]` +
 //! `Option<_>`); breaking changes go through
 //! `crate::config::migrate` and bump `config_version`.
@@ -95,7 +95,7 @@ fn default_server_bind() -> String {
 }
 
 fn default_server_session_root() -> String {
-    "wanlogger-sessions".to_string()
+    "tracemux-sessions".to_string()
 }
 
 fn default_server_encoding() -> String {
@@ -129,7 +129,7 @@ impl Default for ServerCfg {
 /// Serial source startup settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerialStartupCfg {
-    /// Detect/open serial sources when `wanlogger serve` starts.
+    /// Detect/open serial sources when `tracemux serve` starts.
     #[serde(default)]
     pub open_all: bool,
     /// Explicit serial ports. Empty means detect all host serial candidates.
@@ -211,10 +211,10 @@ pub struct ChannelCfg {
 /// Export command defaults.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExportCfg {
-    /// Default export timezone when `wanlogger export --tz` is omitted.
+    /// Default export timezone when `tracemux export --tz` is omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
-    /// Default export text encoding when `wanlogger export --encoding` is omitted.
+    /// Default export text encoding when `tracemux export --encoding` is omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding: Option<String>,
 }
@@ -251,7 +251,7 @@ mod tests {
         let c2: ConfigV1 = toml::from_str(&s).unwrap();
         assert_eq!(c2.config_version, 1);
         assert_eq!(c2.server.bind, "127.0.0.1:9443");
-        assert_eq!(c2.server.session_root, "wanlogger-sessions");
+        assert_eq!(c2.server.session_root, "tracemux-sessions");
         assert_eq!(c2.server.encoding, "utf-8");
         assert_eq!(c2.server.detect_mode, "configured");
         assert!(!c2.server.serial.open_all);
@@ -295,7 +295,7 @@ mod tests {
         "#;
         let c: ConfigV1 = toml::from_str(s).unwrap();
         assert_eq!(c.server.bind, "0.0.0.0:9443");
-        assert_eq!(c.server.session_root, "wanlogger-sessions");
+        assert_eq!(c.server.session_root, "tracemux-sessions");
         assert_eq!(c.server.encoding, "utf-8");
         assert_eq!(c.server.detect_mode, "configured");
         assert!(!c.server.serial.open_all);

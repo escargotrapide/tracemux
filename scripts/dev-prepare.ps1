@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 # Prepare the Tauri dev environment:
-#   1. Build wanlogger-cli (debug)
+#   1. Build tracemux-cli (debug)
 #   2. Copy binary to app-tauri/src-tauri/binaries/ (Tauri sidecar)
 #   3. Generate a placeholder icon.png and icon.ico (if not already present)
 #
@@ -15,17 +15,17 @@ $ErrorActionPreference = 'Stop'
 
 $root = $PSScriptRoot ? (Split-Path $PSScriptRoot) : $PWD
 
-# 1. Build wanlogger-cli
+# 1. Build tracemux-cli
 $buildFlag = if ($Release) { @("--release") } else { @() }
-Write-Host "Building wanlogger-cli..." -ForegroundColor Cyan
-& cargo build @buildFlag -p wanlogger-cli
+Write-Host "Building tracemux-cli..." -ForegroundColor Cyan
+& cargo build @buildFlag -p tracemux-cli
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
 # 2. Copy sidecar binary
 $cargoProfile = if ($Release) { "release" } else { "debug" }
-$srcBin    = Join-Path $root "target\$cargoProfile\wanlogger.exe"
+$srcBin    = Join-Path $root "target\$cargoProfile\tracemux.exe"
 $binDir    = Join-Path $root "app-tauri\src-tauri\binaries"
-$targetBin = Join-Path $binDir "wanlogger-x86_64-pc-windows-msvc.exe"
+$targetBin = Join-Path $binDir "tracemux-x86_64-pc-windows-msvc.exe"
 New-Item -ItemType Directory -Path $binDir -Force | Out-Null
 Copy-Item $srcBin $targetBin -Force
 Write-Host "  Sidecar: $targetBin" -ForegroundColor DarkGreen

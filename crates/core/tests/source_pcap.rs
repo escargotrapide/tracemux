@@ -5,10 +5,10 @@
 // REQ: NFR-MAINT-PCAP
 
 use bytes::Bytes;
-use wanlogger_core::packet_summary::LINKTYPE_ETHERNET;
-use wanlogger_core::source::pcap::{FakePcapBackend, PcapConfig, PcapPacket, PcapSource};
-use wanlogger_core::source::{Frame, Source};
-use wanlogger_core::ErrorId;
+use tracemux_core::packet_summary::LINKTYPE_ETHERNET;
+use tracemux_core::source::pcap::{FakePcapBackend, PcapConfig, PcapPacket, PcapSource};
+use tracemux_core::source::{Frame, Source};
+use tracemux_core::ErrorId;
 
 fn packet(seq: u64, body: &'static [u8]) -> PcapPacket {
     PcapPacket::new(

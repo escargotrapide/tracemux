@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://wanlogger.dev/cli-output/v1/ai-verify.schema.json",
-  "title": "wanlogger ai-verify report",
+  "$id": "https://tracemux.dev/cli-output/v1/ai-verify.schema.json",
+  "title": "tracemux ai-verify report",
   "description": "Schema for target/ai-verify.json produced by `just ai-verify`.",
   "type": "object",
   "required": ["schema", "summary", "steps"],
   "properties": {
-    "schema": { "type": "string", "const": "wanlogger/ai-verify/v1" },
+    "schema": { "type": "string", "const": "tracemux/ai-verify/v1" },
     "summary": { "type": "string" },
     "steps": {
       "type": "array",

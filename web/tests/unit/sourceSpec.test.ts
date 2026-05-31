@@ -48,11 +48,11 @@ describe("parseSourceSpec", () => {
   it("parses remote mirror specs", () => {
     // REQ: FR-REMOTE-001
     const remoteUrl = encodeURIComponent(
-      "wss://edge.example.test:9000/ws?sid=00000000-0000-4000-8000-000000000001&ch=0&token_env=WANLOGGER_EDGE_TOKEN",
+      "wss://edge.example.test:9000/ws?sid=00000000-0000-4000-8000-000000000001&ch=0&token_env=TRACEMUX_EDGE_TOKEN",
     );
     expect(parseSourceSpec(`remote://${remoteUrl}`)).toEqual({
       kind: "remote",
-      url: "wss://edge.example.test:9000/ws?sid=00000000-0000-4000-8000-000000000001&ch=0&token_env=WANLOGGER_EDGE_TOKEN",
+      url: "wss://edge.example.test:9000/ws?sid=00000000-0000-4000-8000-000000000001&ch=0&token_env=TRACEMUX_EDGE_TOKEN",
     });
   });
 

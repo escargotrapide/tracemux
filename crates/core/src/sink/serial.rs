@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 
 use super::Sink;
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// Serial-port write-back sink.
 #[derive(Debug)]
@@ -48,13 +48,13 @@ impl Sink for SerialSink {
             use tokio::io::AsyncWriteExt as _;
 
             let Some(writer) = self.writer.as_mut() else {
-                return Err(WanloggerError::new(
+                return Err(TraceMuxError::new(
                     ErrorId::E1102SourceClosed,
                     "serial sink not open",
                 ));
             };
             writer.write_all(&data).await.map_err(|e| {
-                WanloggerError::new(
+                TraceMuxError::new(
                     ErrorId::E1102SourceClosed,
                     format!("serial write {}: {e}", self.port),
                 )
@@ -64,7 +64,7 @@ impl Sink for SerialSink {
         #[cfg(not(feature = "serial"))]
         {
             let _ = data;
-            Err(WanloggerError::new(
+            Err(TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("serial sink {} requires the `serial` feature", self.port),
             ))
@@ -80,7 +80,7 @@ impl Sink for SerialSink {
                 return Ok(());
             };
             writer.flush().await.map_err(|e| {
-                WanloggerError::new(
+                TraceMuxError::new(
                     ErrorId::E1102SourceClosed,
                     format!("serial flush {}: {e}", self.port),
                 )

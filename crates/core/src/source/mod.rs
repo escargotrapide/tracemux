@@ -228,7 +228,7 @@ pub enum ChannelSpec {
         /// Resource string.
         resource: String,
     },
-    /// Remote `wanlogger serve` proxy — stub in v0.1.
+    /// Remote `tracemux serve` proxy — stub in v0.1.
     Remote {
         /// `wss://host:port/ws`.
         url: String,

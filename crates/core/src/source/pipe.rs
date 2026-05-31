@@ -14,7 +14,7 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 const RECV_BUF: usize = 16 * 1024;
 
@@ -42,7 +42,7 @@ impl PipeSource {
 impl Source for PipeSource {
     async fn open(&mut self) -> Result<()> {
         let f = File::open(&self.path).await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("pipe open {}: {e}", self.path),
             )
@@ -56,7 +56,7 @@ impl Source for PipeSource {
         let f = match self.file.as_mut() {
             Some(f) => f,
             None => {
-                return Err(WanloggerError::new(
+                return Err(TraceMuxError::new(
                     ErrorId::E1102SourceClosed,
                     "pipe source not open",
                 ))
@@ -64,8 +64,7 @@ impl Source for PipeSource {
         };
         let mut buf = vec![0u8; RECV_BUF];
         let n = f.read(&mut buf).await.map_err(|e| {
-            WanloggerError::new(ErrorId::E1102SourceClosed, format!("pipe read: {e}"))
-                .with_source(e)
+            TraceMuxError::new(ErrorId::E1102SourceClosed, format!("pipe read: {e}")).with_source(e)
         })?;
         if n == 0 {
             self.eof_sent = true;

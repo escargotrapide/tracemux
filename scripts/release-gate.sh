@@ -74,8 +74,8 @@ except Exception as exc:  # noqa: BLE001 - shell gate reports the message.
     print(f"not valid JSON: {exc}")
     sys.exit(0)
 
-if report.get("schema") != "wanlogger/ai-verify/v1":
-    problems.append("schema is not wanlogger/ai-verify/v1")
+if report.get("schema") != "tracemux/ai-verify/v1":
+    problems.append("schema is not tracemux/ai-verify/v1")
 if report.get("summary") != "green":
     problems.append(f"summary is {report.get('summary')!r}, expected 'green'")
 

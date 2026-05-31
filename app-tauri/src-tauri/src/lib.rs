@@ -1,7 +1,7 @@
-//! wanlogger Tauri 2 desktop shell.
+//! TraceMux Tauri 2 desktop shell.
 //!
 //! Responsibilities:
-//! - Spawn the `wanlogger serve` sidecar (bundled as `binaries/wanlogger`).
+//! - Spawn the `tracemux serve` sidecar (bundled as `binaries/tracemux`).
 //! - Load the SolidJS UI (dev: vite at 127.0.0.1:5173, prod: bundled).
 //!
 //! Per AGENTS.md, the server is the single source of truth -- this
@@ -25,7 +25,7 @@ pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,wanlogger=debug".into()),
+                .unwrap_or_else(|_| "info,tracemux=debug".into()),
         )
         .init();
 
@@ -33,15 +33,15 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             if sidecar_enabled() {
-                let bind = std::env::var("WANLOGGER_TAURI_BIND")
+                let bind = std::env::var("TRACEMUX_TAURI_BIND")
                     .unwrap_or_else(|_| "127.0.0.1:9000".to_string());
                 let (mut events, child) = app
                     .shell()
-                    .sidecar("binaries/wanlogger")?
+                    .sidecar("binaries/tracemux")?
                     .args(["serve", "--bind", bind.as_str(), "--no-auth"])
                     .spawn()?;
 
-                tracing::info!(%bind, "tauri: wanlogger sidecar started");
+                tracing::info!(%bind, "tauri: tracemux sidecar started");
                 app.manage(SidecarState(Mutex::new(Some(child))));
 
                 tauri::async_runtime::spawn(async move {
@@ -51,7 +51,7 @@ pub fn run() {
                     tracing::info!("tauri: sidecar event stream closed");
                 });
             } else {
-                tracing::info!("tauri: sidecar disabled by WANLOGGER_TAURI_SIDECAR=0");
+                tracing::info!("tauri: sidecar disabled by TRACEMUX_TAURI_SIDECAR=0");
             }
             Ok(())
         })
@@ -66,7 +66,7 @@ pub fn run() {
 
 fn sidecar_enabled() -> bool {
     !matches!(
-        std::env::var("WANLOGGER_TAURI_SIDECAR").as_deref(),
+        std::env::var("TRACEMUX_TAURI_SIDECAR").as_deref(),
         Ok("0" | "false" | "False")
     )
 }

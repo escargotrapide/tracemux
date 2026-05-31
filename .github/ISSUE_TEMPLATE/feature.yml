@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a new capability for wanlogger
+description: Propose a new capability for tracemux
 labels: ["type:feature"]
 body:
   - type: markdown

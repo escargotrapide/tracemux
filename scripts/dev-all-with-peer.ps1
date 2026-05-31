@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # Start backend server, web UI, and virtual peer together (development mode).
 #
-# The virtual peer listens on a TCP port so wanlogger can connect to it as a
+# The virtual peer listens on a TCP port so tracemux can connect to it as a
 # `tcp` source.  Once all three processes are running, open the UI at
 # http://localhost:5173, add a TCP source pointing to 127.0.0.1:<PeerPort>,
 # and you will see the scripted device traffic flow in.
@@ -48,7 +48,7 @@ Write-Host "Launching virtual peer (TCP listen $peerAddr) ..." -ForegroundColor 
 $peerJob = Start-Job -ScriptBlock {
     param($r, $addr, $send, $repeat, $interval)
     Set-Location $r
-    & cargo run -p wanlogger-virt-peer -- `
+    & cargo run -p tracemux-virt-peer -- `
         tcp --mode listen --addr $addr `
         --send $send --eol lf `
         --repeat $repeat `
@@ -57,12 +57,12 @@ $peerJob = Start-Job -ScriptBlock {
 
 # ---- 3. Web UI ---------------------------------------------------------------
 Write-Host "Launching Web UI (backend: $Url) ..." -ForegroundColor Cyan
-$env:VITE_WANLOGGER_URL = $Url
+$env:VITE_TRACEMUX_URL = $Url
 # Prefer the direct `pnpm` command; fall back to `corepack pnpm` if not in PATH.
 $pnpmCmd = if (Get-Command pnpm -ErrorAction SilentlyContinue) { "pnpm" } else { $null }
 $webJob = Start-Job -ScriptBlock {
     param($r, $u, $pnpm)
-    $env:VITE_WANLOGGER_URL = $u
+    $env:VITE_TRACEMUX_URL = $u
     Set-Location $r
     if ($pnpm) {
         & $pnpm --filter ./web dev
@@ -77,7 +77,7 @@ Write-Host "  Backend PID  : $($serverProc.Id)"
 Write-Host "  Virtual peer : TCP listen $peerAddr  (Job $($peerJob.Id))"
 Write-Host "  Web UI       : http://localhost:5173  (Job $($webJob.Id))"
 Write-Host ""
-Write-Host "  Connect wanlogger to the virtual peer:" -ForegroundColor Yellow
+Write-Host "  Connect tracemux to the virtual peer:" -ForegroundColor Yellow
 Write-Host "    Source URL: tcp://127.0.0.1:$PeerPort" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Press Ctrl+C to stop all." -ForegroundColor DarkYellow

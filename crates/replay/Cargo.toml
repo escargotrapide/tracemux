@@ -1,18 +1,18 @@
 [package]
-name = "wanlogger-replay"
+name = "tracemux-replay"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "wanlogger session-dir replay engine"
+description = "tracemux session-dir replay engine"
 
 [lints]
 workspace = true
 
 [dependencies]
-wanlogger-core = { path = "../core" }
+tracemux-core = { path = "../core" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }

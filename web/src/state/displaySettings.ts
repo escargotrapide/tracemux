@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
-export const DISPLAY_SETTINGS_STORAGE_KEY = "wanlogger.displaySettings.v1";
+export const DISPLAY_SETTINGS_STORAGE_KEY = "tracemux.displaySettings.v1";
 
 export interface DisplaySettings {
   terminalScrollback: number;

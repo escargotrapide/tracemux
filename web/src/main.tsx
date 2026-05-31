@@ -12,11 +12,11 @@ if (!root) {
 
 // Dev / e2e injection hook. Stripped in production builds.
 if (import.meta.env.DEV) {
-  (window as unknown as Record<string, unknown>).__wanloggerInject =
+  (window as unknown as Record<string, unknown>).__tracemuxInject =
     __ingestFrameForTest;
-  (window as unknown as Record<string, unknown>).__wanloggerSetClient =
+  (window as unknown as Record<string, unknown>).__tracemuxSetClient =
     __setClientForTest;
-  (window as unknown as Record<string, unknown>).__wanloggerSetConnState =
+  (window as unknown as Record<string, unknown>).__tracemuxSetConnState =
     __setConnStateForTest;
 }
 

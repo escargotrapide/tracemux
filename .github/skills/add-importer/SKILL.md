@@ -6,7 +6,7 @@ description: Add an Importer that ingests historical logs into a session-dir
 # Skill: add an Importer
 
 `Importer`s convert a foreign log artefact (Tera Term `.log`, pcapng,
-Loki/Splunk export, CSV, …) into a wanlogger `session-dir/`.
+Loki/Splunk export, CSV, …) into a tracemux `session-dir/`.
 
 ## Steps
 

@@ -1,4 +1,4 @@
-//! `wanlogger connect` ? open a channel and pipe frames to stdout.
+//! `tracemux connect` ? open a channel and pipe frames to stdout.
 
 use std::path::{Path, PathBuf};
 
@@ -8,11 +8,11 @@ use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tokio::io::AsyncWriteExt;
+use tracemux_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
+use tracemux_core::log::raw::RawWriter;
+use tracemux_core::source::{ControlEvt, Frame};
+use tracemux_core::time::{ClockQuality, ClockSource, DualTimestamp};
 use uuid::Uuid;
-use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
-use wanlogger_core::log::raw::RawWriter;
-use wanlogger_core::source::{ControlEvt, Frame};
-use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
 
 use super::spec;
 
@@ -32,7 +32,7 @@ pub struct Options {
 struct MetaToml {
     log_format_version: &'static str,
     command: &'static str,
-    spec: wanlogger_core::source::ChannelSpec,
+    spec: tracemux_core::source::ChannelSpec,
     sid: Uuid,
     started: String,
     decoder: String,
@@ -139,7 +139,7 @@ async fn write_payload(
 impl ConnectRecorder {
     fn create(
         dir: &Path,
-        channel_spec: &wanlogger_core::source::ChannelSpec,
+        channel_spec: &tracemux_core::source::ChannelSpec,
         encoding: &str,
     ) -> Result<Self> {
         if dir.exists() {
@@ -198,14 +198,14 @@ impl ConnectRecorder {
 
 fn write_meta(
     dir: &Path,
-    channel_spec: &wanlogger_core::source::ChannelSpec,
+    channel_spec: &tracemux_core::source::ChannelSpec,
     sid: Uuid,
     decoder: &str,
     encoding: &str,
 ) -> Result<()> {
     let started = OffsetDateTime::now_utc()
         .format(&Rfc3339)
-        .unwrap_or_else(|_| wanlogger_core::time::unix_ns_now().to_string());
+        .unwrap_or_else(|_| tracemux_core::time::unix_ns_now().to_string());
     let meta = MetaToml {
         log_format_version: "1.0.0",
         command: "connect",
@@ -232,7 +232,7 @@ fn normalized_encoding(encoding: &str) -> String {
 }
 
 fn synth_dual_ts() -> DualTimestamp {
-    let now_ns = wanlogger_core::time::unix_ns_now();
+    let now_ns = tracemux_core::time::unix_ns_now();
     DualTimestamp {
         ts_origin_ns: now_ns,
         ts_ingest_ns: now_ns,
@@ -249,7 +249,7 @@ fn synth_dual_ts() -> DualTimestamp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wanlogger_core::log::raw::RawReader;
+    use tracemux_core::log::raw::RawReader;
 
     // REQ: FR-CLI-010
     #[tokio::test]

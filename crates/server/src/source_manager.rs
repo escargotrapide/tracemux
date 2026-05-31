@@ -15,27 +15,27 @@ use bytes::Bytes;
 use parking_lot::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
-use uuid::Uuid;
-use wanlogger_core::classify::{ClassifyingDecoder, LogClassifier};
-use wanlogger_core::decoder::{utf8_text::Utf8TextDecoder, Decoder};
-use wanlogger_core::detect::content::{
+use tracemux_core::classify::{ClassifyingDecoder, LogClassifier};
+use tracemux_core::decoder::{utf8_text::Utf8TextDecoder, Decoder};
+use tracemux_core::detect::content::{
     detect_content, ContentDetectionReport, ContentDetectionSettings, DetectionMode,
     DEFAULT_MAX_SAMPLE_BYTES,
 };
-use wanlogger_core::framer::{passthrough::PassthroughFramer, Framer};
-use wanlogger_core::logsink::{fanout::FanoutLogSink, file::FileLogSink, LogSink};
-use wanlogger_core::session_name::{
+use tracemux_core::framer::{passthrough::PassthroughFramer, Framer};
+use tracemux_core::logsink::{fanout::FanoutLogSink, file::FileLogSink, LogSink};
+use tracemux_core::session_name::{
     render_session_name, SessionNameParts, DEFAULT_SERVER_SESSION_NAME_PATTERN,
 };
-use wanlogger_core::sink::Sink;
-use wanlogger_core::source::{
+use tracemux_core::sink::Sink;
+use tracemux_core::source::{
     file::FileSource, http_webhook::HttpWebhookSource, mock::MockSource, mqtt::MqttSource,
     pcap::PcapConfig, pcap::PcapSource, pipe::PipeSource, process::ProcessSource,
     replay::ReplaySource, serial::SerialSource, syslog::SyslogSource, tcp::TcpSource,
     udp::UdpSource, ChannelMeta, ChannelSpec, ControlEvt, Frame, Source,
 };
-use wanlogger_core::time::{system::SystemTimeSource, TimeSource};
-use wanlogger_core::{ErrorId, WanloggerError};
+use tracemux_core::time::{system::SystemTimeSource, TimeSource};
+use tracemux_core::{ErrorId, TraceMuxError};
+use uuid::Uuid;
 
 use crate::ingest::Ingest;
 use crate::pcap_runner::run_pcap_once_notify;
@@ -246,7 +246,7 @@ impl<S> Source for PrefetchedSource<S>
 where
     S: Source,
 {
-    async fn open(&mut self) -> wanlogger_core::Result<()> {
+    async fn open(&mut self) -> tracemux_core::Result<()> {
         if !self.opened {
             self.inner.open().await?;
             self.opened = true;
@@ -254,14 +254,14 @@ where
         Ok(())
     }
 
-    async fn recv(&mut self) -> wanlogger_core::Result<Option<Frame>> {
+    async fn recv(&mut self) -> tracemux_core::Result<Option<Frame>> {
         if let Some(frame) = self.prefetched.pop_front() {
             return Ok(Some(frame));
         }
         self.inner.recv().await
     }
 
-    async fn recv_ctl(&mut self) -> wanlogger_core::Result<Option<ControlEvt>> {
+    async fn recv_ctl(&mut self) -> tracemux_core::Result<Option<ControlEvt>> {
         self.inner.recv_ctl().await
     }
 
@@ -269,7 +269,7 @@ where
         self.inner.metadata()
     }
 
-    async fn close(&mut self) -> wanlogger_core::Result<()> {
+    async fn close(&mut self) -> tracemux_core::Result<()> {
         self.opened = false;
         self.inner.close().await
     }
@@ -491,7 +491,7 @@ impl SourceManager {
         start_options: SourceStartOptions,
     ) -> Vec<SerialStartOutcome> {
         self.start_serial_ports(
-            wanlogger_core::detect::serial::list(),
+            tracemux_core::detect::serial::list(),
             serial_options,
             start_options,
         )
@@ -931,7 +931,7 @@ impl SourceManager {
         let target = RemoteTarget::parse(&url)?;
         let decoder_label = "remote-mirror";
         let logsink = Self::log_sink_for(sid, &spec, session_dir.as_deref(), decoder_label)?;
-        let mut state = wanlogger_core::session::registry::SessionState::new(
+        let mut state = tracemux_core::session::registry::SessionState::new(
             kind_tag(&spec),
             target.display_target(),
         );
@@ -1405,23 +1405,23 @@ fn frame_bytes(frame: &Frame) -> Option<&Bytes> {
 }
 
 fn write_error(id: ErrorId, message: impl Into<String>) -> anyhow::Error {
-    WanloggerError::new(id, message).into()
+    TraceMuxError::new(id, message).into()
 }
 
-/// Default server session root used by `wanlogger serve`.
+/// Default server session root used by `tracemux serve`.
 #[must_use]
 pub fn default_session_root() -> PathBuf {
-    std::env::var_os("WANLOGGER_SESSION_ROOT")
-        .map_or_else(|| PathBuf::from("wanlogger-sessions"), PathBuf::from)
+    std::env::var_os("TRACEMUX_SESSION_ROOT")
+        .map_or_else(|| PathBuf::from("tracemux-sessions"), PathBuf::from)
 }
 
 fn session_dir_name(spec: &ChannelSpec, pattern: &str) -> String {
     let iface = iface_tag(spec);
-    let unix_ns = wanlogger_core::time::unix_ns_now();
+    let unix_ns = tracemux_core::time::unix_ns_now();
     render_session_name(
         pattern,
         &SessionNameParts {
-            prefix: "wanlogger",
+            prefix: "tracemux",
             kind: kind_tag(spec),
             iface: &iface,
             timestamp: &compact_utc_timestamp(),
@@ -1518,14 +1518,14 @@ fn local_host_label() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use wanlogger_core::classify::{ClassificationRule, LogClassifier};
-    use wanlogger_core::codec::encode_text;
-    use wanlogger_core::decoder::passthrough::PassthroughDecoder;
-    use wanlogger_core::framer::line::{Eol, LineFramer};
-    use wanlogger_core::logsink::fanout::FanoutLogSink;
-    use wanlogger_core::source::mock::MockSource;
-    use wanlogger_core::source::ChannelSpec;
-    use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
+    use tracemux_core::classify::{ClassificationRule, LogClassifier};
+    use tracemux_core::codec::encode_text;
+    use tracemux_core::decoder::passthrough::PassthroughDecoder;
+    use tracemux_core::framer::line::{Eol, LineFramer};
+    use tracemux_core::logsink::fanout::FanoutLogSink;
+    use tracemux_core::source::mock::MockSource;
+    use tracemux_core::source::ChannelSpec;
+    use tracemux_core::time::{ClockQuality, ClockSource, DualTimestamp};
 
     use super::*;
 
@@ -1571,7 +1571,7 @@ mod tests {
     }
 
     fn tempdir() -> PathBuf {
-        let p = std::env::temp_dir().join(format!("wanlogger-source-manager-{}", Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!("tracemux-source-manager-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }
@@ -1811,7 +1811,7 @@ mod tests {
             .unwrap();
         manager.wait(sid).await.unwrap().unwrap();
 
-        let session = sessions.join("wanlogger-file-input.log-custom");
+        let session = sessions.join("tracemux-file-input.log-custom");
         assert!(session.is_dir(), "expected {}", session.display());
         let lines = std::fs::read_to_string(session.join("lines.jsonl")).unwrap();
         let line_row: serde_json::Value = serde_json::from_str(lines.trim()).unwrap();
@@ -1947,7 +1947,7 @@ mod tests {
             .unwrap();
         manager.wait(sid).await.unwrap().unwrap();
 
-        let session = sessions.join("wanlogger-file-input.log");
+        let session = sessions.join("tracemux-file-input.log");
         assert!(session.is_dir(), "expected {}", session.display());
         assert!(session.join("raw.bin").is_file());
 
@@ -2036,7 +2036,7 @@ mod tests {
     async fn list_sources_reports_registry_sessions() {
         let ingest = Arc::new(Ingest::new());
         let manager = SourceManager::new(ingest.clone());
-        let sid = ingest.register_session(wanlogger_core::session::registry::SessionState::new(
+        let sid = ingest.register_session(tracemux_core::session::registry::SessionState::new(
             "mock", "loopback",
         ));
         ingest.record_frame(sid, 5);
@@ -2101,14 +2101,14 @@ mod tests {
                 interface: "eth0".to_string(),
                 display_name: None,
                 promiscuous: false,
-                snaplen: wanlogger_core::source::pcap::DEFAULT_SNAPLEN,
+                snaplen: tracemux_core::source::pcap::DEFAULT_SNAPLEN,
                 buffer_bytes: None,
-                timeout_ms: wanlogger_core::source::pcap::DEFAULT_TIMEOUT_MS,
+                timeout_ms: tracemux_core::source::pcap::DEFAULT_TIMEOUT_MS,
                 immediate: false,
                 filter: None,
-                save_mode: wanlogger_core::source::pcap::PcapSaveMode::Session,
+                save_mode: tracemux_core::source::pcap::PcapSaveMode::Session,
                 pcapng_path: None,
-                publish_mode: wanlogger_core::source::pcap::PcapPublishMode::StatsOnly,
+                publish_mode: tracemux_core::source::pcap::PcapPublishMode::StatsOnly,
             })
             .await
             .unwrap_err();
@@ -2128,21 +2128,21 @@ mod tests {
         let sessions = root.join("sessions");
         let ingest = Arc::new(Ingest::new());
         let manager = SourceManager::with_session_root(ingest.clone(), &sessions);
-        let mut config = wanlogger_core::source::pcap::PcapConfig::new("fake0");
-        config.save_mode = wanlogger_core::source::pcap::PcapSaveMode::Pcapng;
+        let mut config = tracemux_core::source::pcap::PcapConfig::new("fake0");
+        config.save_mode = tracemux_core::source::pcap::PcapSaveMode::Pcapng;
         config.pcapng_path = Some(root.clone());
         let spec = config.clone().into_channel_spec();
-        let packet = wanlogger_core::source::pcap::PcapPacket::new(
+        let packet = tracemux_core::source::pcap::PcapPacket::new(
             1,
             1_700_000_000_123_456_789,
             18,
-            wanlogger_core::packet_summary::LINKTYPE_ETHERNET,
+            tracemux_core::packet_summary::LINKTYPE_ETHERNET,
             0,
             ethernet_packet(),
         );
-        let source = wanlogger_core::source::pcap::PcapSource::with_backend(
+        let source = tracemux_core::source::pcap::PcapSource::with_backend(
             config,
-            wanlogger_core::source::pcap::FakePcapBackend::new([packet]),
+            tracemux_core::source::pcap::FakePcapBackend::new([packet]),
         );
 
         let err = manager
@@ -2166,20 +2166,20 @@ mod tests {
         let sessions = root.join("sessions");
         let ingest = Arc::new(Ingest::new());
         let manager = SourceManager::with_session_root(ingest.clone(), &sessions);
-        let mut config = wanlogger_core::source::pcap::PcapConfig::new("fake0");
+        let mut config = tracemux_core::source::pcap::PcapConfig::new("fake0");
         config.filter = Some("ether proto 0x88b5".to_string());
         let spec = config.clone().into_channel_spec();
-        let packet = wanlogger_core::source::pcap::PcapPacket::new(
+        let packet = tracemux_core::source::pcap::PcapPacket::new(
             1,
             1_700_000_000_123_456_789,
             18,
-            wanlogger_core::packet_summary::LINKTYPE_ETHERNET,
+            tracemux_core::packet_summary::LINKTYPE_ETHERNET,
             0,
             ethernet_packet(),
         );
-        let source = wanlogger_core::source::pcap::PcapSource::with_backend(
+        let source = tracemux_core::source::pcap::PcapSource::with_backend(
             config,
-            wanlogger_core::source::pcap::FakePcapBackend::new([packet.clone()]),
+            tracemux_core::source::pcap::FakePcapBackend::new([packet.clone()]),
         );
 
         let sid = manager
@@ -2197,17 +2197,17 @@ mod tests {
         );
 
         let index_body = std::fs::read_to_string(session_dir.join("index.jsonl")).unwrap();
-        let index: wanlogger_core::log::index::IndexEntry =
+        let index: tracemux_core::log::index::IndexEntry =
             serde_json::from_str(index_body.trim()).unwrap();
-        assert_eq!(index.kind, wanlogger_core::log::index::Kind::Datagram);
+        assert_eq!(index.kind, tracemux_core::log::index::Kind::Datagram);
         assert_eq!(
             index.schema_id.as_deref(),
-            Some(wanlogger_core::exporter::pcapng::PCAP_PACKET_SCHEMA_ID)
+            Some(tracemux_core::exporter::pcapng::PCAP_PACKET_SCHEMA_ID)
         );
         assert_ne!(index.ts_origin, index.ts_ingest);
 
         let frames_body = std::fs::read_to_string(session_dir.join("frames.jsonl")).unwrap();
-        let frame: wanlogger_core::log::frames::FrameEntry =
+        let frame: tracemux_core::log::frames::FrameEntry =
             serde_json::from_str(frames_body.trim()).unwrap();
         assert_eq!(frame.record.fields["raw_off"], index.off);
         assert_eq!(frame.record.fields["raw_len"], index.len);
@@ -2216,7 +2216,7 @@ mod tests {
         assert_eq!(frame.record.fields["protocol"], "ethertype:0x88b5");
 
         let dst = root.join("fake.pcapng");
-        wanlogger_core::exporter::pcapng::export(&session_dir, &dst).unwrap();
+        tracemux_core::exporter::pcapng::export(&session_dir, &dst).unwrap();
         assert!(std::fs::metadata(dst).unwrap().len() > 0);
 
         let ingest_stats = ingest.stats(&sid).unwrap();

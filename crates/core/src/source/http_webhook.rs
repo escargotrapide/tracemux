@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// HTTP-webhook source (stub).
 #[derive(Debug)]
@@ -33,7 +33,7 @@ impl HttpWebhookSource {
 #[async_trait]
 impl Source for HttpWebhookSource {
     async fn open(&mut self) -> Result<()> {
-        Err(WanloggerError::new(
+        Err(TraceMuxError::new(
             ErrorId::E1101SourceOpen,
             format!(
                 "http-webhook source disabled in this build: enable the \
@@ -44,7 +44,7 @@ impl Source for HttpWebhookSource {
     }
 
     async fn recv(&mut self) -> Result<Option<Frame>> {
-        Err(WanloggerError::new(
+        Err(TraceMuxError::new(
             ErrorId::E1102SourceClosed,
             "http-webhook source not open",
         ))

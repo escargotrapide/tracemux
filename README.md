@@ -1,4 +1,4 @@
-# wanlogger
+# TraceMux
 
 > _That one unified terminal to view and maintain all the logs, either
 > local or over networks._
@@ -24,7 +24,7 @@ features remain stubbed or experimental; see
   plus orthogonal `Sink`, `Importer`, `Exporter`, `TimeseriesSink`,
   `TimeSource`. All trait surfaces are frozen at v0.1.
 - **Server is the source of truth.** Browser, Tauri shell, and CLI all
-  speak the same WSS wire protocol (`wanlogger.v1`, MessagePack).
+  speak the same WSS wire protocol (`tracemux.v1`, MessagePack).
 - **Dual timestamps** on every record (`ts_origin` + `ts_ingest` plus
   `mono_ns`, `boot_id`, `node_id`, `clock_offset_ms`,
   `clock_quality`) — multi-PC log alignment is a first-class concern.
@@ -70,12 +70,12 @@ the source spec, never log data.
 
 For serial-heavy sessions, the UI can detect COM ports and open the
 checked ports in bulk. The server/CLI can also autostart serial ports at
-launch with `wanlogger serve --open-all-serial`; add repeated
+launch with `tracemux serve --open-all-serial`; add repeated
 `--serial-port PORT` flags to restrict the set instead of opening every
 detected port.
 
 Server startup settings can be loaded from a TOML file with
-`wanlogger serve --config wanlogger.toml`. The v1 config covers listener
+`tracemux serve --config tracemux.toml`. The v1 config covers listener
 settings, auth policy, TLS state, serial startup, export defaults,
 live-delivery pacing, retention, and named startup channels; explicit
 CLI flags such as `--bind`, `--no-auth`, and `--require-auth` override
@@ -86,7 +86,7 @@ config_version = 1
 
 [server]
 bind = "127.0.0.1:9443"
-session_root = "wanlogger-sessions"
+session_root = "tracemux-sessions"
 encoding = "utf-8"
 detect_mode = "configured"
 session_name_pattern = "{prefix}_{kind}_{iface}_{unix_ns}"
@@ -104,7 +104,7 @@ flow = "none"
 
 [server.tls]
 enabled = false
-dir = "wanlogger-sessions/tls"
+dir = "tracemux-sessions/tls"
 
 [export]
 timezone = "UTC"
@@ -124,12 +124,12 @@ tag = "demo"
 ```
 
 Config files do not store plaintext bearer tokens. Use `token_phc_files`
-with hashes produced by `wanlogger token-hash`, or pass token material
+with hashes produced by `tracemux token-hash`, or pass token material
 through the existing CLI/environment paths.
-`wanlogger export --config wanlogger.toml` also reads the `[export]`
+`tracemux export --config tracemux.toml` also reads the `[export]`
 timezone and encoding defaults when `--tz` or `--encoding` is omitted.
 
-For mixed encodings or reused source presets, `wanlogger serve` can run
+For mixed encodings or reused source presets, `tracemux serve` can run
 bounded startup content detection with `--detect-mode auto`, `suggest`,
 `configured`, or `off`. Auto mode may apply a high-confidence detected
 text encoding to the server-side decoder; suggest mode leaves the

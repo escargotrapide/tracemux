@@ -1,6 +1,6 @@
 # Security policy
 
-`wanlogger` ships secure-by-default. This file is a **critical path**
+`tracemux` ships secure-by-default. This file is a **critical path**
 (see `AGENTS.md` §5). Changes require human review.
 
 ## Reporting a vulnerability

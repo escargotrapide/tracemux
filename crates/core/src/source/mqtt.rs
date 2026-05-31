@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// MQTT subscriber source (stub until the `mqtt` feature is added).
 #[derive(Debug)]
@@ -33,7 +33,7 @@ impl MqttSource {
 #[async_trait]
 impl Source for MqttSource {
     async fn open(&mut self) -> Result<()> {
-        Err(WanloggerError::new(
+        Err(TraceMuxError::new(
             ErrorId::E1101SourceOpen,
             format!(
                 "mqtt source disabled in this build: enable the `mqtt` feature \
@@ -44,7 +44,7 @@ impl Source for MqttSource {
     }
 
     async fn recv(&mut self) -> Result<Option<Frame>> {
-        Err(WanloggerError::new(
+        Err(TraceMuxError::new(
             ErrorId::E1102SourceClosed,
             "mqtt source not open",
         ))

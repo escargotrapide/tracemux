@@ -1,13 +1,13 @@
-//! `wanlogger export` -- render a session-dir into a foreign format.
+//! `tracemux export` -- render a session-dir into a foreign format.
 //!
 //! Dispatches `kind` to the matching implementation in
-//! [`wanlogger_core::exporter`]. v0.1 text-like kinds plus the packet
+//! [`tracemux_core::exporter`]. v0.1 text-like kinds plus the packet
 //! capture `pcapng` exporter are wired through.
 
 use std::path::Path;
 
 use anyhow::{bail, Result};
-use wanlogger_core::exporter::{csv, jsonl, pcapng, text};
+use tracemux_core::exporter::{csv, jsonl, pcapng, text};
 
 /// Stable list of exporter kinds known to v0.1.
 pub const KINDS: &[&str] = &["csv", "text", "jsonl", "pcapng"];
@@ -54,13 +54,13 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tracemux_core::decoder::Record;
+    use tracemux_core::exporter::pcapng::PCAP_PACKET_SCHEMA_ID;
+    use tracemux_core::log::frames::{FrameEntry, FramesWriter};
+    use tracemux_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
+    use tracemux_core::log::raw::RawWriter;
+    use tracemux_core::time::{ClockQuality, ClockSource, DualTimestamp};
     use uuid::Uuid;
-    use wanlogger_core::decoder::Record;
-    use wanlogger_core::exporter::pcapng::PCAP_PACKET_SCHEMA_ID;
-    use wanlogger_core::log::frames::{FrameEntry, FramesWriter};
-    use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
-    use wanlogger_core::log::raw::RawWriter;
-    use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
 
     // REQ: FR-EXP-001
     #[test]

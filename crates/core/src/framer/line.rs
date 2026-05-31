@@ -4,7 +4,7 @@
 use bytes::{Bytes, BytesMut};
 
 use super::Framer;
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// EOL handling.
 #[derive(Debug, Clone, Copy)]
@@ -71,7 +71,7 @@ impl Framer for LineFramer {
             }
             Ok(Some(frame))
         } else if buf.len() > self.max_frame {
-            Err(WanloggerError::new(
+            Err(TraceMuxError::new(
                 ErrorId::E1003FramerOverflow,
                 format!(
                     "line framer: buffered {} > max {}",

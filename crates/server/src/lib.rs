@@ -1,4 +1,4 @@
-//! `wanlogger-server` — axum + rustls + WSS mux + ingest + AI API.
+//! `tracemux-server` — axum + rustls + WSS mux + ingest + AI API.
 //!
 //! See `docs/protocols/wire-protocol.md`. **Critical paths** include
 //! `wire.rs`, `auth.rs`, `tls.rs`, `fingerprint.rs`.
@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use wanlogger_core::source::ChannelSpec;
+use tracemux_core::source::ChannelSpec;
 
 pub mod ai_api;
 pub mod annotation_api;
@@ -33,7 +33,7 @@ pub mod tls;
 pub mod wire;
 pub mod ws;
 
-/// Sources that should be opened automatically when `wanlogger serve` starts.
+/// Sources that should be opened automatically when `tracemux serve` starts.
 #[derive(Debug, Clone, Default)]
 pub struct StartupSources {
     /// Named channel specs to open at server startup.
@@ -53,7 +53,7 @@ pub struct StartupChannel {
     pub spec: ChannelSpec,
 }
 
-/// Serial/COM startup configuration for `wanlogger serve`.
+/// Serial/COM startup configuration for `tracemux serve`.
 #[derive(Debug, Clone, Default)]
 pub struct SerialAutostart {
     /// Explicit ports to open. `None` means detect all host serial candidates.
@@ -62,7 +62,7 @@ pub struct SerialAutostart {
     pub options: source_manager::SerialPortOptions,
 }
 
-/// Security settings used by `wanlogger serve`.
+/// Security settings used by `tracemux serve`.
 #[derive(Debug, Clone, Default)]
 pub struct ServerSecurity {
     /// Pre-hashed bearer tokens in argon2id PHC format.
@@ -83,11 +83,11 @@ pub struct TlsServeConfig {
     pub dir: PathBuf,
 }
 
-/// Runtime options for `wanlogger serve` beyond startup source selection.
+/// Runtime options for `tracemux serve` beyond startup source selection.
 #[derive(Debug, Clone, Default)]
 pub struct ServerRunOptions {
     /// Default content detection mode for startup and WSS-started sources.
-    pub detection_mode: wanlogger_core::detect::content::DetectionMode,
+    pub detection_mode: tracemux_core::detect::content::DetectionMode,
     /// Security settings for bearer tokens and TLS.
     pub security: ServerSecurity,
     /// Days to keep session-dirs under the session root. `0` disables pruning.
@@ -154,7 +154,7 @@ pub async fn run_with_session_root(
         bind,
         no_auth,
         session_root,
-        wanlogger_core::classify::LogClassifier::new(),
+        tracemux_core::classify::LogClassifier::new(),
     )
     .await
 }
@@ -164,7 +164,7 @@ pub async fn run_with_session_root_and_classifier(
     bind: &str,
     no_auth: bool,
     session_root: impl Into<std::path::PathBuf>,
-    classifier: wanlogger_core::classify::LogClassifier,
+    classifier: tracemux_core::classify::LogClassifier,
 ) -> anyhow::Result<()> {
     run_with_session_root_classifier_and_encoding(bind, no_auth, session_root, classifier, "utf-8")
         .await
@@ -175,7 +175,7 @@ pub async fn run_with_session_root_classifier_and_encoding(
     bind: &str,
     no_auth: bool,
     session_root: impl Into<std::path::PathBuf>,
-    classifier: wanlogger_core::classify::LogClassifier,
+    classifier: tracemux_core::classify::LogClassifier,
     encoding: impl Into<String>,
 ) -> anyhow::Result<()> {
     run_with_session_root_classifier_encoding_and_pattern(
@@ -184,7 +184,7 @@ pub async fn run_with_session_root_classifier_and_encoding(
         session_root,
         classifier,
         encoding,
-        wanlogger_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN,
+        tracemux_core::session_name::DEFAULT_SERVER_SESSION_NAME_PATTERN,
     )
     .await
 }
@@ -194,7 +194,7 @@ pub async fn run_with_session_root_classifier_encoding_and_pattern(
     bind: &str,
     no_auth: bool,
     session_root: impl Into<std::path::PathBuf>,
-    classifier: wanlogger_core::classify::LogClassifier,
+    classifier: tracemux_core::classify::LogClassifier,
     encoding: impl Into<String>,
     session_name_pattern: impl Into<String>,
 ) -> anyhow::Result<()> {
@@ -215,7 +215,7 @@ pub async fn run_with_session_root_classifier_encoding_pattern_and_startup(
     bind: &str,
     no_auth: bool,
     session_root: impl Into<std::path::PathBuf>,
-    classifier: wanlogger_core::classify::LogClassifier,
+    classifier: tracemux_core::classify::LogClassifier,
     encoding: impl Into<String>,
     session_name_pattern: impl Into<String>,
     startup: StartupSources,
@@ -238,7 +238,7 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_secur
     bind: &str,
     no_auth: bool,
     session_root: impl Into<std::path::PathBuf>,
-    classifier: wanlogger_core::classify::LogClassifier,
+    classifier: tracemux_core::classify::LogClassifier,
     encoding: impl Into<String>,
     session_name_pattern: impl Into<String>,
     startup: StartupSources,
@@ -265,7 +265,7 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_optio
     bind: &str,
     no_auth: bool,
     session_root: impl Into<std::path::PathBuf>,
-    classifier: wanlogger_core::classify::LogClassifier,
+    classifier: tracemux_core::classify::LogClassifier,
     encoding: impl Into<String>,
     session_name_pattern: impl Into<String>,
     startup: StartupSources,
@@ -326,7 +326,7 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_optio
             token_hashes,
             tls_dir = %tls_config.dir.display(),
             %fingerprint,
-            "wanlogger-server: listening (HTTPS/WSS)"
+            "tracemux-server: listening (HTTPS/WSS)"
         );
         axum_server::from_tcp_rustls(listener, config)
             .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
@@ -340,7 +340,7 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_optio
             %local,
             no_auth,
             token_hashes,
-            "wanlogger-server: listening (HTTP/WS)"
+            "tracemux-server: listening (HTTP/WS)"
         );
         axum::serve(
             listener,
@@ -383,7 +383,7 @@ fn prune_old_session_dirs_at(
         if !entry.file_type()?.is_dir() {
             continue;
         }
-        if entry.file_name() == std::ffi::OsStr::new(".wanlogger") {
+        if entry.file_name() == std::ffi::OsStr::new(".tracemux") {
             continue;
         }
         let path = entry.path();
@@ -405,7 +405,7 @@ fn prune_old_session_dirs_at(
             keep_days,
             scanned = stats.scanned,
             removed = stats.removed,
-            "wanlogger-server: retention prune complete"
+            "tracemux-server: retention prune complete"
         );
     }
     Ok(stats)
@@ -422,10 +422,10 @@ async fn start_configured_sources(
     let ports = serial
         .ports
         .clone()
-        .unwrap_or_else(wanlogger_core::detect::serial::list);
+        .unwrap_or_else(tracemux_core::detect::serial::list);
     if ports.is_empty() {
         tracing::warn!(
-            "wanlogger-server: --open-all-serial requested but no serial ports were detected"
+            "tracemux-server: --open-all-serial requested but no serial ports were detected"
         );
         return;
     }
@@ -438,17 +438,17 @@ async fn start_configured_sources(
     for outcome in outcomes {
         if let Some(sid) = outcome.sid {
             ok += 1;
-            tracing::info!(port = %outcome.port, %sid, "wanlogger-server: serial source started");
+            tracing::info!(port = %outcome.port, %sid, "tracemux-server: serial source started");
         } else {
             failed += 1;
             tracing::warn!(
                 port = %outcome.port,
                 error = %outcome.error.unwrap_or_else(|| "unknown error".to_string()),
-                "wanlogger-server: serial source failed to start"
+                "tracemux-server: serial source failed to start"
             );
         }
     }
-    tracing::info!(ok, failed, "wanlogger-server: serial bulk startup complete");
+    tracing::info!(ok, failed, "tracemux-server: serial bulk startup complete");
 }
 
 async fn start_configured_channels(
@@ -474,7 +474,7 @@ async fn start_configured_channels(
                     channel = %channel.name,
                     label = channel.label.as_deref(),
                     %sid,
-                    "wanlogger-server: configured source started"
+                    "tracemux-server: configured source started"
                 );
             }
             Err(err) => {
@@ -483,7 +483,7 @@ async fn start_configured_channels(
                     channel = %channel.name,
                     label = channel.label.as_deref(),
                     error = %err,
-                    "wanlogger-server: configured source failed to start"
+                    "tracemux-server: configured source failed to start"
                 );
             }
         }
@@ -491,7 +491,7 @@ async fn start_configured_channels(
     tracing::info!(
         ok,
         failed,
-        "wanlogger-server: configured source startup complete"
+        "tracemux-server: configured source startup complete"
     );
 }
 
@@ -517,9 +517,9 @@ mod tests {
         let inline = auth::hash_token("inline").unwrap();
         let file_token = auth::hash_token("file").unwrap();
         let dir = std::env::temp_dir().join(format!(
-            "wanlogger-security-{}-{}",
+            "tracemux-security-{}-{}",
             std::process::id(),
-            wanlogger_core::time::unix_ns_now()
+            tracemux_core::time::unix_ns_now()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("tokens.phc");
@@ -542,10 +542,10 @@ mod tests {
     #[test]
     fn retention_prune_removes_only_expired_session_dirs() {
         // REQ: FR-CLI-012
-        let root = tempdir("wanlogger-retention");
+        let root = tempdir("tracemux-retention");
         let old_session = root.join("old-session");
         let not_session = root.join("not-session");
-        let metadata = root.join(".wanlogger");
+        let metadata = root.join(".tracemux");
         std::fs::create_dir_all(&old_session).unwrap();
         std::fs::create_dir_all(&not_session).unwrap();
         std::fs::create_dir_all(&metadata).unwrap();
@@ -569,7 +569,7 @@ mod tests {
     #[test]
     fn retention_prune_zero_days_is_disabled() {
         // REQ: FR-CLI-012
-        let root = tempdir("wanlogger-retention-disabled");
+        let root = tempdir("tracemux-retention-disabled");
         let session = root.join("session");
         std::fs::create_dir_all(&session).unwrap();
         std::fs::write(session.join("meta.toml"), b"sid = 'keep'\n").unwrap();
@@ -589,7 +589,7 @@ mod tests {
             "{}-{}-{}",
             prefix,
             std::process::id(),
-            wanlogger_core::time::unix_ns_now()
+            tracemux_core::time::unix_ns_now()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir

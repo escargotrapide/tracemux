@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prepare the Tauri dev environment:
-#   1. Build wanlogger-cli (debug)
+#   1. Build tracemux-cli (debug)
 #   2. Copy binary to app-tauri/src-tauri/binaries/ (Tauri sidecar)
 #   3. Generate a placeholder icon.png and icon.ico (if not already present)
 #
@@ -19,15 +19,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILE="debug"; [[ -n "$RELEASE" ]] && PROFILE="release"
 
 # 1. Build
-echo "Building wanlogger-cli..."
-cargo build $RELEASE -p wanlogger-cli
+echo "Building tracemux-cli..."
+cargo build $RELEASE -p tracemux-cli
 
 # 2. Copy sidecar
 TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
 BIN_DIR="$ROOT/app-tauri/src-tauri/binaries"
 mkdir -p "$BIN_DIR"
-cp "$ROOT/target/$PROFILE/wanlogger" "$BIN_DIR/wanlogger-${TRIPLE}"
-echo "  Sidecar: $BIN_DIR/wanlogger-${TRIPLE}"
+cp "$ROOT/target/$PROFILE/tracemux" "$BIN_DIR/tracemux-${TRIPLE}"
+echo "  Sidecar: $BIN_DIR/tracemux-${TRIPLE}"
 
 # 3. Placeholder icons
 ICON_DIR="$ROOT/app-tauri/src-tauri/icons"

@@ -1,9 +1,9 @@
 # Remote COM operation with human UI and AI clients
 
 This runbook describes the architecture-safe path that works with the current
-v0.1 implementation: the PC that owns the COM port runs `wanlogger serve`, while
+v0.1 implementation: the PC that owns the COM port runs `tracemux serve`, while
 human UI clients and AI clients connect to that server over the existing
-`wanlogger.v1` wire protocol.
+`tracemux.v1` wire protocol.
 
 The key rule is simple: the server owns hardware, persistence, timestamps,
 write-back routing, and audit. Browsers, Tauri, CLI tools, and AI agents are
@@ -12,7 +12,7 @@ clients only.
 ## Supported topology today
 
 ```text
-COM device <-> COM-host PC running wanlogger serve
+COM device <-> COM-host PC running tracemux serve
                          |
                          | protected WS/WSS path
                          v
@@ -34,12 +34,12 @@ Already available:
 - Server-side session-dir persistence under `--session-root`.
 - Web UI source lifecycle actions, COM detection, terminal rendering, terminal
   keystroke TX, and an explicit send box.
-- CLI write-back through `wanlogger send`.
-- CLI observation through `wanlogger watch` JSONL output.
-- `wanlogger serve` bearer-token PHC loading via `--token-phc` and
+- CLI write-back through `tracemux send`.
+- CLI observation through `tracemux watch` JSONL output.
+- `tracemux serve` bearer-token PHC loading via `--token-phc` and
   `--token-phc-file`.
 - Optional HTTPS/WSS listener via `--tls` / `--tls-dir`.
-- `remote` channel specs that mirror an edge `wanlogger.v1` session into a
+- `remote` channel specs that mirror an edge `tracemux.v1` session into a
   central server-owned session and proxy write-back to the edge session.
 - Write-back audit rows under the server session root.
 
@@ -55,7 +55,7 @@ Important caveats:
   operator password manager, environment variable, or OS keyring; never commit
   it.
 - A remote mirror subscribes to one known edge `(sid, ch)`. Discover the edge
-  session with the UI source list or another `wanlogger.v1` client before
+  session with the UI source list or another `tracemux.v1` client before
   starting the mirror.
 
 ## COM-host setup
@@ -72,15 +72,15 @@ token outside the shell history, hash it, then start the server with the PHC
 file:
 
 ```pwsh
-$env:WANLOGGER_TOKEN = '<paste-generated-token>'
-wanlogger token-hash > C:\wanlogger\edge-tokens.phc
-Remove-Item Env:WANLOGGER_TOKEN
+$env:TRACEMUX_TOKEN = '<paste-generated-token>'
+tracemux token-hash > C:\tracemux\edge-tokens.phc
+Remove-Item Env:TRACEMUX_TOKEN
 
-wanlogger serve --bind 0.0.0.0:9000 --session-root C:\wanlogger\edge-sessions --token-phc-file C:\wanlogger\edge-tokens.phc --tls-dir C:\wanlogger\tls --open-all-serial --serial-port COM3 --serial-baud 115200 --serial-data-bits 8 --serial-parity none --serial-stop-bits 1 --serial-flow none
+tracemux serve --bind 0.0.0.0:9000 --session-root C:\tracemux\edge-sessions --token-phc-file C:\tracemux\edge-tokens.phc --tls-dir C:\tracemux\tls --open-all-serial --serial-port COM3 --serial-baud 115200 --serial-data-bits 8 --serial-parity none --serial-stop-bits 1 --serial-flow none
 ```
 
 If you use the generated self-signed certificate, copy
-`C:\wanlogger\tls\server.crt` to each client PC and trust it there, or use a
+`C:\tracemux\tls\server.crt` to each client PC and trust it there, or use a
 trusted HTTPS reverse proxy instead.
 
 Example source spec for the UI Sources panel:
@@ -100,10 +100,10 @@ of these protected paths instead of a raw no-auth LAN listener:
 - SSH local port forwarding to the COM-host server.
 - A VPN where host access is already authenticated and restricted.
 - A reverse proxy that terminates HTTPS and enforces authentication before
-  forwarding to a loopback-only `wanlogger serve` instance.
+  forwarding to a loopback-only `tracemux serve` instance.
 
-Point the web UI at the forwarded endpoint with `VITE_WANLOGGER_URL`. When an
-authenticated endpoint is available, also provide `VITE_WANLOGGER_TOKEN` so the
+Point the web UI at the forwarded endpoint with `VITE_TRACEMUX_URL`. When an
+authenticated endpoint is available, also provide `VITE_TRACEMUX_TOKEN` so the
 browser can send `bearer.<token>` in the WebSocket subprotocol and
 `Authorization: Bearer ...` to HTTP helper APIs.
 
@@ -111,18 +111,18 @@ Loopback-only SSH tunnel example from the operator PC:
 
 ```pwsh
 ssh -L 9000:127.0.0.1:9000 user@com-host
-$env:WANLOGGER_TOKEN = '<edge-token>'
-$env:VITE_WANLOGGER_URL = 'ws://127.0.0.1:9000/ws'
-$env:VITE_WANLOGGER_TOKEN = $env:WANLOGGER_TOKEN
+$env:TRACEMUX_TOKEN = '<edge-token>'
+$env:VITE_TRACEMUX_URL = 'ws://127.0.0.1:9000/ws'
+$env:VITE_TRACEMUX_TOKEN = $env:TRACEMUX_TOKEN
 just dev-web
 ```
 
 Direct WSS example after trusting the COM-host certificate:
 
 ```pwsh
-$env:WANLOGGER_TOKEN = '<edge-token>'
-$env:VITE_WANLOGGER_URL = 'wss://com-host.example.test:9000/ws'
-$env:VITE_WANLOGGER_TOKEN = $env:WANLOGGER_TOKEN
+$env:TRACEMUX_TOKEN = '<edge-token>'
+$env:VITE_TRACEMUX_URL = 'wss://com-host.example.test:9000/ws'
+$env:VITE_TRACEMUX_TOKEN = $env:TRACEMUX_TOKEN
 just dev-web
 ```
 
@@ -157,18 +157,18 @@ Recommended first rollout:
 5. Send only approved bytes through the existing `write` frame path.
 
 For write-back from automation that already knows the target session, use
-`wanlogger send` and wait for `write_ack`:
+`tracemux send` and wait for `write_ack`:
 
 ```pwsh
-$env:WANLOGGER_TOKEN = '<edge-token>'
-wanlogger send --url wss://com-host.example.test:9000/ws --sid <edge-sid> --ch 0 --text 'status?' --wait-ack
+$env:TRACEMUX_TOKEN = '<edge-token>'
+tracemux send --url wss://com-host.example.test:9000/ws --sid <edge-sid> --ch 0 --text 'status?' --wait-ack
 ```
 
-For observation, use `wanlogger watch` and consume its JSONL stream:
+For observation, use `tracemux watch` and consume its JSONL stream:
 
 ```pwsh
-$env:WANLOGGER_TOKEN = '<edge-token>'
-wanlogger watch --url wss://com-host.example.test:9000/ws --sid <edge-sid> --ch 0
+$env:TRACEMUX_TOKEN = '<edge-token>'
+tracemux watch --url wss://com-host.example.test:9000/ws --sid <edge-sid> --ch 0
 ```
 
 Polling `raw.bin` or `index.jsonl` from outside the server can bypass auth,
@@ -177,7 +177,7 @@ audit, and future retention policy.
 ## Central remote mirror
 
 Use a central server when many COM-host PCs should be visible through one UI or
-AI endpoint. The central server is a normal `wanlogger serve` instance with its
+AI endpoint. The central server is a normal `tracemux serve` instance with its
 own session root and client token. It connects outward to each edge server using
 a `remote` channel spec.
 
@@ -185,30 +185,30 @@ On the central server host, keep the edge plaintext token in an environment
 variable or secret store. The source spec stores only the indirection name:
 
 ```pwsh
-$env:WANLOGGER_EDGE_TOKEN = '<edge-token>'
-$env:WANLOGGER_TOKEN = '<central-token>'
-wanlogger token-hash > C:\wanlogger-central\tokens.phc
-Remove-Item Env:WANLOGGER_TOKEN
+$env:TRACEMUX_EDGE_TOKEN = '<edge-token>'
+$env:TRACEMUX_TOKEN = '<central-token>'
+tracemux token-hash > C:\tracemux-central\tokens.phc
+Remove-Item Env:TRACEMUX_TOKEN
 
-wanlogger serve --bind 0.0.0.0:9100 --session-root C:\wanlogger-central\sessions --token-phc-file C:\wanlogger-central\tokens.phc --tls-dir C:\wanlogger-central\tls
+tracemux serve --bind 0.0.0.0:9100 --session-root C:\tracemux-central\sessions --token-phc-file C:\tracemux-central\tokens.phc --tls-dir C:\tracemux-central\tls
 ```
 
 After the edge serial session is known, start a remote source from the central
 UI using a percent-encoded edge WSS URL:
 
 ```pwsh
-$edgeUrl = [uri]::EscapeDataString('wss://com-host.example.test:9000/ws?sid=<edge-sid>&ch=0&token_env=WANLOGGER_EDGE_TOKEN')
+$edgeUrl = [uri]::EscapeDataString('wss://com-host.example.test:9000/ws?sid=<edge-sid>&ch=0&token_env=TRACEMUX_EDGE_TOKEN')
 "remote://$edgeUrl"
 ```
 
-The central source receives a new local `sid`. Human UI, `wanlogger watch`, and
+The central source receives a new local `sid`. Human UI, `tracemux watch`, and
 AI clients subscribe to that central `sid`. If they send a `write` frame to the
 central remote session, the central server proxies the write to the edge
 session and waits for the edge `write_ack`.
 
 ## Persistence and timestamps
 
-Every source started by `wanlogger serve` with a session root writes a
+Every source started by `tracemux serve` with a session root writes a
 server-owned session-dir. For serial sessions, expect files such as:
 
 - `meta.toml` for session metadata.

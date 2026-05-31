@@ -1,14 +1,14 @@
-//! `wanlogger profile` ? manage saved channel profiles.
+//! `tracemux profile` ? manage saved channel profiles.
 //!
 //! Profiles are stored as TOML under a base directory (`profiles_dir`).
 //! Each file is `<name>.toml` and contains a single `spec` table that
-//! deserialises into [`wanlogger_core::source::ChannelSpec`].
+//! deserialises into [`tracemux_core::source::ChannelSpec`].
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use wanlogger_core::source::ChannelSpec;
+use tracemux_core::source::ChannelSpec;
 
 /// Subcommand action.
 #[derive(Debug, Clone)]
@@ -71,22 +71,22 @@ pub fn run(dir: &Path, action: Action) -> Result<()> {
 }
 
 /// Default profiles directory, relative to OS conventions:
-/// * Windows: `%APPDATA%\wanlogger\profiles`
-/// * Unix:    `$XDG_CONFIG_HOME/wanlogger/profiles` or
-///   `~/.config/wanlogger/profiles`.
+/// * Windows: `%APPDATA%\tracemux\profiles`
+/// * Unix:    `$XDG_CONFIG_HOME/tracemux/profiles` or
+///   `~/.config/tracemux/profiles`.
 #[must_use]
 pub fn default_dir() -> PathBuf {
     if cfg!(windows) {
         std::env::var_os("APPDATA")
             .map_or_else(|| PathBuf::from("."), PathBuf::from)
-            .join("wanlogger")
+            .join("tracemux")
             .join("profiles")
     } else {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
             .unwrap_or_else(|| PathBuf::from("."));
-        base.join("wanlogger").join("profiles")
+        base.join("tracemux").join("profiles")
     }
 }
 
@@ -141,8 +141,7 @@ mod tests {
     use super::*;
 
     fn tempdir() -> PathBuf {
-        let p =
-            std::env::temp_dir().join(format!("wanlogger-cli-profile-{}", uuid::Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!("tracemux-cli-profile-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }

@@ -8,7 +8,7 @@
 
 ## Context
 
-`wanlogger` must be a single, lightweight binary that can replace and
+`tracemux` must be a single, lightweight binary that can replace and
 go beyond Tera Term, RealTerm, and assorted log tailers, while:
 
 - supporting many heterogeneous transports (serial, TCP, UDP, file,
@@ -43,16 +43,16 @@ sniff) are read-only.
 
 ### 2. Server is the single source of truth
 
-The Tauri shell launches a sidecar `wanlogger serve` on
+The Tauri shell launches a sidecar `tracemux serve` on
 `127.0.0.1:auto` and connects via WSS. The browser and the CLI talk the
 same wire. UI never persists log data.
 
-### 3. Wire protocol = WSS subprotocol `wanlogger.v1`, MessagePack
+### 3. Wire protocol = WSS subprotocol `tracemux.v1`, MessagePack
 
 Frame: `{ type, sid?, ch?, seq, payload }`. Types:
 `hello / auth / sub / unsub / data / ctl / write / metrics /
 clientlog / ping / pong / clock_sync / panel_priority / child(reserved)`.
-Auth via `Sec-WebSocket-Protocol: wanlogger.v1, bearer.<token>`.
+Auth via `Sec-WebSocket-Protocol: tracemux.v1, bearer.<token>`.
 `permessage-deflate` text-only. Per-connection mux. Future
 WebTransport(HTTP/3) capable. Spec: `docs/protocols/wire-protocol.md`.
 

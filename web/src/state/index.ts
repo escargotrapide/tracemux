@@ -6,8 +6,8 @@ import { batch, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
   WireClient,
-  resolveWanloggerUrl,
-  resolveWanloggerToken,
+  resolveTraceMuxUrl,
+  resolveTraceMuxToken,
   type ConnState,
   type CtlPayload,
   type DataPayload,
@@ -414,9 +414,9 @@ function handleConnState(state: ConnState): void {
 
 export function getClient(): WireClient {
   if (!client) {
-    const tokenEnv = resolveWanloggerToken();
+    const tokenEnv = resolveTraceMuxToken();
     client = new WireClient({
-      url: resolveWanloggerUrl(),
+      url: resolveTraceMuxUrl(),
       ...(tokenEnv !== undefined ? { token: tokenEnv } : {}),
     });
     client.onState(handleConnState);

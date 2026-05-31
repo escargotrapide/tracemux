@@ -4,7 +4,7 @@
 
 ## Why dual timestamps?
 
-`wanlogger` is often deployed across multiple PCs or devices whose
+`tracemux` is often deployed across multiple PCs or devices whose
 clocks may disagree by milliseconds to minutes. A single timestamp
 forces a tradeoff:
 

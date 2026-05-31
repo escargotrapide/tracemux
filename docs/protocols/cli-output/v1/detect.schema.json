@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://wanlogger.dev/cli-output/v1/detect.schema.json",
-  "title": "wanlogger detect output",
-  "description": "Schema for `wanlogger detect --format json`.",
+  "$id": "https://tracemux.dev/cli-output/v1/detect.schema.json",
+  "title": "tracemux detect output",
+  "description": "Schema for `tracemux detect --format json`.",
   "type": "object",
   "required": ["schema", "candidates"],
   "properties": {
-    "schema": { "type": "string", "const": "wanlogger/detect/v1" },
+    "schema": { "type": "string", "const": "tracemux/detect/v1" },
     "candidates": {
       "type": "array",
       "items": {

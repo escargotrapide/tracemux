@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a release of wanlogger
+description: Cut a release of tracemux
 ---
 
 # Skill: cutting a release
@@ -10,7 +10,7 @@ description: Cut a release of wanlogger
 1. `just release-gate` (runs `ai-verify`, version-bump check, compat
    fixtures, signed-tag check). Must be green.
 2. Confirm independent semver:
-   - `wire-protocol` (subprotocol `wanlogger.v1` → `v2` only with ADR).
+   - `wire-protocol` (subprotocol `tracemux.v1` → `v2` only with ADR).
    - `log-format` (session-dir layout).
    - `cli-output` (JSON schemas).
    - `app` (UI / Tauri). Bumps independently.
@@ -26,7 +26,7 @@ description: Cut a release of wanlogger
    - cosign-signs binaries
    - publishes to GitHub Releases
 3. Verify on a clean machine: download → `cosign verify-blob` →
-   `wanlogger --version` → `wanlogger ai-verify --self-test`.
+   `tracemux --version` → `tracemux ai-verify --self-test`.
 
 ## Pitfalls
 

@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
-export const EXPORT_SETTINGS_STORAGE_KEY = "wanlogger.exportSettings.v1";
+export const EXPORT_SETTINGS_STORAGE_KEY = "tracemux.exportSettings.v1";
 
 export interface ExportSettings {
   filenamePattern: string;

@@ -1,7 +1,7 @@
 # Virtual peer for development
 
-`wanlogger-virt-peer` is a deterministic counterparty device used to verify
-wanlogger sources without depending on real hardware. It lives in
+`tracemux-virt-peer` is a deterministic counterparty device used to verify
+tracemux sources without depending on real hardware. It lives in
 `tools/virt-peer` and is intentionally a development/test tool rather than a
 production data path.
 
@@ -54,7 +54,7 @@ installing COM or packet-capture drivers:
 - `corepack pnpm --dir web e2e` starts Vite through Playwright and verifies the
   injected browser shell, connection-loss UI, export controls, and source note
   flows.
-- `cargo test -p wanlogger-virt-peer --test tcp_wss_e2e` verifies the TCP peer,
+- `cargo test -p tracemux-virt-peer --test tcp_wss_e2e` verifies the TCP peer,
   WSS source control, session-dir persistence, and HTTP export route.
 
 These checks are the default driverless runtime gate. COM-pair and Npcap-backed
@@ -65,7 +65,7 @@ packet-capture validation remain manual or environment-gated follow-ups.
 AI agents can verify the virtual counterparty path without special hardware by
 running the TCP E2E test or the aggregate repository gate:
 
-- `cargo test -p wanlogger-virt-peer --test tcp_wss_e2e` verifies the virtual
+- `cargo test -p tracemux-virt-peer --test tcp_wss_e2e` verifies the virtual
   peer binary, server WSS control path, WSS subscription delivery, session-dir
   persistence, and peer transcript in one deterministic test.
 - `just ai-verify` includes formatting, linting, tests, encoding checks, and RTM
@@ -81,8 +81,8 @@ For manual serial testing on Windows:
 
 1. Install a virtual COM pair provider such as com0com.
 2. Create a pair, for example `COM20` and `COM21`.
-3. Start `wanlogger-virt-peer serial --port COM21 ...`.
-4. Point wanlogger at `serial://COM20?baud=115200&data=8&parity=none&stop=1&flow=none`.
+3. Start `tracemux-virt-peer serial --port COM21 ...`.
+4. Point tracemux at `serial://COM20?baud=115200&data=8&parity=none&stop=1&flow=none`.
 
 Serial tests that require a real or virtual COM device should stay ignored or
 gated by environment variables so CI remains deterministic.

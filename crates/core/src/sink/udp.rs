@@ -13,7 +13,7 @@ use parking_lot::RwLock;
 use tokio::net::UdpSocket;
 
 use super::Sink;
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// Shared last-peer state used by UDP source/sink pairs.
 pub type SharedUdpPeer = Arc<RwLock<Option<SocketAddr>>>;
@@ -42,7 +42,7 @@ impl UdpSink {
             return Ok(target);
         }
         self.last_peer.read().ok_or_else(|| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E2001WireMalformed,
                 "udp write target is required before any peer has sent data",
             )
@@ -55,7 +55,7 @@ impl Sink for UdpSink {
     async fn write(&mut self, data: Bytes) -> Result<()> {
         let target = self.resolve_target()?;
         self.socket.send_to(&data, target).await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 format!("udp send {target}: {e}"),
             )
@@ -73,11 +73,11 @@ impl Sink for UdpSink {
             return Ok(());
         };
         let text = std::str::from_utf8(&data).map_err(|e| {
-            WanloggerError::new(ErrorId::E2001WireMalformed, format!("udp target utf8: {e}"))
+            TraceMuxError::new(ErrorId::E2001WireMalformed, format!("udp target utf8: {e}"))
                 .with_source(e)
         })?;
         let target = text.parse::<SocketAddr>().map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E2001WireMalformed,
                 format!("udp target address {text:?}: {e}"),
             )

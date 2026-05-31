@@ -2,19 +2,19 @@
 //!
 //! This module owns the first executable vertical slice of the server
 //! ingest path. It intentionally keeps the frozen trait surfaces in
-//! `wanlogger-core` unchanged: callers pass concrete trait impls, and
+//! `tracemux-core` unchanged: callers pass concrete trait impls, and
 //! the runner wires them together for one source lifetime.
 
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use rmpv::Value;
+use tracemux_core::decoder::Decoder;
+use tracemux_core::framer::Framer;
+use tracemux_core::logsink::{Direction, LogSink};
+use tracemux_core::source::{Frame, Source};
+use tracemux_core::time::{ClockQuality, ClockSource, DualTimestamp, TimeSource};
 use uuid::Uuid;
-use wanlogger_core::decoder::Decoder;
-use wanlogger_core::framer::Framer;
-use wanlogger_core::logsink::{Direction, LogSink};
-use wanlogger_core::source::{Frame, Source};
-use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp, TimeSource};
 
 use crate::ingest::Ingest;
 use crate::wire::{encode, Envelope, FrameType};
@@ -94,7 +94,7 @@ where
     source.open().await?;
     let meta = source.metadata();
     let mut state =
-        wanlogger_core::session::registry::SessionState::new(meta.kind.clone(), meta.iface.clone());
+        tracemux_core::session::registry::SessionState::new(meta.kind.clone(), meta.iface.clone());
     if let Some(sid) = options.sid_override {
         state.sid = sid;
     }
@@ -241,10 +241,10 @@ const fn clock_source_token(s: ClockSource) -> &'static str {
 mod tests {
     use std::sync::Arc;
 
-    use wanlogger_core::framer::line::{Eol, LineFramer};
-    use wanlogger_core::logsink::fanout::FanoutLogSink;
-    use wanlogger_core::source::mock::MockSource;
-    use wanlogger_core::time::{ClockQuality, ClockSource};
+    use tracemux_core::framer::line::{Eol, LineFramer};
+    use tracemux_core::logsink::fanout::FanoutLogSink;
+    use tracemux_core::source::mock::MockSource;
+    use tracemux_core::time::{ClockQuality, ClockSource};
 
     use super::*;
 
@@ -299,7 +299,7 @@ mod tests {
             ingest.clone(),
             source,
             LineFramer::new(Eol::Lf, 1024),
-            wanlogger_core::decoder::passthrough::PassthroughDecoder::new(),
+            tracemux_core::decoder::passthrough::PassthroughDecoder::new(),
             FanoutLogSink::new(Vec::new()),
             &FixedTimeSource::new(),
         )

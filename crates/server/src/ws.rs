@@ -1,11 +1,11 @@
-//! WebSocket handler (subprotocol `wanlogger.v1`). **Critical path.**
+//! WebSocket handler (subprotocol `tracemux.v1`). **Critical path.**
 //!
 //! Frozen v0.1. See `docs/protocols/wire-protocol.md`.
 //!
 //! Wires:
 //!
 //! * Subprotocol negotiation -- the server only advertises
-//!   `wanlogger.v1`. Bearer tokens (`bearer.<token>`) live in the
+//!   `tracemux.v1`. Bearer tokens (`bearer.<token>`) live in the
 //!   same `Sec-WebSocket-Protocol` header and are stripped before
 //!   negotiation; see [`crate::auth`].
 //! * Connection cap via [`crate::ratelimit::ConnCounter`].
@@ -32,13 +32,13 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use uuid::Uuid;
-use wanlogger_core::classify::{ClassificationRule, LogClassifier};
-use wanlogger_core::detect::content::{ContentDetectionReport, DetectionMode};
-use wanlogger_core::source::pcap::{
+use tracemux_core::classify::{ClassificationRule, LogClassifier};
+use tracemux_core::detect::content::{ContentDetectionReport, DetectionMode};
+use tracemux_core::source::pcap::{
     PcapPublishMode, PcapSaveMode, DEFAULT_SNAPLEN, DEFAULT_TIMEOUT_MS,
 };
-use wanlogger_core::{source::ChannelSpec, ErrorId, WanloggerError};
+use tracemux_core::{source::ChannelSpec, ErrorId, TraceMuxError};
+use uuid::Uuid;
 
 use crate::audit::{AuditEvent, AuditKind, AuditLog, AuditResult};
 use crate::auth::{extract_bearer, is_loopback_allowed, BearerVerifier};
@@ -48,7 +48,7 @@ use crate::source_manager::{SourceManager, SourceStartOptions, SourceStatus};
 use crate::wire::{decode, encode, Envelope, FrameType, MAX_FRAME_BYTES};
 
 /// Subprotocol token advertised by the server.
-pub const SUBPROTOCOL: &str = "wanlogger.v1";
+pub const SUBPROTOCOL: &str = "tracemux.v1";
 
 /// Shared state injected into the `/ws` handler.
 #[derive(Debug, Clone)]
@@ -647,10 +647,10 @@ fn detection_report_value(report: &ContentDetectionReport) -> Value {
     ])
 }
 
-fn match_kind_token(kind: wanlogger_core::classify::ClassificationMatchKind) -> &'static str {
+fn match_kind_token(kind: tracemux_core::classify::ClassificationMatchKind) -> &'static str {
     match kind {
-        wanlogger_core::classify::ClassificationMatchKind::Contains => "contains",
-        wanlogger_core::classify::ClassificationMatchKind::Regex => "regex",
+        tracemux_core::classify::ClassificationMatchKind::Contains => "contains",
+        tracemux_core::classify::ClassificationMatchKind::Regex => "regex",
     }
 }
 
@@ -940,7 +940,7 @@ fn write_ack(seq: u64, sid: Uuid, ch: u32, bytes_written: usize) -> Envelope {
 }
 
 fn anyhow_error_id(err: &anyhow::Error) -> ErrorId {
-    err.downcast_ref::<WanloggerError>()
+    err.downcast_ref::<TraceMuxError>()
         .map_or(ErrorId::E1001PipelineGeneric, |err| err.id)
 }
 
@@ -970,7 +970,7 @@ fn audit_write(
 fn audit_ts() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
-        .unwrap_or_else(|_| wanlogger_core::time::unix_ns_now().to_string())
+        .unwrap_or_else(|_| tracemux_core::time::unix_ns_now().to_string())
 }
 
 fn lifecycle_error_id(err: &anyhow::Error) -> ErrorId {
@@ -1368,7 +1368,7 @@ mod tests {
     fn auth_accepts_valid_bearer() {
         let mut v = BearerVerifier::new();
         v.add_phc(hash_token("tok").unwrap()).unwrap();
-        let h = "wanlogger.v1, bearer.tok";
+        let h = "tracemux.v1, bearer.tok";
         assert_eq!(check_auth(Some(h), &lan(), &v, false), AuthOutcome::Bearer);
     }
 
@@ -1376,7 +1376,7 @@ mod tests {
     fn auth_rejects_bad_bearer() {
         let mut v = BearerVerifier::new();
         v.add_phc(hash_token("tok").unwrap()).unwrap();
-        let h = "wanlogger.v1, bearer.nope";
+        let h = "tracemux.v1, bearer.nope";
         assert!(matches!(
             check_auth(Some(h), &lan(), &v, false),
             AuthOutcome::Rejected(_)

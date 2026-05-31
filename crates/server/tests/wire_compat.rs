@@ -4,7 +4,7 @@
 //!
 //! Fixtures live under [`tests/compat/wire/v1/`] (workspace-relative).
 //! Each fixture is the **byte-exact** MessagePack payload of a known
-//! [`wanlogger_server::wire::Envelope`].
+//! [`tracemux_server::wire::Envelope`].
 //!
 //! On a normal run the test:
 //!
@@ -13,7 +13,7 @@
 //! 3. compares against the on-disk fixture byte-for-byte,
 //! 4. decodes the on-disk fixture and asserts the envelope round-trips.
 //!
-//! If `WANLOGGER_WIRE_BLESS=1` is set, missing or stale fixtures are
+//! If `TRACEMUX_WIRE_BLESS=1` is set, missing or stale fixtures are
 //! (re)written. **Never bless on CI** -- re-blessing is the same as
 //! changing the wire schema and requires an ADR + subprotocol bump
 //! (see `docs/protocols/wire-protocol.md`).
@@ -22,7 +22,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use rmpv::Value;
-use wanlogger_server::wire::{decode, encode, Envelope, FrameType};
+use tracemux_server::wire::{decode, encode, Envelope, FrameType};
 
 fn fixture_dir() -> PathBuf {
     // Walk up from this file (`crates/server/tests/...`) to the
@@ -43,7 +43,7 @@ fn check(name: &str, env: &Envelope) {
     let path = dir.join(format!("{name}.msgpack"));
     let encoded = encode(env).expect("encode");
 
-    if std::env::var_os("WANLOGGER_WIRE_BLESS").is_some() || !path.exists() {
+    if std::env::var_os("TRACEMUX_WIRE_BLESS").is_some() || !path.exists() {
         fs::write(&path, &encoded).expect("write fixture");
         eprintln!("wire-compat: wrote {}", path.display());
     } else {
@@ -52,7 +52,7 @@ fn check(name: &str, env: &Envelope) {
             on_disk, encoded,
             "fixture {name} drifted. \
              If this is intentional, add an ADR + bump subprotocol \
-             token, then run with WANLOGGER_WIRE_BLESS=1."
+             token, then run with TRACEMUX_WIRE_BLESS=1."
         );
     }
 
@@ -81,7 +81,7 @@ fn fixture_hello() {
     let payload = Value::Map(vec![
         (
             Value::String("app".into()),
-            Value::String("wanlogger-test".into()),
+            Value::String("tracemux-test".into()),
         ),
         (
             Value::String("version".into()),

@@ -2,5 +2,5 @@
 // so that mobile targets can reuse it.
 
 fn main() {
-    wanlogger_tauri_lib::run();
+    tracemux_tauri_lib::run();
 }

@@ -21,7 +21,7 @@ use argon2::password_hash::{
 };
 use argon2::Argon2;
 use thiserror::Error;
-use wanlogger_core::{ErrorId, WanloggerError};
+use tracemux_core::{ErrorId, TraceMuxError};
 
 /// Subprotocol prefix used by the bearer-token negotiation header.
 ///
@@ -51,10 +51,10 @@ impl AuthError {
     }
 }
 
-impl From<AuthError> for WanloggerError {
+impl From<AuthError> for TraceMuxError {
     fn from(e: AuthError) -> Self {
         let id = e.id();
-        WanloggerError::new(id, e.to_string())
+        TraceMuxError::new(id, e.to_string())
     }
 }
 
@@ -124,7 +124,7 @@ impl BearerVerifier {
 
 /// Hash a bearer token with argon2id default parameters.
 ///
-/// Used by tooling that provisions tokens (e.g. CLI `wanlogger auth
+/// Used by tooling that provisions tokens (e.g. CLI `tracemux auth
 /// add`). Not used on the hot path.
 ///
 /// # Errors
@@ -233,18 +233,18 @@ mod tests {
 
     #[test]
     fn extract_bearer_handles_multi_value_header() {
-        let h = "wanlogger.v1, bearer.abc123";
+        let h = "tracemux.v1, bearer.abc123";
         assert_eq!(extract_bearer(h), Some("abc123"));
     }
 
     #[test]
     fn extract_bearer_returns_none_when_absent() {
-        assert_eq!(extract_bearer("wanlogger.v1"), None);
+        assert_eq!(extract_bearer("tracemux.v1"), None);
     }
 
     #[test]
-    fn wanlogger_error_carries_canonical_id() {
-        let e: WanloggerError = AuthError::Rejected.into();
+    fn tracemux_error_carries_canonical_id() {
+        let e: TraceMuxError = AuthError::Rejected.into();
         assert_eq!(e.id, ErrorId::E2101AuthRejected);
     }
 }

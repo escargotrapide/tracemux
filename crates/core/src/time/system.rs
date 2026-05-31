@@ -1,4 +1,4 @@
-//! `SystemTime`-backed [`TimeSource`] (default in `wanlogger serve`).
+//! `SystemTime`-backed [`TimeSource`] (default in `tracemux serve`).
 //!
 //! Stub: full impl integrates `node_clock_table` for cross-node offsets.
 

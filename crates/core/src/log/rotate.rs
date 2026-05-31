@@ -166,8 +166,8 @@ mod tests {
     #[test]
     fn dirname_matches_spec() {
         let now = datetime!(2026-04-29 10:11:12 UTC);
-        let n = format_session_dirname("wanlogger", "serial", "COM3", now);
-        assert_eq!(n, "wanlogger_serial_COM3_20260429-101112");
+        let n = format_session_dirname("tracemux", "serial", "COM3", now);
+        assert_eq!(n, "tracemux_serial_COM3_20260429-101112");
     }
 
     // REQ: FR-LOG-001

@@ -99,14 +99,14 @@ mod tests {
     use super::*;
 
     fn tempdir() -> PathBuf {
-        let p = std::env::temp_dir().join(format!("wanlogger-ret-{}", uuid::Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!("tracemux-ret-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }
 
     #[test]
     fn parses_session_timestamp() {
-        let ts = parse_session_timestamp("wanlogger_serial_COM3_20240115-130405").unwrap();
+        let ts = parse_session_timestamp("tracemux_serial_COM3_20240115-130405").unwrap();
         assert_eq!(ts.year(), 2024);
         assert_eq!(u8::from(ts.month()), 1);
         assert_eq!(ts.day(), 15);
@@ -122,8 +122,8 @@ mod tests {
     #[test]
     fn deletes_old_keeps_new_skips_garbage() {
         let parent = tempdir();
-        let old = parent.join("wanlogger_tcp_eth0_20200101-000000");
-        let new = parent.join("wanlogger_tcp_eth0_20990101-000000");
+        let old = parent.join("tracemux_tcp_eth0_20200101-000000");
+        let new = parent.join("tracemux_tcp_eth0_20990101-000000");
         let junk = parent.join("not-a-session");
         for p in [&old, &new, &junk] {
             std::fs::create_dir(p).unwrap();
@@ -132,9 +132,9 @@ mod tests {
         let now = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
         let r = policy.apply(&parent, now).unwrap();
         assert_eq!(r.deleted.len(), 1);
-        assert!(r.deleted[0].ends_with("wanlogger_tcp_eth0_20200101-000000"));
+        assert!(r.deleted[0].ends_with("tracemux_tcp_eth0_20200101-000000"));
         assert_eq!(r.kept.len(), 1);
-        assert!(r.kept[0].ends_with("wanlogger_tcp_eth0_20990101-000000"));
+        assert!(r.kept[0].ends_with("tracemux_tcp_eth0_20990101-000000"));
         assert_eq!(r.skipped.len(), 1);
         assert!(!old.exists());
         assert!(new.exists());

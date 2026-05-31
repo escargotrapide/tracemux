@@ -2,14 +2,14 @@
 
 > **Frozen v0.1.**
 
-The `wanlogger` CLI emits machine-readable output via `--format json`.
+The `tracemux` CLI emits machine-readable output via `--format json`.
 Each subcommand produces a JSON object whose schema lives here.
 
 Schemas are kept under this directory as `<subcommand>.schema.json`
 (JSON Schema 2020-12) and are exposed at runtime via:
 
 ```
-wanlogger json-schema --out docs/protocols/cli-output/v1/
+tracemux json-schema --out docs/protocols/cli-output/v1/
 ```
 
 CI snapshots (`tests/compat/cli/v1/*.json`) are diffed against the

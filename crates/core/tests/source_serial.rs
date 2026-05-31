@@ -2,18 +2,18 @@
 //!
 //! All tests require the `serial` Cargo feature:
 //! ```text
-//! cargo test -p wanlogger-core --features serial -- source_serial
+//! cargo test -p tracemux-core --features serial -- source_serial
 //! ```
 //!
 //! **Platform coverage:**
 //! - Parameter-validation tests run everywhere (no physical port needed).
 //! - PTY loopback test runs on Unix only (uses `serialport::TTYPort::pair()`).
 //! - Windows real-port smoke test is `#[ignore]` by default; enable by setting
-//!   `WANLOGGER_TEST_SERIAL_PORT=COM3` (or whichever port is available).
+//!   `TRACEMUX_TEST_SERIAL_PORT=COM3` (or whichever port is available).
 
 #[cfg(feature = "serial")]
 mod tests {
-    use wanlogger_core::{
+    use tracemux_core::{
         source::{serial::SerialSource, ControlEvt, Source},
         ErrorId,
     };
@@ -69,12 +69,12 @@ mod tests {
     // REQ: FR-SRC-SERIAL
     #[tokio::test]
     async fn open_nonexistent_port_returns_e1101() {
-        // COM249 on Windows, /dev/ttyWANLOGGER_NONE on Linux/macOS ? both
+        // COM249 on Windows, /dev/ttyTRACEMUX_NONE on Linux/macOS ? both
         // should be absent on any normal development machine.
         let port = if cfg!(windows) {
             "COM249"
         } else {
-            "/dev/ttyWANLOGGER_NONE"
+            "/dev/ttyTRACEMUX_NONE"
         };
         let mut src = SerialSource::new(port, 115_200, 8, "none", 1, "none");
         let err = src
@@ -92,7 +92,7 @@ mod tests {
     mod unix_pty {
         use super::*;
         use std::io::Write as _;
-        use wanlogger_core::source::Frame;
+        use tracemux_core::source::Frame;
 
         /// Full loopback: creates a virtual PTY pair, writes bytes from the
         /// master end, and verifies `SerialSource` receives them along with
@@ -168,16 +168,16 @@ mod tests {
         ///
         /// Enable by setting the environment variable:
         /// ```text
-        /// $env:WANLOGGER_TEST_SERIAL_PORT = "COM3"
-        /// cargo test -p wanlogger-core --features serial -- source_serial
+        /// $env:TRACEMUX_TEST_SERIAL_PORT = "COM3"
+        /// cargo test -p tracemux-core --features serial -- source_serial
         /// ```
         // REQ: FR-SRC-SERIAL
         #[tokio::test]
         #[ignore = "requires a real or virtual (com0com) COM port; \
-                    set WANLOGGER_TEST_SERIAL_PORT to run"]
+                    set TRACEMUX_TEST_SERIAL_PORT to run"]
         async fn open_real_port_connected_event() {
-            let port = std::env::var("WANLOGGER_TEST_SERIAL_PORT")
-                .expect("set WANLOGGER_TEST_SERIAL_PORT to a valid COM port name");
+            let port = std::env::var("TRACEMUX_TEST_SERIAL_PORT")
+                .expect("set TRACEMUX_TEST_SERIAL_PORT to a valid COM port name");
 
             let mut src = SerialSource::new(&port, 115_200, 8, "none", 1, "none");
             src.open()

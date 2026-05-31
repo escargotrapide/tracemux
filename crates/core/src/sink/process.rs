@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt as _;
 use tokio::process::ChildStdin;
 
 use super::Sink;
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// Sink that writes bytes to a child process' stdin.
 #[derive(Debug)]
@@ -30,13 +30,13 @@ impl ProcessSink {
 impl Sink for ProcessSink {
     async fn write(&mut self, data: Bytes) -> Result<()> {
         let Some(stdin) = self.stdin.as_mut() else {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 "process stdin sink not open",
             ));
         };
         stdin.write_all(&data).await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 format!("process stdin write {}: {e}", self.iface),
             )
@@ -49,7 +49,7 @@ impl Sink for ProcessSink {
             return Ok(());
         };
         stdin.flush().await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 format!("process stdin flush {}: {e}", self.iface),
             )

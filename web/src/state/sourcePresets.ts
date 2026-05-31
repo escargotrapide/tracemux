@@ -6,7 +6,7 @@ export interface SourcePreset {
   spec: string;
 }
 
-export const SOURCE_PRESETS_STORAGE_KEY = "wanlogger.sourcePresets.v1";
+export const SOURCE_PRESETS_STORAGE_KEY = "tracemux.sourcePresets.v1";
 
 export const BUILTIN_SOURCE_PRESETS: SourcePreset[] = [
   { name: "mock demo", spec: "mock://demo" },

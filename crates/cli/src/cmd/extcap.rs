@@ -1,9 +1,9 @@
-//! `wanlogger extcap` ? Wireshark extcap protocol.
+//! `tracemux extcap` ? Wireshark extcap protocol.
 //!
 //! Implements interface discovery (`--extcap-interfaces`,
 //! `--extcap-dlts`, `--extcap-config`) and live capture
 //! (`--capture --fifo PATH --spec URI`). In capture mode the CLI
-//! opens a [`wanlogger_core::source::Source`] from `--spec`, writes
+//! opens a [`tracemux_core::source::Source`] from `--spec`, writes
 //! a libpcap global header (link-type 147 / USER0) to the FIFO, then
 //! emits one pcap record per received frame.
 //!
@@ -17,11 +17,11 @@ use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
-use wanlogger_core::source::Frame;
+use tracemux_core::source::Frame;
 
 use super::spec;
 
-/// libpcap link-type DLT_USER0 ? placeholder until a wanlogger-
+/// libpcap link-type DLT_USER0 ? placeholder until a tracemux-
 /// specific DLT is registered.
 pub const DLT_USER0: u32 = 147;
 
@@ -62,17 +62,17 @@ pub enum Mode {
 pub async fn run(mode: Mode) -> Result<()> {
     match mode {
         Mode::Interfaces => {
-            println!("extcap {{version=0.1.0}}{{help=https://example.invalid/wanlogger}}");
-            println!("interface {{value=wanlogger}}{{display=wanlogger universal logger}}");
+            println!("extcap {{version=0.1.0}}{{help=https://example.invalid/tracemux}}");
+            println!("interface {{value=tracemux}}{{display=tracemux universal logger}}");
         }
         Mode::Dlts { interface } => {
-            if interface != "wanlogger" {
+            if interface != "tracemux" {
                 bail!("unknown interface: {interface}");
             }
-            println!("dlt {{number={DLT_USER0}}}{{name=USER0}}{{display=wanlogger raw}}");
+            println!("dlt {{number={DLT_USER0}}}{{name=USER0}}{{display=tracemux raw}}");
         }
         Mode::Config { interface } => {
-            if interface != "wanlogger" {
+            if interface != "tracemux" {
                 bail!("unknown interface: {interface}");
             }
             println!(
@@ -84,7 +84,7 @@ pub async fn run(mode: Mode) -> Result<()> {
             fifo,
             spec: spec_str,
         } => {
-            if interface != "wanlogger" {
+            if interface != "tracemux" {
                 bail!("unknown interface: {interface}");
             }
             run_capture(&fifo, &spec_str).await?;

@@ -71,7 +71,7 @@ mod tests {
     use super::*;
 
     fn tempdir() -> PathBuf {
-        let p = std::env::temp_dir().join(format!("wanlogger-frames-{}", uuid::Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!("tracemux-frames-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }

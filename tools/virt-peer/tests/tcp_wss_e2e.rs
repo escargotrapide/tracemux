@@ -1,4 +1,4 @@
-//! End-to-end test for `wanlogger-virt-peer tcp` through the server WSS runner.
+//! End-to-end test for `tracemux-virt-peer tcp` through the server WSS runner.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -16,14 +16,14 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use wanlogger_server::auth::BearerVerifier;
-use wanlogger_server::export_api::ExportRouteState;
-use wanlogger_server::ingest::Ingest;
-use wanlogger_server::ratelimit::ConnCounter;
-use wanlogger_server::source_manager::SourceManager;
-use wanlogger_server::wire::{decode, encode, Envelope, FrameType};
-use wanlogger_server::ws::WsState;
-use wanlogger_server::{routes, ws};
+use tracemux_server::auth::BearerVerifier;
+use tracemux_server::export_api::ExportRouteState;
+use tracemux_server::ingest::Ingest;
+use tracemux_server::ratelimit::ConnCounter;
+use tracemux_server::source_manager::SourceManager;
+use tracemux_server::wire::{decode, encode, Envelope, FrameType};
+use tracemux_server::ws::WsState;
+use tracemux_server::{routes, ws};
 
 type WsClient = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -195,7 +195,7 @@ async fn spawn_virt_peer_tcp(transcript: &Path) -> Result<(ChildGuard, SocketAdd
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .context("spawning wanlogger-virt-peer")?;
+        .context("spawning tracemux-virt-peer")?;
     let stdout = child
         .stdout
         .take()
@@ -207,7 +207,7 @@ async fn spawn_virt_peer_tcp(transcript: &Path) -> Result<(ChildGuard, SocketAdd
         .context("reading virt-peer stdout")?
         .ok_or_else(|| anyhow!("virt-peer exited before printing listening line"))?;
     let addr = line
-        .strip_prefix("wanlogger-virt-peer tcp listening ")
+        .strip_prefix("tracemux-virt-peer tcp listening ")
         .ok_or_else(|| anyhow!("unexpected virt-peer listening line: {line}"))?
         .parse::<SocketAddr>()
         .with_context(|| format!("parsing virt-peer address from {line}"))?;
@@ -217,7 +217,7 @@ async fn spawn_virt_peer_tcp(transcript: &Path) -> Result<(ChildGuard, SocketAdd
 }
 
 fn virt_peer_exe() -> PathBuf {
-    option_env!("CARGO_BIN_EXE_wanlogger-virt-peer").map_or_else(
+    option_env!("CARGO_BIN_EXE_tracemux-virt-peer").map_or_else(
         || {
             let mut path = std::env::current_exe().expect("current test exe path");
             path.pop();
@@ -225,7 +225,7 @@ fn virt_peer_exe() -> PathBuf {
                 path.pop();
             }
             path.push(format!(
-                "wanlogger-virt-peer{}",
+                "tracemux-virt-peer{}",
                 std::env::consts::EXE_SUFFIX
             ));
             path
@@ -241,7 +241,7 @@ fn ws_request(
     let mut req = url.into_client_request().context("building WSS request")?;
     req.headers_mut().insert(
         "Sec-WebSocket-Protocol",
-        HeaderValue::from_static("wanlogger.v1"),
+        HeaderValue::from_static("tracemux.v1"),
     );
     Ok(req)
 }

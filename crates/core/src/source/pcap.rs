@@ -23,7 +23,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 use super::{ChannelMeta, ChannelSpec, ControlEvt, Frame, Source};
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// Default snap length used by packet capture configs.
 pub const DEFAULT_SNAPLEN: u32 = 65_535;
@@ -34,7 +34,7 @@ pub const DEFAULT_TIMEOUT_MS: u32 = 1_000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PcapSaveMode {
-    /// Persist to wanlogger session-dir only.
+    /// Persist to tracemux session-dir only.
     Session,
     /// Write direct pcapng only.
     Pcapng,
@@ -163,19 +163,19 @@ impl PcapConfig {
     /// Validate fields that can be checked without opening a real backend.
     pub fn validate(&self) -> Result<()> {
         if self.interface.trim().is_empty() {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 "pcap interface must not be empty",
             ));
         }
         if self.snaplen == 0 {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 "pcap snaplen must be greater than zero",
             ));
         }
         if matches!(self.buffer_bytes, Some(0)) {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 "pcap buffer_bytes must be greater than zero when set",
             ));
@@ -326,7 +326,7 @@ pub struct PcapStats {
     pub bytes_total: u64,
     /// Packets dropped by the kernel/backend, when known.
     pub dropped_kernel_total: u64,
-    /// Packets dropped inside wanlogger, when known.
+    /// Packets dropped inside tracemux, when known.
     pub dropped_app_total: u64,
     /// Capture queue depth, when a backend exposes it.
     pub capture_queue_depth: u64,
@@ -399,7 +399,7 @@ impl PcapSource {
     /// Receive the next packet while preserving pcap metadata.
     pub async fn recv_packet(&mut self) -> Result<Option<PcapPacket>> {
         if !self.opened {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 "pcap source not open",
             ));
@@ -544,7 +544,7 @@ impl PcapBackend for FakePcapBackend {
 
     async fn recv_packet(&mut self) -> Result<Option<PcapPacket>> {
         if !self.opened {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 "fake pcap backend not open",
             ));
@@ -638,7 +638,7 @@ impl PcapBackend for NativePcapBackend {
 
     async fn recv_packet(&mut self) -> Result<Option<PcapPacket>> {
         let state = self.state.clone().ok_or_else(|| {
-            WanloggerError::new(ErrorId::E1102SourceClosed, "native pcap backend not open")
+            TraceMuxError::new(ErrorId::E1102SourceClosed, "native pcap backend not open")
         })?;
         let Some(packet) = recv_native_packet(state).await? else {
             return Ok(None);
@@ -731,7 +731,7 @@ fn open_native_capture(config: &PcapConfig) -> Result<NativePcapState> {
             .map_err(|err| pcap_err(ErrorId::E1101SourceOpen, "applying pcap BPF filter", err))?;
     }
     let linktype = u32::try_from(capture.get_datalink().0).map_err(|_| {
-        WanloggerError::new(ErrorId::E1101SourceOpen, "pcap datalink type was negative")
+        TraceMuxError::new(ErrorId::E1101SourceOpen, "pcap datalink type was negative")
     })?;
     Ok(NativePcapState { capture, linktype })
 }
@@ -808,7 +808,7 @@ fn timestamp_micros_to_unix_ns(seconds: i128, micros: i128) -> i64 {
 #[cfg(feature = "pcap-capture")]
 fn i32_field(value: u32, field: &str) -> Result<i32> {
     i32::try_from(value).map_err(|_| {
-        WanloggerError::new(
+        TraceMuxError::new(
             ErrorId::E1101SourceOpen,
             format!("pcap {field} exceeds supported range"),
         )
@@ -816,24 +816,20 @@ fn i32_field(value: u32, field: &str) -> Result<i32> {
 }
 
 #[cfg(feature = "pcap-capture")]
-fn pcap_err(id: ErrorId, context: &'static str, err: pcap::Error) -> WanloggerError {
+fn pcap_err(id: ErrorId, context: &'static str, err: pcap::Error) -> TraceMuxError {
     let message = format!("{context}: {err}");
-    WanloggerError::new(id, message).with_source(err)
+    TraceMuxError::new(id, message).with_source(err)
 }
 
 #[cfg(feature = "pcap-capture")]
-fn task_join_err(
-    id: ErrorId,
-    context: &'static str,
-    err: tokio::task::JoinError,
-) -> WanloggerError {
+fn task_join_err(id: ErrorId, context: &'static str, err: tokio::task::JoinError) -> TraceMuxError {
     let message = format!("{context}: blocking pcap task failed");
-    WanloggerError::new(id, message).with_source(err)
+    TraceMuxError::new(id, message).with_source(err)
 }
 
 #[cfg(feature = "pcap-capture")]
-fn mutex_err(id: ErrorId, context: &'static str) -> WanloggerError {
-    WanloggerError::new(id, context)
+fn mutex_err(id: ErrorId, context: &'static str) -> TraceMuxError {
+    TraceMuxError::new(id, context)
 }
 
 #[cfg(not(feature = "pcap-capture"))]
@@ -844,14 +840,14 @@ struct UnavailablePcapBackend;
 #[async_trait]
 impl PcapBackend for UnavailablePcapBackend {
     async fn open(&mut self, _config: &PcapConfig) -> Result<()> {
-        Err(WanloggerError::new(
+        Err(TraceMuxError::new(
             ErrorId::E1101SourceOpen,
             "pcap capture backend is not available in this build; enable the pcap-capture feature",
         ))
     }
 
     async fn recv_packet(&mut self) -> Result<Option<PcapPacket>> {
-        Err(WanloggerError::new(
+        Err(TraceMuxError::new(
             ErrorId::E1102SourceClosed,
             "pcap capture backend is not open",
         ))
@@ -957,14 +953,14 @@ mod tests {
 
     #[cfg(feature = "pcap-capture")]
     #[tokio::test]
-    #[ignore = "requires WANLOGGER_PCAP_TEST_IFACE and host capture privileges"]
+    #[ignore = "requires TRACEMUX_PCAP_TEST_IFACE and host capture privileges"]
     async fn native_backend_can_open_env_iface() {
-        let Ok(iface) = std::env::var("WANLOGGER_PCAP_TEST_IFACE") else {
+        let Ok(iface) = std::env::var("TRACEMUX_PCAP_TEST_IFACE") else {
             return;
         };
         let mut config = PcapConfig::new(iface);
         config.timeout_ms = 100;
-        if let Ok(filter) = std::env::var("WANLOGGER_PCAP_TEST_FILTER") {
+        if let Ok(filter) = std::env::var("TRACEMUX_PCAP_TEST_FILTER") {
             config.filter = Some(filter);
         }
         let mut source = PcapSource::new(config);

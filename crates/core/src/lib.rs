@@ -1,4 +1,4 @@
-//! `wanlogger-core` — frozen v0.1 trait surfaces and core implementations.
+//! `tracemux-core` — frozen v0.1 trait surfaces and core implementations.
 //!
 //! See [`AGENTS.md`](../../../AGENTS.md) and
 //! [`docs/adr/0001-foundations.md`](../../../docs/adr/0001-foundations.md)
@@ -34,8 +34,8 @@ pub mod source;
 pub mod time;
 pub mod timeseries;
 
-pub use error_id::{ErrorId, WanloggerError};
+pub use error_id::{ErrorId, TraceMuxError};
 pub use time::{ClockQuality, ClockSource, DualTimestamp, TimeSource};
 
 /// Crate-wide `Result` alias.
-pub type Result<T, E = WanloggerError> = core::result::Result<T, E>;
+pub type Result<T, E = TraceMuxError> = core::result::Result<T, E>;

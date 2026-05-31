@@ -8,7 +8,7 @@
 use bytes::{Bytes, BytesMut};
 
 use super::Framer;
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// Width of the length prefix in bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +103,7 @@ impl Framer for LengthPrefixedFramer {
         };
         let max = self.max_frame as u64;
         if payload_len_u64 > max {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1003FramerOverflow,
                 format!("length-prefixed: declared {payload_len_u64} > max {max}"),
             ));

@@ -11,7 +11,7 @@ use bytes::Bytes;
 use tokio::net::UdpSocket;
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 const RECV_BUF: usize = 64 * 1024;
 
@@ -42,7 +42,7 @@ impl SyslogSource {
 impl Source for SyslogSource {
     async fn open(&mut self) -> Result<()> {
         let s = UdpSocket::bind(&self.bind).await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("syslog bind {}: {e}", self.bind),
             )
@@ -56,7 +56,7 @@ impl Source for SyslogSource {
         let s = match self.socket.as_ref() {
             Some(s) => s,
             None => {
-                return Err(WanloggerError::new(
+                return Err(TraceMuxError::new(
                     ErrorId::E1102SourceClosed,
                     "syslog source not open",
                 ))
@@ -64,7 +64,7 @@ impl Source for SyslogSource {
         };
         let mut buf = vec![0u8; RECV_BUF];
         let (n, peer) = s.recv_from(&mut buf).await.map_err(|e| {
-            WanloggerError::new(ErrorId::E1102SourceClosed, format!("syslog recv: {e}"))
+            TraceMuxError::new(ErrorId::E1102SourceClosed, format!("syslog recv: {e}"))
                 .with_source(e)
         })?;
         buf.truncate(n);

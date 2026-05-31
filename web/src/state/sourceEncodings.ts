@@ -7,7 +7,7 @@ import { createStore } from "solid-js/store";
 import { DEFAULT_SOURCE_ENCODING, normalizeEncoding } from "~/state/sourceStartOptions";
 import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
-export const SOURCE_ENCODINGS_STORAGE_KEY = "wanlogger.sourceEncodings.v1";
+export const SOURCE_ENCODINGS_STORAGE_KEY = "tracemux.sourceEncodings.v1";
 
 export interface SourceEncoding {
   sid: string;

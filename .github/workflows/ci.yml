@@ -106,11 +106,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: wire compat fixtures
-        run: cargo test -p wanlogger-server --test wire_compat --features serial,metrics
+        run: cargo test -p tracemux-server --test wire_compat --features serial,metrics
       - name: log compat fixtures
-        run: cargo test -p wanlogger-replay --test log_compat
+        run: cargo test -p tracemux-replay --test log_compat
       - name: cli compat fixtures
-        run: cargo test -p wanlogger-cli --test cli_compat --features serial,metrics,desktop,headless
+        run: cargo test -p tracemux-cli --test cli_compat --features serial,metrics,desktop,headless
 
   rtm:
     runs-on: ubuntu-latest

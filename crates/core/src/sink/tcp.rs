@@ -9,7 +9,7 @@ use tokio::io::AsyncWriteExt as _;
 use tokio::net::tcp::OwnedWriteHalf;
 
 use super::Sink;
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 /// TCP write-back sink.
 #[derive(Debug)]
@@ -33,13 +33,13 @@ impl TcpSink {
 impl Sink for TcpSink {
     async fn write(&mut self, data: Bytes) -> Result<()> {
         let Some(writer) = self.writer.as_mut() else {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 "tcp sink not open",
             ));
         };
         writer.write_all(&data).await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 format!("tcp write {}: {e}", self.addr),
             )
@@ -52,7 +52,7 @@ impl Sink for TcpSink {
             return Ok(());
         };
         writer.flush().await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 format!("tcp flush {}: {e}", self.addr),
             )

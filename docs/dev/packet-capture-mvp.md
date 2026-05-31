@@ -1,13 +1,13 @@
 # Packet capture MVP notes
 
 This document records the non-normative development scope for adding
-Wireshark-style packet capture to wanlogger. The accepted MVP requirements are
+Wireshark-style packet capture to tracemux. The accepted MVP requirements are
 promoted to `docs/requirements.md`; keep this note as background and rationale.
 
 ## Summary
 
 The MVP adds a packet-capture source backed by Npcap/libpcap, records Ethernet
-packets with wanlogger's server-owned persistence model, exposes capture
+packets with tracemux's server-owned persistence model, exposes capture
 statistics and selectable packet views in the UI, and provides pcapng output for
 Wireshark-compatible follow-up analysis.
 
@@ -102,10 +102,10 @@ source-spec helper.
 
 ## Timestamp handling
 
-Each packet must preserve wanlogger's dual timestamp model:
+Each packet must preserve tracemux's dual timestamp model:
 
 - `ts_origin`: timestamp reported by Npcap/libpcap for the packet.
-- `ts_ingest`: timestamp when the wanlogger server received/enqueued the packet.
+- `ts_ingest`: timestamp when the tracemux server received/enqueued the packet.
 
 The capture source should also report clock quality and source metadata so later
 analysis can distinguish packet timestamps from server ingest timestamps.
@@ -116,7 +116,7 @@ The MVP implements `session`, `pcapng`, and `both` storage modes.
 
 | Mode | Description | Benefits | Trade-offs |
 | --- | --- | --- | --- |
-| `session` | Store packets in wanlogger session-dir and export pcapng later. | Fits existing server-owned persistence, replay, annotations, and tests. | Requires export before opening in Wireshark. Large exports may take time. |
+| `session` | Store packets in tracemux session-dir and export pcapng later. | Fits existing server-owned persistence, replay, annotations, and tests. | Requires export before opening in Wireshark. Large exports may take time. |
 | `pcapng` | Write pcapng while capturing. | Produces a Wireshark artifact immediately and avoids later conversion. | Needs robust streaming writer, partial-file handling, and rotation. |
 | `both` | Write session-dir and pcapng concurrently. | Best operator experience and auditability. | Higher I/O load and more consistency handling. |
 

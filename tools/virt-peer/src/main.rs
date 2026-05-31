@@ -1,4 +1,4 @@
-//! `wanlogger-virt-peer` ? a virtual counterparty for development and tests.
+//! `tracemux-virt-peer` ? a virtual counterparty for development and tests.
 //!
 //! The tool can behave like a small device over TCP or an already-created
 //! virtual/physical serial port. It intentionally does not create Windows COM
@@ -21,9 +21,9 @@ mod transport;
 
 /// Command-line interface.
 #[derive(Debug, Parser)]
-#[command(name = "wanlogger-virt-peer", version, about)]
+#[command(name = "tracemux-virt-peer", version, about)]
 struct Cli {
-    /// Logging filter, for example `info` or `debug,wanlogger_virt_peer=trace`.
+    /// Logging filter, for example `info` or `debug,tracemux_virt_peer=trace`.
     #[arg(long, global = true, default_value = "info")]
     log_filter: String,
     #[command(subcommand)]
@@ -42,7 +42,7 @@ enum Command {
 /// TCP transport options.
 #[derive(Debug, Args)]
 struct TcpArgs {
-    /// TCP mode: listen for wanlogger, or connect to an existing listener.
+    /// TCP mode: listen for tracemux, or connect to an existing listener.
     #[arg(long, value_enum, default_value_t = TcpModeArg::Listen)]
     mode: TcpModeArg,
     /// Address to bind/connect. Use port 0 in listen mode for an OS-assigned port.

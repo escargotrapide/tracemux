@@ -27,7 +27,7 @@ describe("sessionExportZip", () => {
   it("names all-sources ZIP downloads with a stable timestamp token", () => {
     // REQ: FR-UI-018
     expect(sessionExportZipFilename("jsonl", "2026-05-20T01:02:03Z"))
-      .toBe("wanlogger-all-2026-05-20T010203Z-jsonl.zip");
+      .toBe("tracemux-all-2026-05-20T010203Z-jsonl.zip");
   });
 
   it("creates a stored ZIP containing one export per source", async () => {
@@ -44,16 +44,16 @@ describe("sessionExportZip", () => {
       fetchExportBlob,
     });
 
-    expect(result.filename).toBe("wanlogger-all-2026-05-20T010203Z-text.zip");
+    expect(result.filename).toBe("tracemux-all-2026-05-20T010203Z-text.zip");
     expect(result.entryNames).toEqual([
-      "wanlogger-all-2026-05-20T010203Z-text/COM7.txt",
-      "wanlogger-all-2026-05-20T010203Z-text/COM7-2.txt",
+      "tracemux-all-2026-05-20T010203Z-text/COM7.txt",
+      "tracemux-all-2026-05-20T010203Z-text/COM7-2.txt",
     ]);
     expect(fetchExportBlob).toHaveBeenCalledTimes(2);
     expect(result.blob).toBeDefined();
     const zipText = new TextDecoder().decode(await result.blob!.arrayBuffer());
-    expect(zipText).toContain("wanlogger-all-2026-05-20T010203Z-text/COM7.txt");
-    expect(zipText).toContain("wanlogger-all-2026-05-20T010203Z-text/COM7-2.txt");
+    expect(zipText).toContain("tracemux-all-2026-05-20T010203Z-text/COM7.txt");
+    expect(zipText).toContain("tracemux-all-2026-05-20T010203Z-text/COM7-2.txt");
     expect(zipText).toContain("body:sid-a");
     expect(zipText).toContain("body:sid-b");
   });
@@ -61,7 +61,7 @@ describe("sessionExportZip", () => {
   it("requests a server-side bundle ticket for bulk downloads", async () => {
     // REQ: FR-UI-018
     stubLocation();
-    vi.stubEnv("VITE_WANLOGGER_TOKEN", "secret-token");
+    vi.stubEnv("VITE_TRACEMUX_TOKEN", "secret-token");
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ticket: "bundle-ticket",
       expires_in_ms: 60_000,
@@ -104,10 +104,10 @@ describe("sessionExportZip", () => {
       filename_pattern: "{source}.{ext}",
       timestamp_ms: Date.parse("2026-05-20T01:02:03Z"),
     });
-    expect(result.filename).toBe("wanlogger-all-2026-05-20T010203Z-pcapng.zip");
+    expect(result.filename).toBe("tracemux-all-2026-05-20T010203Z-pcapng.zip");
     expect(result.entryNames).toEqual([
-      "wanlogger-all-2026-05-20T010203Z-pcapng/Loopback.pcapng",
-      "wanlogger-all-2026-05-20T010203Z-pcapng/Wi-Fi.pcapng",
+      "tracemux-all-2026-05-20T010203Z-pcapng/Loopback.pcapng",
+      "tracemux-all-2026-05-20T010203Z-pcapng/Wi-Fi.pcapng",
     ]);
     expect(result.downloadUrl).toBe(
       "http://127.0.0.1:9000/api/exports/bundle?ticket=bundle-ticket",

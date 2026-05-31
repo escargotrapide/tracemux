@@ -2,8 +2,8 @@ import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import { fileURLToPath } from "node:url";
 
-// Vite config for the wanlogger web UI.
-// Dev scripts point VITE_WANLOGGER_URL at the local loopback backend
+// Vite config for the tracemux web UI.
+// Dev scripts point VITE_TRACEMUX_URL at the local loopback backend
 // (default: ws://127.0.0.1:9000/ws).
 export default defineConfig(({ mode }) => ({
   plugins: [solid()],
@@ -36,6 +36,6 @@ export default defineConfig(({ mode }) => ({
     },
   },
   define: {
-    __WANLOGGER_WIRE__: JSON.stringify("wanlogger.v1"),
+    __TRACEMUX_WIRE__: JSON.stringify("tracemux.v1"),
   },
 }));

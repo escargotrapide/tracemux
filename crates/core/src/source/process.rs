@@ -18,7 +18,7 @@ use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
 use crate::sink::process::ProcessSink;
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 const READ_CHUNK: usize = 8 * 1024;
 
@@ -59,7 +59,7 @@ impl ProcessSource {
         let mut source = Self::new(argv);
         let stdin = source.spawn(true)?;
         let stdin = stdin.ok_or_else(|| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 "process source: child stdin was not piped",
             )
@@ -70,7 +70,7 @@ impl ProcessSource {
 
     fn spawn(&mut self, pipe_stdin: bool) -> Result<Option<ChildStdin>> {
         if self.argv.is_empty() {
-            return Err(WanloggerError::new(
+            return Err(TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 "process source: argv is empty",
             ));
@@ -88,7 +88,7 @@ impl ProcessSource {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         let mut child = cmd.spawn().map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("spawn {}: {e}", self.argv[0]),
             )
@@ -185,8 +185,8 @@ impl Source for ProcessSource {
     }
 }
 
-fn read_err(stream: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(
+fn read_err(stream: &str, e: std::io::Error) -> TraceMuxError {
+    TraceMuxError::new(
         ErrorId::E1102SourceClosed,
         format!("process {stream} read: {e}"),
     )

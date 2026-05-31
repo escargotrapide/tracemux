@@ -1,6 +1,6 @@
 # Error catalogue
 
-Every public-facing error in `wanlogger` is identified by an
+Every public-facing error in `tracemux` is identified by an
 `E-NNNN` code. Codes are allocated in
 [`crates/core/src/error_id.rs`](../../crates/core/src/error_id.rs)
 and documented one-per-file under this directory.

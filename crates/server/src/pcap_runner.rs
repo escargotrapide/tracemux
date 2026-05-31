@@ -3,7 +3,7 @@
 //! The frozen `Source::recv()` API can only return a `Frame`, which is not
 //! enough to preserve libpcap/Npcap metadata. This runner consumes
 //! `PcapSource::recv_packet()` directly and writes `datagram` rows plus
-//! `wanlogger.pcap.packet.v1` frame metadata.
+//! `tracemux.pcap.packet.v1` frame metadata.
 
 // REQ: FR-LOG-PCAP
 // REQ: FR-MET-PCAP
@@ -18,22 +18,22 @@ use bytes::Bytes;
 use rmpv::Value;
 use serde_json::{Map, Value as JsonValue};
 use tokio::sync::oneshot;
-use uuid::Uuid;
-use wanlogger_core::decoder::Record;
-use wanlogger_core::exporter::pcapng::{
+use tracemux_core::decoder::Record;
+use tracemux_core::exporter::pcapng::{
     PcapngStreamOptions, PcapngStreamWriter, PCAP_PACKET_SCHEMA_ID,
 };
-use wanlogger_core::log::frames::{FrameEntry, FramesWriter};
-use wanlogger_core::log::index::{format_rfc3339_ns, Dir, IndexEntry, IndexWriter, Kind};
-use wanlogger_core::log::raw::RawWriter;
-use wanlogger_core::packet_summary::summarize_pcap_packet;
-use wanlogger_core::session::registry::SessionState;
-use wanlogger_core::source::pcap::{
+use tracemux_core::log::frames::{FrameEntry, FramesWriter};
+use tracemux_core::log::index::{format_rfc3339_ns, Dir, IndexEntry, IndexWriter, Kind};
+use tracemux_core::log::raw::RawWriter;
+use tracemux_core::packet_summary::summarize_pcap_packet;
+use tracemux_core::session::registry::SessionState;
+use tracemux_core::source::pcap::{
     PcapConfig, PcapPacket, PcapPublishMode, PcapSaveMode, PcapSource, PcapStats,
 };
-use wanlogger_core::source::Source;
-use wanlogger_core::time::{unix_ns_now, ClockQuality, ClockSource, DualTimestamp, TimeSource};
-use wanlogger_core::{ErrorId, WanloggerError};
+use tracemux_core::source::Source;
+use tracemux_core::time::{unix_ns_now, ClockQuality, ClockSource, DualTimestamp, TimeSource};
+use tracemux_core::{ErrorId, TraceMuxError};
+use uuid::Uuid;
 
 use crate::ingest::Ingest;
 use crate::runner::{encode_data_envelope_with_kind, RunnerStats};
@@ -144,7 +144,7 @@ fn should_write_session(mode: PcapSaveMode) -> bool {
 fn direct_pcapng_writer(
     config: &PcapConfig,
     session_dir: Option<&Path>,
-) -> wanlogger_core::Result<Option<PcapngStreamWriter>> {
+) -> tracemux_core::Result<Option<PcapngStreamWriter>> {
     if !matches!(config.save_mode, PcapSaveMode::Pcapng | PcapSaveMode::Both) {
         return Ok(None);
     }
@@ -153,7 +153,7 @@ fn direct_pcapng_writer(
         .clone()
         .or_else(|| session_dir.map(|dir| dir.join("capture.pcapng")))
         .ok_or_else(|| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1001PipelineGeneric,
                 "pcapng save requested but no pcapng_path or session-dir is available",
             )
@@ -331,7 +331,7 @@ impl PcapSessionWriter {
         sid: Uuid,
         source: String,
         host: Option<String>,
-    ) -> wanlogger_core::Result<Self> {
+    ) -> tracemux_core::Result<Self> {
         std::fs::create_dir_all(dir).map_err(|e| log_err("creating pcap session-dir", e))?;
         write_meta(dir, sid, &source, host.as_deref())?;
         Ok(Self {
@@ -349,7 +349,7 @@ impl PcapSessionWriter {
         sid: Uuid,
         packet: &PcapPacket,
         ts: &DualTimestamp,
-    ) -> wanlogger_core::Result<()> {
+    ) -> tracemux_core::Result<()> {
         let (off, len) = self
             .raw
             .append(&packet.data)
@@ -372,7 +372,7 @@ impl PcapSessionWriter {
         Ok(())
     }
 
-    fn commit(&mut self) -> wanlogger_core::Result<()> {
+    fn commit(&mut self) -> tracemux_core::Result<()> {
         self.raw
             .flush()
             .map_err(|e| log_err("flushing pcap raw.bin", e))?;
@@ -440,7 +440,7 @@ fn write_meta(
     sid: Uuid,
     source: &str,
     host: Option<&str>,
-) -> wanlogger_core::Result<()> {
+) -> tracemux_core::Result<()> {
     let mut body = String::new();
     body.push_str("log_format_version = \"1.0.0\"\n");
     writeln!(body, "sid = \"{sid}\"").expect("writing to String cannot fail");
@@ -463,8 +463,8 @@ fn toml_escape(value: &str) -> String {
         .replace('\t', "\\t")
 }
 
-fn log_err(ctx: &'static str, err: std::io::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, ctx).with_source(err)
+fn log_err(ctx: &'static str, err: std::io::Error) -> TraceMuxError {
+    TraceMuxError::new(ErrorId::E1001PipelineGeneric, ctx).with_source(err)
 }
 
 #[cfg(test)]
@@ -473,11 +473,11 @@ mod tests {
     // REQ: FR-MET-PCAP
     // REQ: FR-EXP-PCAPNG
 
-    use wanlogger_core::exporter::pcapng;
-    use wanlogger_core::importer::pcapng::PcapngImporter;
-    use wanlogger_core::importer::Importer;
-    use wanlogger_core::packet_summary::LINKTYPE_ETHERNET;
-    use wanlogger_core::source::pcap::{FakePcapBackend, PcapSaveMode};
+    use tracemux_core::exporter::pcapng;
+    use tracemux_core::importer::pcapng::PcapngImporter;
+    use tracemux_core::importer::Importer;
+    use tracemux_core::packet_summary::LINKTYPE_ETHERNET;
+    use tracemux_core::source::pcap::{FakePcapBackend, PcapSaveMode};
 
     use super::*;
 
@@ -662,7 +662,7 @@ mod tests {
     }
 
     fn tempdir() -> PathBuf {
-        let p = std::env::temp_dir().join(format!("wanlogger-pcap-runner-{}", Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!("tracemux-pcap-runner-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }

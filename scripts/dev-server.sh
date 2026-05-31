@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the wanlogger backend server (development mode).
+# Start the tracemux backend server (development mode).
 # Usage: bash scripts/dev-server.sh [options]
 #   --bind <h:p>       Bind address (default 127.0.0.1:9000)
 #   --require-auth     Do not pass --no-auth (default: loopback --no-auth)
@@ -21,6 +21,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-CARGO_ARGS=(run $BUILD_FLAG -p wanlogger-cli -- serve --bind "$BIND" $NO_AUTH)
+CARGO_ARGS=(run $BUILD_FLAG -p tracemux-cli -- serve --bind "$BIND" $NO_AUTH)
 echo "Starting server: cargo ${CARGO_ARGS[*]}"
 exec cargo "${CARGO_ARGS[@]}"

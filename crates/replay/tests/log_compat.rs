@@ -4,9 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
-use wanlogger_core::log::index::{Dir, IndexEntry, Kind};
-use wanlogger_core::log::raw::RawReader;
-use wanlogger_core::time::{ClockQuality, ClockSource};
+use tracemux_core::log::index::{Dir, IndexEntry, Kind};
+use tracemux_core::log::raw::RawReader;
+use tracemux_core::time::{ClockQuality, ClockSource};
 
 fn workspace_root() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -65,7 +65,7 @@ fn minimal_session_fixture_has_stable_index_shape_and_offsets() {
 // REQ: FR-LOG-001
 #[tokio::test]
 async fn replay_consumes_minimal_session_fixture() {
-    let stats = wanlogger_replay::run(&fixture_dir(), 0.0, Some(0))
+    let stats = tracemux_replay::run(&fixture_dir(), 0.0, Some(0))
         .await
         .expect("replay compat fixture");
     assert_eq!(stats.records, 2);

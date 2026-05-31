@@ -2,7 +2,7 @@
 
 #![allow(clippy::missing_panics_doc)]
 
-use wanlogger_core::{
+use tracemux_core::{
     decoder::Decoder, exporter::Exporter, framer::Framer, importer::Importer, logsink::LogSink,
     sink::Sink, source::Source, timeseries::TimeseriesSink, TimeSource,
 };

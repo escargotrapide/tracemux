@@ -9,7 +9,7 @@ for critical paths such as `crates/core/src/source/mod.rs`.
 
 - Keep the server as the source of truth for capture, persistence, metrics, and
   export.
-- Do not change frozen trait signatures or the `wanlogger.v1` frame type set.
+- Do not change frozen trait signatures or the `tracemux.v1` frame type set.
 - Preserve packet-origin timestamps and server-ingest timestamps.
 - Persist every captured packet selected for storage, but make UI fan-out
   configurable and bounded.
@@ -157,7 +157,7 @@ For each packet:
   - `ts_ingest` from the server.
   - `source = "pcap:<interface>"`.
 - `frames.jsonl` stores one structured metadata record with:
-  - `schema_id = "wanlogger.pcap.packet.v1"`.
+  - `schema_id = "tracemux.pcap.packet.v1"`.
   - `fields.seq`.
   - `fields.raw_off`.
   - `fields.raw_len`.
@@ -205,7 +205,7 @@ Behavior:
 1. Read `index.jsonl` and select `kind == "datagram"` rows from pcap sources.
 2. Read `raw.bin` packet bytes by `off` and `len`.
 3. Read pcap metadata from `frames.jsonl` records with
-   `schema_id == "wanlogger.pcap.packet.v1"`.
+   `schema_id == "tracemux.pcap.packet.v1"`.
 4. Join metadata by `raw_off` and `raw_len`.
 5. Write pcapng:
    - Section Header Block.

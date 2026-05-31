@@ -12,7 +12,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::error_id::{ErrorId, WanloggerError};
+use crate::error_id::{ErrorId, TraceMuxError};
 
 use super::ClockQuality;
 
@@ -79,7 +79,7 @@ impl NodeClockTable {
 
 /// Append `entry` as one JSON line to `path`. The file is created if
 /// missing; the directory must already exist.
-pub fn append_jsonl(path: impl AsRef<Path>, entry: &ClockTableEntry) -> Result<(), WanloggerError> {
+pub fn append_jsonl(path: impl AsRef<Path>, entry: &ClockTableEntry) -> Result<(), TraceMuxError> {
     let mut f = OpenOptions::new()
         .append(true)
         .create(true)
@@ -94,7 +94,7 @@ pub fn append_jsonl(path: impl AsRef<Path>, entry: &ClockTableEntry) -> Result<(
 /// Replay every line of `path` back into a fresh [`NodeClockTable`].
 /// Malformed lines are skipped (caller can compare counts to detect
 /// truncation).
-pub fn load_jsonl(path: impl AsRef<Path>) -> Result<(NodeClockTable, usize), WanloggerError> {
+pub fn load_jsonl(path: impl AsRef<Path>) -> Result<(NodeClockTable, usize), TraceMuxError> {
     let f = std::fs::File::open(path.as_ref()).map_err(io_err)?;
     let reader = BufReader::new(f);
     let table = NodeClockTable::new();
@@ -114,16 +114,16 @@ pub fn load_jsonl(path: impl AsRef<Path>) -> Result<(NodeClockTable, usize), Wan
     Ok((table, skipped))
 }
 
-fn io_err(e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(
+fn io_err(e: std::io::Error) -> TraceMuxError {
+    TraceMuxError::new(
         ErrorId::E1001PipelineGeneric,
         format!("clock-table io: {e}"),
     )
     .with_source(e)
 }
 
-fn json_err(e: serde_json::Error) -> WanloggerError {
-    WanloggerError::new(
+fn json_err(e: serde_json::Error) -> TraceMuxError {
+    TraceMuxError::new(
         ErrorId::E1001PipelineGeneric,
         format!("clock-table json: {e}"),
     )

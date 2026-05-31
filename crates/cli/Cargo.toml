@@ -1,32 +1,32 @@
 [package]
-name = "wanlogger-cli"
+name = "tracemux-cli"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "wanlogger CLI / server / Tauri sidecar binary"
+description = "tracemux CLI / server / Tauri sidecar binary"
 
 [lints]
 workspace = true
 
 [[bin]]
-name = "wanlogger"
+name = "tracemux"
 path = "src/main.rs"
 
 [features]
 default = []
 desktop = []
-metrics = ["wanlogger-core/metrics", "wanlogger-server/metrics"]
-serial = ["wanlogger-core/serial", "wanlogger-server/serial"]
-pcap-capture = ["wanlogger-core/pcap-capture", "wanlogger-server/pcap-capture"]
+metrics = ["tracemux-core/metrics", "tracemux-server/metrics"]
+serial = ["tracemux-core/serial", "tracemux-server/serial"]
+pcap-capture = ["tracemux-core/pcap-capture", "tracemux-server/pcap-capture"]
 headless = []
 
 [dependencies]
-wanlogger-core = { path = "../core" }
-wanlogger-server = { path = "../server" }
-wanlogger-replay = { path = "../replay" }
+tracemux-core = { path = "../core" }
+tracemux-server = { path = "../server" }
+tracemux-replay = { path = "../replay" }
 clap = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

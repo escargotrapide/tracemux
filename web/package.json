@@ -1,8 +1,8 @@
 {
-  "name": "@wanlogger/web",
+  "name": "@tracemux/web",
   "version": "0.1.0-dev",
   "private": true,
-  "description": "wanlogger SolidJS UI (xterm.js + Dockview, talks WSS wanlogger.v1).",
+  "description": "tracemux SolidJS UI (xterm.js + Dockview, talks WSS tracemux.v1).",
   "type": "module",
   "scripts": {
     "dev": "vite",

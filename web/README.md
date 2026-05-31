@@ -1,7 +1,7 @@
-# wanlogger web UI
+# tracemux web UI
 
-SolidJS + xterm.js + Dockview. Talks WSS subprotocol `wanlogger.v1`
-(MessagePack) to a running `wanlogger serve`.
+SolidJS + xterm.js + Dockview. Talks WSS subprotocol `tracemux.v1`
+(MessagePack) to a running `tracemux serve`.
 
 ## Develop
 
@@ -10,7 +10,7 @@ pnpm install
 pnpm --filter ./web dev
 ```
 
-Set `VITE_WANLOGGER_URL` and (optionally) `VITE_WANLOGGER_TOKEN` to
+Set `VITE_TRACEMUX_URL` and (optionally) `VITE_TRACEMUX_TOKEN` to
 point at a non-default backend. Otherwise the page connects to
 `ws://127.0.0.1:9000/ws` when running under the Vite dev server or
 Tauri custom protocol, and to `ws(s)://<page-host>/ws` when served from

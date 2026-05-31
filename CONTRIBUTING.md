@@ -1,6 +1,6 @@
 # Contributing
 
-Welcome! `wanlogger` is built to be maintained by both humans and AI
+Welcome! `tracemux` is built to be maintained by both humans and AI
 coding agents. Both follow the same rules.
 
 ## Start here

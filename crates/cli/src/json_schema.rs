@@ -1,4 +1,4 @@
-//! `wanlogger json-schema` — emits JSON schemas for `--format json`
+//! `tracemux json-schema` — emits JSON schemas for `--format json`
 //! output.
 //!
 //! These schemas are written under
@@ -15,7 +15,7 @@ use std::path::Path;
 
 use anyhow::Context;
 
-/// Schemas emitted by `wanlogger json-schema`.
+/// Schemas emitted by `tracemux json-schema`.
 const SCHEMAS: &[(&str, &str)] = &[
     (
         "ai-verify.schema.json",
@@ -63,7 +63,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("wanlogger-schemas-{pid}-{nonce}"));
+        dir.push(format!("tracemux-schemas-{pid}-{nonce}"));
 
         emit(&dir).unwrap();
         for (name, _) in SCHEMAS {

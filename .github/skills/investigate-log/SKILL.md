@@ -17,7 +17,7 @@ protocol.
 4. If decoder failed: replay against the same `schema_id` from
    `schemas/<id>.json`. Mismatches imply a `add-decoder` follow-up.
 5. Reproduce locally:
-   `cargo run -p wanlogger-cli -- replay --session <dir> --filter ...`.
+   `cargo run -p tracemux-cli -- replay --session <dir> --filter ...`.
 6. If timing looks wrong cross-PC, inspect `clock-table.jsonl` and
    `clock_offset_ms` per record. See `docs/protocols/timestamp.md`.
 7. File a `bug.yml` issue with: minimal repro, `E-NNNN`, expected vs

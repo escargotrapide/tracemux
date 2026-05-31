@@ -3,7 +3,7 @@
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
 
-use crate::error_id::{ErrorId, WanloggerError};
+use crate::error_id::{ErrorId, TraceMuxError};
 use crate::Result;
 
 /// Parse a user-facing timezone label into a fixed UTC offset.
@@ -40,10 +40,10 @@ pub fn format_rfc3339_in_timezone(ts: &str, offset: Option<UtcOffset>) -> Result
         return Ok(ts.to_string());
     };
     let parsed = OffsetDateTime::parse(ts, &Rfc3339).map_err(|e| {
-        WanloggerError::new(ErrorId::E1001PipelineGeneric, "export timestamp parse").with_source(e)
+        TraceMuxError::new(ErrorId::E1001PipelineGeneric, "export timestamp parse").with_source(e)
     })?;
     parsed.to_offset(offset).format(&Rfc3339).map_err(|e| {
-        WanloggerError::new(ErrorId::E1001PipelineGeneric, "export timestamp format").with_source(e)
+        TraceMuxError::new(ErrorId::E1001PipelineGeneric, "export timestamp format").with_source(e)
     })
 }
 
@@ -74,12 +74,12 @@ fn parse_numeric_offset(value: &str) -> Option<UtcOffset> {
 
 fn offset(hours: i8, minutes: i8) -> Result<UtcOffset> {
     UtcOffset::from_hms(hours, minutes, 0).map_err(|e| {
-        WanloggerError::new(ErrorId::E1001PipelineGeneric, "invalid timezone offset").with_source(e)
+        TraceMuxError::new(ErrorId::E1001PipelineGeneric, "invalid timezone offset").with_source(e)
     })
 }
 
-fn parse_err(message: impl Into<String>) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, message.into())
+fn parse_err(message: impl Into<String>) -> TraceMuxError {
+    TraceMuxError::new(ErrorId::E1001PipelineGeneric, message.into())
 }
 
 #[cfg(test)]

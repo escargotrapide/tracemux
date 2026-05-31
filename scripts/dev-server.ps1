@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Start the wanlogger backend server (development mode).
+# Start the tracemux backend server (development mode).
 # Usage: pwsh scripts/dev-server.ps1 [options]
 #   -Bind <host:port>   Bind address (default 127.0.0.1:9000)
 #   -RequireAuth        Do not pass --no-auth (default: loopback --no-auth)
@@ -19,7 +19,7 @@ $extraArgs = @("--bind", $Bind)
 if ($NoAuth -or -not $RequireAuth) { $extraArgs += "--no-auth" }
 
 $buildFlag = if ($Release) { @("--release") } else { @() }
-$cargoArgs  = @("run") + $buildFlag + @("-p", "wanlogger-cli", "--") + @("serve") + $extraArgs
+$cargoArgs  = @("run") + $buildFlag + @("-p", "tracemux-cli", "--") + @("serve") + $extraArgs
 
 Write-Host "Starting server: cargo $($cargoArgs -join ' ')" -ForegroundColor Cyan
 & cargo @cargoArgs

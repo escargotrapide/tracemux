@@ -1,6 +1,6 @@
 ---
 name: add-source
-description: Add a new transport that produces frames into wanlogger
+description: Add a new transport that produces frames into tracemux
 ---
 
 # Skill: add a new Source

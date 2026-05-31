@@ -31,8 +31,8 @@ use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tokio::io::{AsyncRead, ReadBuf};
+use tracemux_core::exporter::{csv, jsonl, pcapng, text};
 use uuid::Uuid;
-use wanlogger_core::exporter::{csv, jsonl, pcapng, text};
 
 use crate::auth::{is_loopback_allowed, BearerVerifier};
 use crate::source_manager::SourceManager;
@@ -591,7 +591,7 @@ impl Drop for TempExportFile {
 
 fn temp_export_path(sid: Uuid, format: ExportFormat) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "wanlogger-export-{sid}-{}.{}",
+        "tracemux-export-{sid}-{}.{}",
         Uuid::new_v4(),
         format.extension()
     ))
@@ -599,7 +599,7 @@ fn temp_export_path(sid: Uuid, format: ExportFormat) -> PathBuf {
 
 fn temp_bundle_path(format: ExportFormat) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "wanlogger-bundle-{}.{}.zip",
+        "tracemux-bundle-{}.{}.zip",
         Uuid::new_v4(),
         format.extension()
     ))
@@ -666,7 +666,7 @@ fn export_one(
 
 fn bundle_base_name(format: ExportFormat, timestamp_ms: u64) -> String {
     sanitize_filename(&format!(
-        "wanlogger-all-{}-{}",
+        "tracemux-all-{}-{}",
         timestamp_token(timestamp_ms),
         format.label()
     ))
@@ -678,7 +678,7 @@ fn bundle_filename(format: ExportFormat, timestamp_ms: u64) -> String {
 
 fn export_filename(sid: Uuid, format: ExportFormat, requested: Option<&str>) -> String {
     let ext = format.extension();
-    let fallback = format!("wanlogger-{sid}.{ext}");
+    let fallback = format!("tracemux-{sid}.{ext}");
     let filename = sanitize_filename(
         requested
             .filter(|value| !value.trim().is_empty())
@@ -704,7 +704,7 @@ fn render_bundle_entry_filename(
         .unwrap_or("source");
     let template = pattern
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or("wanlogger-{sid}.{ext}");
+        .unwrap_or("tracemux-{sid}.{ext}");
     let rendered = template
         .replace("{sid}", &sid.to_string())
         .replace("{source}", source)
@@ -740,7 +740,7 @@ fn sanitize_filename(value: &str) -> String {
     }
     let trimmed = out.trim().trim_end_matches('.').to_string();
     if trimmed.is_empty() {
-        "wanlogger-export".to_string()
+        "tracemux-export".to_string()
     } else {
         trimmed
     }
@@ -1226,13 +1226,13 @@ impl Drop for CleanupFileStream {
 mod tests {
     use super::*;
     use axum::body::to_bytes;
-    use wanlogger_core::decoder::Record;
-    use wanlogger_core::exporter::pcapng::PCAP_PACKET_SCHEMA_ID;
-    use wanlogger_core::log::frames::{FrameEntry, FramesWriter};
-    use wanlogger_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
-    use wanlogger_core::log::raw::RawWriter;
-    use wanlogger_core::source::ChannelSpec;
-    use wanlogger_core::time::{ClockQuality, ClockSource, DualTimestamp};
+    use tracemux_core::decoder::Record;
+    use tracemux_core::exporter::pcapng::PCAP_PACKET_SCHEMA_ID;
+    use tracemux_core::log::frames::{FrameEntry, FramesWriter};
+    use tracemux_core::log::index::{Dir, IndexEntry, IndexWriter, Kind};
+    use tracemux_core::log::raw::RawWriter;
+    use tracemux_core::source::ChannelSpec;
+    use tracemux_core::time::{ClockQuality, ClockSource, DualTimestamp};
 
     #[test]
     fn auth_allows_loopback_no_auth() {
@@ -1345,8 +1345,8 @@ mod tests {
     #[test]
     fn ensure_session_dir_rejects_paths_outside_session_root() {
         // REQ: FR-EXP-001
-        let root = unique_temp_path("wanlogger-export-root");
-        let outside = unique_temp_path("wanlogger-export-outside");
+        let root = unique_temp_path("tracemux-export-root");
+        let outside = unique_temp_path("tracemux-export-outside");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("index.jsonl"), b"{}\n").unwrap();
@@ -1361,7 +1361,7 @@ mod tests {
     #[test]
     fn ensure_session_dir_reports_missing_session_dir() {
         // REQ: FR-EXP-001
-        let missing = unique_temp_path("wanlogger-export-missing");
+        let missing = unique_temp_path("tracemux-export-missing");
 
         let err = ensure_session_dir(&missing, None).unwrap_err();
 
@@ -1372,7 +1372,7 @@ mod tests {
     #[test]
     fn temp_export_file_is_removed_on_error_path_drop() {
         // REQ: FR-EXP-001
-        let path = unique_temp_path("wanlogger-export-guard").with_extension("txt");
+        let path = unique_temp_path("tracemux-export-guard").with_extension("txt");
         std::fs::write(&path, b"partial").unwrap();
         {
             let _guard = TempExportFile::new(path.clone());
@@ -1383,7 +1383,7 @@ mod tests {
     #[tokio::test]
     async fn exports_known_session_dir_with_timezone() {
         // REQ: FR-EXP-001
-        let root = std::env::temp_dir().join(format!("wanlogger-export-api-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("tracemux-export-api-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let input = root.join("in.txt");
         std::fs::write(&input, b"download\n").unwrap();
@@ -1423,7 +1423,7 @@ mod tests {
     #[tokio::test]
     async fn exports_known_session_dir_with_default_timezone() {
         // REQ: FR-CLI-012
-        let root = std::env::temp_dir().join(format!("wanlogger-export-api-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("tracemux-export-api-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let input = root.join("in.txt");
         std::fs::write(&input, b"configured\n").unwrap();
@@ -1466,7 +1466,7 @@ mod tests {
 
     #[tokio::test]
     async fn exports_known_session_dir_as_pcapng() {
-        let root = std::env::temp_dir().join(format!("wanlogger-export-api-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("tracemux-export-api-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let input = root.join("in.txt");
         std::fs::write(&input, b"seed\n").unwrap();
@@ -1515,7 +1515,7 @@ mod tests {
 
     #[tokio::test]
     async fn exports_multiple_sources_as_bundle_zip() {
-        let root = std::env::temp_dir().join(format!("wanlogger-export-api-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("tracemux-export-api-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let input_a = root.join("a.txt");
         let input_b = root.join("b.txt");
@@ -1586,7 +1586,7 @@ mod tests {
         let ingest = Arc::new(crate::ingest::Ingest::new());
         let manager = Arc::new(SourceManager::with_session_root(
             ingest,
-            std::env::temp_dir().join("wanlogger-export-test"),
+            std::env::temp_dir().join("tracemux-export-test"),
         ));
         let state = ExportRouteState::new(manager, Arc::new(BearerVerifier::new()), true);
         let err = export_session(
@@ -1664,7 +1664,7 @@ mod tests {
         let ingest = Arc::new(crate::ingest::Ingest::new());
         let manager = Arc::new(SourceManager::with_session_root(
             ingest,
-            std::env::temp_dir().join("wanlogger-export-ticket-test"),
+            std::env::temp_dir().join("tracemux-export-ticket-test"),
         ));
         ExportRouteState::new(manager, Arc::new(BearerVerifier::new()), no_auth)
     }

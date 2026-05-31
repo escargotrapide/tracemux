@@ -13,7 +13,7 @@ use tokio::net::UdpSocket;
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
 use crate::sink::udp::{SharedUdpPeer, UdpSink};
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 const RECV_BUF: usize = 64 * 1024;
 
@@ -43,7 +43,7 @@ impl UdpSource {
     pub async fn bind_duplex(bind: impl Into<String>) -> Result<(Self, UdpSink)> {
         let bind = bind.into();
         let socket = UdpSocket::bind(&bind).await.map_err(|e| {
-            WanloggerError::new(ErrorId::E1101SourceOpen, format!("udp bind {bind}: {e}"))
+            TraceMuxError::new(ErrorId::E1101SourceOpen, format!("udp bind {bind}: {e}"))
                 .with_source(e)
         })?;
         let socket = Arc::new(socket);
@@ -69,7 +69,7 @@ impl Source for UdpSource {
             return Ok(());
         }
         let s = UdpSocket::bind(&self.bind).await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("udp bind {}: {e}", self.bind),
             )
@@ -83,7 +83,7 @@ impl Source for UdpSource {
         let s = match self.socket.as_ref() {
             Some(s) => s,
             None => {
-                return Err(WanloggerError::new(
+                return Err(TraceMuxError::new(
                     ErrorId::E1102SourceClosed,
                     "udp source not open",
                 ))
@@ -91,7 +91,7 @@ impl Source for UdpSource {
         };
         let mut buf = vec![0u8; RECV_BUF];
         let (n, peer) = s.recv_from(&mut buf).await.map_err(|e| {
-            WanloggerError::new(ErrorId::E1102SourceClosed, format!("udp recv: {e}")).with_source(e)
+            TraceMuxError::new(ErrorId::E1102SourceClosed, format!("udp recv: {e}")).with_source(e)
         })?;
         *self.last_peer.write() = Some(peer);
         buf.truncate(n);

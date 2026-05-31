@@ -1,16 +1,16 @@
-# Wire protocol — `wanlogger.v1`
+# Wire protocol — `tracemux.v1`
 
 > **Frozen v0.1.** Changes require ADR + bumped subprotocol token
-> (`wanlogger.v2`) + a fixture compat test under `tests/compat/wire/`.
+> (`tracemux.v2`) + a fixture compat test under `tests/compat/wire/`.
 
 ## Transport
 
 - WebSocket Secure (WSS) over rustls.
 - HTTP path: `/ws`. Subprotocol negotiation header:
-  `Sec-WebSocket-Protocol: wanlogger.v1, bearer.<token>`.
+  `Sec-WebSocket-Protocol: tracemux.v1, bearer.<token>`.
   Server accepts iff token validates with `argon2id`.
 - Development loopback may use plain `ws://127.0.0.1:<port>/ws` with
-  `wanlogger serve --no-auth`; `--no-auth` is accepted only for
+  `tracemux serve --no-auth`; `--no-auth` is accepted only for
   loopback peers.
 - Future: WebTransport (HTTP/3) using identical frame format.
 - `permessage-deflate` allowed only on text frames; binary frames
@@ -223,7 +223,7 @@ Server-to-client lifecycle acknowledgements also use `ctl` payloads:
   channels: [0],
   bytes_in: 1234,
   persistent?: boolean,
-  session_dir?: "wanlogger-sessions/wanlogger_serial_COM7_...",
+  session_dir?: "tracemux-sessions/tracemux_serial_COM7_...",
   decoder?: "utf8-text:shift_jis",
   encoding?: "shift_jis",
   detection_mode?: "configured" | "auto" | "suggest" | "off",

@@ -1,4 +1,4 @@
-# wanlogger development tasks
+# tracemux development tasks
 #
 # Install: https://github.com/casey/just
 # Run `just` to list tasks.
@@ -88,7 +88,7 @@ docs:
     cargo doc --workspace --no-deps
 
 schema:
-    cargo run -p wanlogger-cli -- json-schema --out docs/protocols/cli-output/v1/
+    cargo run -p tracemux-cli -- json-schema --out docs/protocols/cli-output/v1/
 
 [windows]
 rtm:
@@ -137,7 +137,7 @@ ai-verify-full:
 # ---- Dev launch (GUI) -----------------------------------------------------
 
 # Prepare Tauri dev env: build CLI sidecar + generate placeholder icons.
-# Run once before dev-tauri. Re-run after rebuilding wanlogger-cli.
+# Run once before dev-tauri. Re-run after rebuilding tracemux-cli.
 [windows]
 dev-prepare:
     pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev-prepare.ps1
@@ -183,7 +183,7 @@ dev-all:
     bash scripts/dev-all.sh
 
 # Start backend + web UI + virtual peer together (TCP listen on port 9001).
-# Connect wanlogger to tcp://127.0.0.1:9001 via the UI to see device traffic.
+# Connect tracemux to tcp://127.0.0.1:9001 via the UI to see device traffic.
 [windows]
 dev-all-with-peer:
     pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev-all-with-peer.ps1

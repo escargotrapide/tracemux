@@ -1,4 +1,4 @@
-//! `wanlogger send` -> write bytes to a running server session.
+//! `tracemux send` -> write bytes to a running server session.
 //!
 //! REQ: FR-CLI-003
 
@@ -9,11 +9,11 @@ use tokio::io::AsyncReadExt as _;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
+use tracemux_core::codec::encode_text;
+use tracemux_server::wire::{decode, encode, Envelope, FrameType};
 use uuid::Uuid;
-use wanlogger_core::codec::encode_text;
-use wanlogger_server::wire::{decode, encode, Envelope, FrameType};
 
-const SUBPROTOCOL: &str = "wanlogger.v1";
+const SUBPROTOCOL: &str = "tracemux.v1";
 
 /// CLI options for the send command.
 #[derive(Debug)]

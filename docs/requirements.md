@@ -62,7 +62,7 @@ compiled with the `serial` feature. It must:
 - Without the `serial` feature, `open()` returns `E-1101` immediately.
 
 ### FR-WIRE-001  WSS subprotocol
-The server accepts WSS connections with subprotocol `wanlogger.v1`
+The server accepts WSS connections with subprotocol `tracemux.v1`
 and exchanges MessagePack frames matching `docs/protocols/wire-protocol.md`.
 
 ### FR-WIRE-002  Auth
@@ -112,7 +112,7 @@ unless explicitly opt-out.
 `openssl-sys`. Releases pass `cargo audit` clean.
 
 ### NFR-PORT-001  Single binary
-The CLI / server is a single binary `wanlogger`. The Tauri app embeds
+The CLI / server is a single binary `tracemux`. The Tauri app embeds
 or sidecars the same binary.
 
 <!-- New requirements: append below in numerical order. Do not renumber. -->
@@ -120,7 +120,7 @@ or sidecars the same binary.
 ### FR-UI-001  Web shell
 The web UI is a SolidJS application under `web/` that loads a Dockview
 grid with `sources`, `metrics`, and `terminal` panels. It connects to
-the server via WSS subprotocol `wanlogger.v1` and never persists log
+the server via WSS subprotocol `tracemux.v1` and never persists log
 data locally.
 
 ### FR-UI-002  Terminal panel
@@ -146,17 +146,17 @@ and defaults to Japanese when `navigator.language` starts with `ja`.
 ### FR-UI-006  Tauri shell
 A Tauri 2 shell under `app-tauri/` wraps the web UI. The shell is
 outside the Cargo workspace and is responsible for spawning the
-`wanlogger serve` sidecar in production builds.
+`tracemux serve` sidecar in production builds.
 
 ### FR-IMP-001  Plain-text importer
-`wanlogger import text <src> <dst>` ingests a UTF-8 text file as one
+`tracemux import text <src> <dst>` ingests a UTF-8 text file as one
 record per `\n`-terminated line and produces a v0.1 session-dir at
 `<dst>` with `raw.bin` + `index.jsonl`. Records carry
 `clock_quality = imported`, `clock_source = imported`. The CLI refuses
 to overwrite a non-empty destination directory.
 
 ### FR-EXP-001  Plain-text / CSV / JSONL exporters
-`wanlogger export {text,csv,jsonl} <session-dir> <dst>` reads the
+`tracemux export {text,csv,jsonl} <session-dir> <dst>` reads the
 session-dir's `index.jsonl` + `raw.bin` and writes one row per record
 to `<dst>`. The CLI refuses to run when `<session-dir>` lacks an
 `index.jsonl` file. `--tz` formats exported timestamp fields in a
@@ -172,13 +172,13 @@ same explicit text decoding override.
 
 ### FR-CLI-001  Import / export round-trip
 The CLI guarantees that for any plain-text input file `F`,
-`wanlogger import text F S` followed by
-`wanlogger export text S G` produces a `G` whose final whitespace-
+`tracemux import text F S` followed by
+`tracemux export text S G` produces a `G` whose final whitespace-
 trimmed column for each row equals the corresponding line of `F` in
 order.
 
 ### FR-CLI-002  Wireshark extcap capture
-`wanlogger extcap --capture --extcap-interface wanlogger --fifo PATH
+`tracemux extcap --capture --extcap-interface tracemux --fifo PATH
 --spec URI` opens a [`Source`] from the given spec, writes a libpcap
 classic global header (link-type `DLT_USER0` = 147, snaplen 65535,
 microsecond resolution, little-endian) to the FIFO, then emits one
@@ -252,30 +252,30 @@ to the child process stdin while `ProcessSource` continues to capture
 stdout and stderr.
 
 ### FR-CLI-003  Send subcommand
-`wanlogger send` connects to `wanlogger serve` using the
-`wanlogger.v1` WSS subprotocol, sends bytes from `--text`, `--file`,
+`tracemux send` connects to `tracemux serve` using the
+`tracemux.v1` WSS subprotocol, sends bytes from `--text`, `--file`,
 `--hex`, or stdin as a `write` frame, and optionally waits for
 `write_ack` or `error` before exiting.
 
 ### FR-CLI-004  Send text encoding
-`wanlogger send --text` accepts an `--encoding` option and encodes the
+`tracemux send --text` accepts an `--encoding` option and encodes the
 text payload with the selected character encoding before sending the
 wire `write` frame. File, hex, and stdin payloads remain raw bytes.
 
 ### FR-CLI-005  Log classification tags
-`wanlogger log` and `wanlogger serve` accept one or more substring or
+`tracemux log` and `tracemux serve` accept one or more substring or
 regular-expression classification rules and store matching log-type tags
 in persisted session-dir metadata. Matching is performed on decoded text
 and does not alter the original raw bytes.
 
 ### FR-CLI-006  Serve text encoding
-`wanlogger serve` accepts a default `--encoding` option for server-side
+`tracemux serve` accepts a default `--encoding` option for server-side
 decoded text records. Captured raw bytes remain lossless; only decoded
 `lines.jsonl` / `frames.jsonl` text and downstream classification use
 the selected encoding.
 
 ### FR-CLI-011  Content detection mode
-`wanlogger serve` accepts `--detect-mode configured|auto|suggest|off`.
+`tracemux serve` accepts `--detect-mode configured|auto|suggest|off`.
 For `auto` and `suggest`, the server samples bounded raw bytes at source
 startup without dropping them, scores supported text encodings, evaluates
 configured string/regular-expression log-type rules against decoded
@@ -286,7 +286,7 @@ may apply a high-confidence encoding to the server-side decoder;
 content detection.
 
 ### FR-CLI-007  Session-dir name patterns
-`wanlogger log` and `wanlogger serve` accept a session-dir name pattern
+`tracemux log` and `tracemux serve` accept a session-dir name pattern
 for saved logs. Patterns may use `{prefix}`, `{kind}`, `{iface}`,
 `{timestamp}`, and `{unix_ns}` tokens; rendered names are sanitised so
 they stay within a single filesystem directory name.
@@ -346,7 +346,7 @@ source lifetime, including a text `encoding` field when the decoder is
 text-based and optional content-detection metadata when detection ran.
 
 ### FR-CLI-008  Serve serial bulk startup
-`wanlogger serve --open-all-serial` starts serial sources automatically
+`tracemux serve --open-all-serial` starts serial sources automatically
 at server startup. When no `--serial-port` values are provided it uses
 server-side serial discovery; repeated `--serial-port PORT` values limit
 the startup set. Baud, data bits, parity, stop bits, and flow control are
@@ -354,7 +354,7 @@ configurable, and a failure to open one port must not prevent attempts
 for the remaining ports.
 
 ### FR-CLI-012  Configuration file
-`wanlogger serve --config <path>` and `wanlogger export --config <path>`
+`tracemux serve --config <path>` and `tracemux export --config <path>`
 read a UTF-8 TOML `config_version = 1` configuration file. The v1
 server table can provide `bind`,
 `session_root`, `encoding`, `detect_mode`, `session_name_pattern`,
@@ -371,17 +371,17 @@ failures are reported without preventing the server from attempting the
 remaining configured channels.
 
 ### FR-CLI-009  Watch subcommand
-`wanlogger watch` connects to `wanlogger serve` using the
-`wanlogger.v1` WSS subprotocol, subscribes to a target `--sid` and
+`tracemux watch` connects to `tracemux serve` using the
+`tracemux.v1` WSS subprotocol, subscribes to a target `--sid` and
 `--ch`, decodes inbound `data` frames, and emits one JSONL row per frame
-using schema `wanlogger/watch-frame/v1`. Binary bodies are represented
+using schema `tracemux/watch-frame/v1`. Binary bodies are represented
 losslessly as lowercase hex plus length. `--encoding auto` discovers the
 target source's text encoding from the server source snapshot; an
 explicit `--encoding LABEL` overrides discovery. Text is included when
 the bytes decode without replacement under the selected encoding.
 
 ### FR-CLI-010  Connect session save
-`wanlogger connect <spec> --save <session-dir>` preserves the existing
+`tracemux connect <spec> --save <session-dir>` preserves the existing
 stdout byte stream while also writing inbound payloads to a v0.1
 session-dir containing `meta.toml`, `raw.bin`, and `index.jsonl`. The CLI
 refuses to overwrite a non-empty destination directory. `--encoding`
@@ -389,8 +389,8 @@ records the text encoding metadata used by later text-like exports and
 defaults to UTF-8.
 
 ### FR-REMOTE-001  Remote WSS mirror
-A server-started `remote` channel spec connects to another wanlogger
-server using the `wanlogger.v1` WSS subprotocol, subscribes to the edge
+A server-started `remote` channel spec connects to another tracemux
+server using the `tracemux.v1` WSS subprotocol, subscribes to the edge
 `sid` / `ch` identified by the remote URL query, mirrors inbound `data`
 frames into a local server-owned session-dir, and republishes them under
 the local session id for UI, CLI, and AI subscribers. The mirror preserves
@@ -401,7 +401,7 @@ such as `token_env` or `token_secret`, not by embedding the token value in
 the persisted source spec.
 
 ### FR-SRC-PCAP  Packet capture source
-`wanlogger` provides a source-only packet capture transport for link-layer
+`tracemux` provides a source-only packet capture transport for link-layer
 packets. The native backend is compiled only with the `pcap-capture` feature
 and uses Npcap/libpcap; driver-free builds use a deterministic fake backend for
 tests and return a clear source-open error for live pcap sources. The pcap
@@ -420,13 +420,13 @@ list rather than failing discovery.
 Packet capture sessions that use `save=session` or `save=both` persist captured
 packet bytes in the server-owned session-dir. Each stored packet writes bytes to
 `raw.bin`, a `kind = "datagram"` row to `index.jsonl`, and structured metadata
-with schema id `wanlogger.pcap.packet.v1` to `frames.jsonl`. The metadata
+with schema id `tracemux.pcap.packet.v1` to `frames.jsonl`. The metadata
 includes sequence number, captured length, original length, link type,
 interface id, raw offset, and raw length. `ts_origin` comes from the pcap packet
-timestamp and `ts_ingest` comes from the wanlogger server.
+timestamp and `ts_ingest` comes from the tracemux server.
 
 ### FR-EXP-PCAPNG  pcapng export and direct writing
-`wanlogger export pcapng <session-dir> <dst>` and the authenticated server
+`tracemux export pcapng <session-dir> <dst>` and the authenticated server
 export endpoint can render packet-shaped session-dirs as pcapng. The output
 contains a Section Header Block, Interface Description Blocks for captured
 link-type/interface combinations, and Enhanced Packet Blocks whose timestamps

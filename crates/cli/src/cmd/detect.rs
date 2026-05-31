@@ -1,4 +1,4 @@
-//! `wanlogger detect` ? list available transports.
+//! `tracemux detect` ? list available transports.
 //!
 //! v0.1 lists statically known transport kinds and probes the host for
 //! serial-port candidates. On Windows this uses the serial-port backend

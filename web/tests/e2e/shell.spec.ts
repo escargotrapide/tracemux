@@ -1,5 +1,5 @@
 // E2E shell test driving the UI through the dev-only
-// `window.__wanloggerInject` hook (no real WSS server needed).
+// `window.__tracemuxInject` hook (no real WSS server needed).
 //
 // REQ: FR-UI-001
 // REQ: FR-UI-002
@@ -13,16 +13,16 @@ import { test, expect, type Page } from "@playwright/test";
 async function waitForInject(page: Page): Promise<void> {
   await page.waitForFunction(
     () =>
-      typeof (window as unknown as { __wanloggerInject?: unknown })
-        .__wanloggerInject === "function",
+      typeof (window as unknown as { __tracemuxInject?: unknown })
+        .__tracemuxInject === "function",
   );
 }
 
 async function injectFrame(page: Page, frame: unknown): Promise<void> {
   await page.evaluate((payload) => {
     const fn = (
-      window as unknown as { __wanloggerInject: (f: unknown) => void }
-    ).__wanloggerInject;
+      window as unknown as { __tracemuxInject: (f: unknown) => void }
+    ).__tracemuxInject;
     fn(payload);
   }, frame);
 }
@@ -30,17 +30,17 @@ async function injectFrame(page: Page, frame: unknown): Promise<void> {
 async function installClientSpy(page: Page, sendResult = true): Promise<void> {
   await page.waitForFunction(
     () =>
-      typeof (window as unknown as { __wanloggerSetClient?: unknown })
-        .__wanloggerSetClient === "function",
+      typeof (window as unknown as { __tracemuxSetClient?: unknown })
+        .__tracemuxSetClient === "function",
   );
   await page.evaluate((result) => {
     const sent: unknown[] = [];
     const win = window as unknown as {
-      __wanloggerSetClient: (client: { send: (frame: unknown) => boolean }) => void;
-      __wanloggerSentFrames: unknown[];
+      __tracemuxSetClient: (client: { send: (frame: unknown) => boolean }) => void;
+      __tracemuxSentFrames: unknown[];
     };
-    win.__wanloggerSentFrames = sent;
-    win.__wanloggerSetClient({
+    win.__tracemuxSentFrames = sent;
+    win.__tracemuxSetClient({
       send: (frame: unknown) => {
         sent.push(frame);
         return result;
@@ -52,26 +52,26 @@ async function installClientSpy(page: Page, sendResult = true): Promise<void> {
 async function setConnState(page: Page, state: unknown): Promise<void> {
   await page.waitForFunction(
     () =>
-      typeof (window as unknown as { __wanloggerSetConnState?: unknown })
-        .__wanloggerSetConnState === "function",
+      typeof (window as unknown as { __tracemuxSetConnState?: unknown })
+        .__tracemuxSetConnState === "function",
   );
   await page.evaluate((next) => {
     const fn = (
-      window as unknown as { __wanloggerSetConnState: (s: unknown) => void }
-    ).__wanloggerSetConnState;
+      window as unknown as { __tracemuxSetConnState: (s: unknown) => void }
+    ).__tracemuxSetConnState;
     fn(next);
   }, state);
 }
 
 async function sentFrames(page: Page): Promise<unknown[]> {
   return page.evaluate(
-    () => (window as unknown as { __wanloggerSentFrames?: unknown[] }).__wanloggerSentFrames ?? [],
+    () => (window as unknown as { __tracemuxSentFrames?: unknown[] }).__tracemuxSentFrames ?? [],
   );
 }
 
 test("loads shell and shows top-bar title", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("wanlogger").first()).toBeVisible();
+  await expect(page.getByText("tracemux").first()).toBeVisible();
   await expect(page.getByText(/Terminal|\u30bf\u30fc\u30df\u30ca\u30eb/).first()).toBeVisible();
   await expect(page.getByText("Log type note sync failed; kept in this browser.")).toHaveCount(0);
 });
@@ -436,7 +436,7 @@ test("source detail export button calls the HTTP export API", async ({ page }) =
           channels: [0],
           bytes_in: 42,
           persistent: true,
-          session_dir: "C:/tmp/wanlogger-session",
+          session_dir: "C:/tmp/tracemux-session",
         },
       ],
     },
@@ -479,7 +479,7 @@ test("source panel can bulk export all persisted sources as one zip", async ({ p
       status: 200,
       headers: {
         "content-type": "application/zip",
-        "content-disposition": "attachment; filename=wanlogger-all.zip",
+        "content-disposition": "attachment; filename=tracemux-all.zip",
       },
       body: "PK\x03\x04bundle",
     });
@@ -587,7 +587,7 @@ test("connection banner and unsent source command are visible", async ({ page })
   await installClientSpy(page, false);
   await setConnState(page, { status: "closed", code: 1006, reason: "lost" });
 
-  await expect(page.getByText(/Disconnected from the wanlogger server/)).toBeVisible();
+  await expect(page.getByText(/Disconnected from the tracemux server/)).toBeVisible();
   await page.getByLabel("Source spec").fill("mock://disconnected-e2e");
   await page.getByRole("button", { name: "Add source" }).click();
   await expect(page.getByText(/Request was not sent/)).toBeVisible();

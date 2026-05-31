@@ -74,7 +74,7 @@ impl ErrorId {
 /// Crate-wide error type carrying an [`ErrorId`].
 #[derive(Debug, Error)]
 #[error("{id}: {message}", id = id.code())]
-pub struct WanloggerError {
+pub struct TraceMuxError {
     /// Error id.
     pub id: ErrorId,
     /// Human-readable detail.
@@ -84,7 +84,7 @@ pub struct WanloggerError {
     pub source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
 
-impl WanloggerError {
+impl TraceMuxError {
     /// Build a new error.
     #[must_use]
     pub fn new(id: ErrorId, message: impl Into<String>) -> Self {
@@ -105,7 +105,7 @@ impl WanloggerError {
 
 #[cfg(test)]
 mod tests {
-    use super::{ErrorId, WanloggerError};
+    use super::{ErrorId, TraceMuxError};
 
     // REQ: FR-CORE-003 (every error has a stable E-NNNN code)
     #[test]
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn display_includes_code_and_message() {
-        let e = WanloggerError::new(ErrorId::E1003FramerOverflow, "frame too large");
+        let e = TraceMuxError::new(ErrorId::E1003FramerOverflow, "frame too large");
         assert_eq!(e.to_string(), "E-1003: frame too large");
     }
 }

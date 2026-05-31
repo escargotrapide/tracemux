@@ -15,7 +15,7 @@ use tokio::net::TcpStream;
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
 use crate::sink::tcp::TcpSink;
-use crate::{ErrorId, Result, WanloggerError};
+use crate::{ErrorId, Result, TraceMuxError};
 
 const READ_CHUNK: usize = 8 * 1024;
 
@@ -60,7 +60,7 @@ impl TcpSource {
     pub async fn connect_duplex(addr: impl Into<String>) -> Result<(Self, TcpSink)> {
         let addr = addr.into();
         let stream = TcpStream::connect(&addr).await.map_err(|e| {
-            WanloggerError::new(ErrorId::E1101SourceOpen, format!("tcp connect {addr}: {e}"))
+            TraceMuxError::new(ErrorId::E1101SourceOpen, format!("tcp connect {addr}: {e}"))
                 .with_source(e)
         })?;
         let (reader, writer) = stream.into_split();
@@ -81,7 +81,7 @@ impl Source for TcpSource {
             return Ok(());
         }
         let stream = TcpStream::connect(&self.addr).await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1101SourceOpen,
                 format!("tcp connect {}: {e}", self.addr),
             )
@@ -96,7 +96,7 @@ impl Source for TcpSource {
         let reader = match self.reader.as_mut() {
             Some(s) => s,
             None => {
-                return Err(WanloggerError::new(
+                return Err(TraceMuxError::new(
                     ErrorId::E1102SourceClosed,
                     "tcp source not open",
                 ))
@@ -104,7 +104,7 @@ impl Source for TcpSource {
         };
         let mut buf = vec![0u8; READ_CHUNK];
         let n = reader.read(&mut buf).await.map_err(|e| {
-            WanloggerError::new(
+            TraceMuxError::new(
                 ErrorId::E1102SourceClosed,
                 format!("tcp read {}: {e}", self.addr),
             )

@@ -38,7 +38,7 @@ echo "Waiting 3 s for backend to start ..."
 sleep 3
 
 echo "Launching Web UI (backend: $URL) ..."
-export VITE_WANLOGGER_URL="$URL"
+export VITE_TRACEMUX_URL="$URL"
 bash "$ROOT/scripts/dev-web.sh" --url "$URL" &
 WEB_PID=$!
 

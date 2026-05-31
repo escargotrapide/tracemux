@@ -1,8 +1,8 @@
 {
-  "name": "@wanlogger/app-tauri",
+  "name": "@tracemux/app-tauri",
   "version": "0.1.0-dev",
   "private": true,
-  "description": "Tauri 2 desktop shell for wanlogger. Spawns the `wanlogger serve` sidecar and loads the SolidJS UI.",
+  "description": "Tauri 2 desktop shell for tracemux. Spawns the `tracemux serve` sidecar and loads the SolidJS UI.",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",

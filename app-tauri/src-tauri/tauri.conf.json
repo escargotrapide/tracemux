@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "wanlogger",
+  "productName": "TraceMux",
   "version": "0.1.0-dev",
-  "identifier": "io.github.wanlogger",
+  "identifier": "io.github.tracemux",
   "build": {
     "beforeDevCommand": "pnpm --filter ../web dev",
     "beforeBuildCommand": "pnpm --filter ../web build",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "wanlogger",
+        "title": "TraceMux",
         "width": 1280,
         "height": 800,
         "minWidth": 800,
@@ -32,7 +32,7 @@
       "icons/icon.png"
     ],
     "externalBin": [
-      "binaries/wanlogger"
+      "binaries/tracemux"
     ]
   }
 }

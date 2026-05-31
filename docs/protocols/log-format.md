@@ -9,13 +9,13 @@
 {prefix}_{kind}_{iface}_{YYYYMMDD-HHMMSS}/
 ```
 
-- `prefix`  — user-supplied or `wanlogger` by default.
+- `prefix`  — user-supplied or `tracemux` by default.
 - `kind`    — `serial`, `tcp`, `udp`, `file`, `mqtt`, `mixed`, …
 - `iface`   — `COM3`, `eth0`, `mosquitto-1`, …
 - timestamp is the local `ts_ingest` of the first record.
 
 The current server-side `SourceManager` uses
-`wanlogger_{kind}_{iface}_{unix_ns}` for newly-created source session
+`tracemux_{kind}_{iface}_{unix_ns}` for newly-created source session
 directories. Consumers MUST treat the directory name as a display hint;
 the authoritative session id is `meta.toml.sid` and `index.jsonl.sid`.
 

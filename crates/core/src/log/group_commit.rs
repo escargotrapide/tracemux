@@ -14,7 +14,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::error_id::WanloggerError;
+use crate::error_id::TraceMuxError;
 
 use super::wal::WalWriter;
 
@@ -73,7 +73,7 @@ impl GroupCommit {
         &mut self,
         payload: &[u8],
         now: Instant,
-    ) -> Result<(u64, CommitOutcome), WanloggerError> {
+    ) -> Result<(u64, CommitOutcome), TraceMuxError> {
         let off = self.wal.append(payload)?;
         self.in_flight = self
             .in_flight
@@ -90,13 +90,13 @@ impl GroupCommit {
     }
 
     /// Convenience that uses [`Instant::now`].
-    pub fn append(&mut self, payload: &[u8]) -> Result<(u64, CommitOutcome), WanloggerError> {
+    pub fn append(&mut self, payload: &[u8]) -> Result<(u64, CommitOutcome), TraceMuxError> {
         self.append_at(payload, Instant::now())
     }
 
     /// Force an fsync even if no thresholds were crossed (e.g. on
     /// shutdown).
-    pub fn flush(&mut self) -> Result<(), WanloggerError> {
+    pub fn flush(&mut self) -> Result<(), TraceMuxError> {
         self.wal.sync()?;
         self.in_flight = 0;
         self.last_sync = Instant::now();
@@ -105,7 +105,7 @@ impl GroupCommit {
 
     /// Tick from a timer; performs an fsync if the window has elapsed
     /// and there is buffered data.
-    pub fn tick(&mut self, now: Instant) -> Result<bool, WanloggerError> {
+    pub fn tick(&mut self, now: Instant) -> Result<bool, TraceMuxError> {
         if self.in_flight == 0 {
             return Ok(false);
         }

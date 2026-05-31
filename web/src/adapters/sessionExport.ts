@@ -1,4 +1,4 @@
-import { resolveWanloggerHttpUrl, resolveWanloggerToken } from "~/adapters/wss";
+import { resolveTraceMuxHttpUrl, resolveTraceMuxToken } from "~/adapters/wss";
 
 export type SessionExportFormat = "text" | "csv" | "jsonl" | "pcapng";
 
@@ -17,7 +17,7 @@ export interface ExportTicketResponse {
   expires_at_ms: number;
 }
 
-export const DEFAULT_SESSION_EXPORT_FILENAME_PATTERN = "wanlogger-{sid}.{ext}";
+export const DEFAULT_SESSION_EXPORT_FILENAME_PATTERN = "tracemux-{sid}.{ext}";
 
 export function sessionExportUrl(sid: string, options: SessionExportOptions): string {
   const params = new URLSearchParams({ format: options.format });
@@ -32,7 +32,7 @@ export function sessionExportUrl(sid: string, options: SessionExportOptions): st
     timestamp: options.timestamp,
   });
   params.set("filename", filename);
-  const base = resolveWanloggerHttpUrl(`/api/sessions/${encodeURIComponent(sid)}/export`);
+  const base = resolveTraceMuxHttpUrl(`/api/sessions/${encodeURIComponent(sid)}/export`);
   return `${base}?${params}`;
 }
 
@@ -42,7 +42,7 @@ export function sessionExportTicketUrl(sid: string, options: SessionExportOption
   if (timezone) params.set("tz", timezone);
   const encoding = options.encoding?.trim();
   if (encoding) params.set("encoding", encoding);
-  const base = resolveWanloggerHttpUrl(`/api/sessions/${encodeURIComponent(sid)}/export-ticket`);
+  const base = resolveTraceMuxHttpUrl(`/api/sessions/${encodeURIComponent(sid)}/export-ticket`);
   return `${base}?${params}`;
 }
 
@@ -68,7 +68,7 @@ export function sanitizeExportFilename(value: string): string {
     .replace(/\s+/g, " ")
     .replace(/\.+$/g, "")
     .trim();
-  return sanitized || "wanlogger-export";
+  return sanitized || "tracemux-export";
 }
 
 interface SessionExportFilenameContext {
@@ -104,7 +104,7 @@ export async function fetchSessionExportBlob(
   options: SessionExportOptions,
 ): Promise<Blob> {
   const headers: HeadersInit = {};
-  const token = resolveWanloggerToken();
+  const token = resolveTraceMuxToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const response = await fetch(sessionExportUrl(sid, options), { headers });
@@ -120,7 +120,7 @@ export async function requestSessionExportTicket(
   options: SessionExportOptions,
 ): Promise<ExportTicketResponse> {
   const headers: HeadersInit = {};
-  const token = resolveWanloggerToken();
+  const token = resolveTraceMuxToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const response = await fetch(sessionExportTicketUrl(sid, options), {
@@ -139,7 +139,7 @@ export async function sessionExportDownloadUrl(
   options: SessionExportOptions,
 ): Promise<string> {
   const url = new URL(sessionExportUrl(sid, options));
-  if (resolveWanloggerToken()) {
+  if (resolveTraceMuxToken()) {
     const { ticket } = await requestSessionExportTicket(sid, options);
     url.searchParams.set("ticket", ticket);
   }

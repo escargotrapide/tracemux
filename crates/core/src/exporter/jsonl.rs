@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use time::UtcOffset;
 
-use crate::error_id::{ErrorId, WanloggerError};
+use crate::error_id::{ErrorId, TraceMuxError};
 use crate::exporter::encoding::resolve_text_encoding;
 use crate::exporter::timestamp::{format_rfc3339_in_timezone, parse_timezone_offset};
 use crate::exporter::Exporter;
@@ -91,16 +91,16 @@ fn run(src: &Path, dst: &Path, timezone: Option<UtcOffset>, encoding: Option<&st
     Ok(())
 }
 
-fn err(ctx: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(
+fn err(ctx: &str, e: std::io::Error) -> TraceMuxError {
+    TraceMuxError::new(
         ErrorId::E1001PipelineGeneric,
         format!("jsonl-export: {ctx}"),
     )
     .with_source(e)
 }
 
-fn serde_err(ctx: &str, e: serde_json::Error) -> WanloggerError {
-    WanloggerError::new(
+fn serde_err(ctx: &str, e: serde_json::Error) -> TraceMuxError {
+    TraceMuxError::new(
         ErrorId::E1001PipelineGeneric,
         format!("jsonl-export: {ctx}"),
     )

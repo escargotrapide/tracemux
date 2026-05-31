@@ -11,7 +11,7 @@ import {
   type SessionExportFormat,
   type SessionExportOptions,
 } from "~/adapters/sessionExport";
-import { resolveWanloggerHttpUrl, resolveWanloggerToken } from "~/adapters/wss";
+import { resolveTraceMuxHttpUrl, resolveTraceMuxToken } from "~/adapters/wss";
 
 export interface SessionExportZipEntry {
   sid: string;
@@ -88,7 +88,7 @@ export function sessionExportZipBaseName(
   format: SessionExportFormat,
   timestamp: Date | number | string | undefined = new Date(),
 ): string {
-  return sanitizeExportFilename(`wanlogger-all-${timestampToken(timestampDate(timestamp))}-${format}`);
+  return sanitizeExportFilename(`tracemux-all-${timestampToken(timestampDate(timestamp))}-${format}`);
 }
 
 export function sessionExportZipFilename(
@@ -99,11 +99,11 @@ export function sessionExportZipFilename(
 }
 
 function sessionExportBundleTicketUrl(): string {
-  return resolveWanloggerHttpUrl("/api/exports/bundle-ticket");
+  return resolveTraceMuxHttpUrl("/api/exports/bundle-ticket");
 }
 
 function sessionExportBundleDownloadUrl(ticket: string): string {
-  const url = new URL(resolveWanloggerHttpUrl("/api/exports/bundle"));
+  const url = new URL(resolveTraceMuxHttpUrl("/api/exports/bundle"));
   url.searchParams.set("ticket", ticket);
   return url.toString();
 }
@@ -114,7 +114,7 @@ async function requestSessionExportBundleTicket(
   timestamp: Date,
 ): Promise<ServerBundleTicketResponse> {
   const headers: HeadersInit = { "Content-Type": "application/json" };
-  const token = resolveWanloggerToken();
+  const token = resolveTraceMuxToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const timezone = options.timezone?.trim();
   const filenamePattern = options.filenamePattern?.trim();

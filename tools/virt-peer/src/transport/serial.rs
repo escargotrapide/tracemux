@@ -38,7 +38,7 @@ fn run_blocking(config: &Config, scenario: &Scenario, transcript: &Arc<Transcrip
         .timeout(Duration::from_millis(config.read_timeout_ms))
         .open()
         .with_context(|| format!("opening serial port {}", config.port))?;
-    println!("wanlogger-virt-peer serial opened {}", config.port);
+    println!("tracemux-virt-peer serial opened {}", config.port);
     transcript.record_event("serial", Some(&config.port), "opened")?;
 
     let writer =

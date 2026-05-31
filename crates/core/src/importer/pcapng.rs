@@ -12,7 +12,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use crate::error_id::{ErrorId, WanloggerError};
+use crate::error_id::{ErrorId, TraceMuxError};
 use crate::importer::Importer;
 use crate::log::index::{Dir, IndexEntry, IndexWriter, Kind};
 use crate::log::raw::RawWriter;
@@ -123,16 +123,16 @@ fn imported_ts(ts_origin_ns: i64) -> DualTimestamp {
     }
 }
 
-fn err(ctx: &str, e: std::io::Error) -> WanloggerError {
-    WanloggerError::new(
+fn err(ctx: &str, e: std::io::Error) -> TraceMuxError {
+    TraceMuxError::new(
         ErrorId::E1001PipelineGeneric,
         format!("pcapng-import: {ctx}"),
     )
     .with_source(e)
 }
 
-fn simple(msg: &str) -> WanloggerError {
-    WanloggerError::new(
+fn simple(msg: &str) -> TraceMuxError {
+    TraceMuxError::new(
         ErrorId::E1001PipelineGeneric,
         format!("pcapng-import: {msg}"),
     )

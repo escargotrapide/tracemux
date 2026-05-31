@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-05-20
-- **Deciders:** wanlogger maintainers
+- **Deciders:** tracemux maintainers
 - **Related requirements:** FR-UI-017, FR-LOG-001, FR-WIRE-001
 - **Affected critical paths:** yes - `docs/adr/**`; future alternatives may affect `docs/protocols/wire-protocol.md`, `docs/protocols/log-format.md`, `crates/core/src/decoder/mod.rs`, and `crates/core/src/log/index.rs`
 
@@ -12,7 +12,7 @@ The web UI already supports browser-local notes for selected sources/sessions an
 
 Users also need a next step: notes that are shared across browsers and survive browser storage loss. The tempting implementation is to add `memo` or `annotations` fields to wire `data` frames, decoded `Record`, or `index.jsonl` rows. That would make notes portable with the log record, but it would also modify frozen v0.1 surfaces:
 
-- WSS `wanlogger.v1` data payload shape.
+- WSS `tracemux.v1` data payload shape.
 - Log-format `index.jsonl` schema.
 - `crates/core/src/decoder/mod.rs::Record`.
 - `crates/core/src/log/index.rs::IndexEntry`.
@@ -60,8 +60,8 @@ A proposed annotation object shape:
 Storage path and format for the first implementation:
 
 - Store under the server session root, outside individual session-dir layouts, for example:
-  - `<session-root>/.wanlogger/annotations-v1.jsonl`, or
-  - `<session-root>/.wanlogger/annotations/<sid>.json`.
+  - `<session-root>/.tracemux/annotations-v1.jsonl`, or
+  - `<session-root>/.tracemux/annotations/<sid>.json`.
 - Treat this as app metadata, not v0.1 log-format content.
 - Use atomic write or append-only JSONL with compaction to avoid partial writes.
 - Enforce text length limits comparable to current UI localStorage notes.
@@ -89,7 +89,7 @@ These APIs must require authentication when auth is enabled. Loopback `--no-auth
   - The server needs a small metadata store, conflict policy, and auth checks.
 
 - Compatibility impact:
-  - **wire:** none for the initial implementation; no `wanlogger.v2` required.
+  - **wire:** none for the initial implementation; no `tracemux.v2` required.
   - **log:** none for the initial implementation; no log-format version bump required.
   - **cli:** none required initially; optional future CLI commands can call the same HTTP API or export annotation metadata.
   - **app:** web UI can add optional sync behavior and keep localStorage fallback.

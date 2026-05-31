@@ -7,10 +7,10 @@ description: Reproduce a flaky / misbehaving channel deterministically
 
 ## Steps
 
-1. Capture: `wanlogger log --source <spec> --out fixtures/repro/<id>/`
+1. Capture: `tracemux log --source <spec> --out fixtures/repro/<id>/`
    (or have the user share the `session-dir/`).
 2. Replay deterministically:
-   `wanlogger replay --session <dir> --rate 1.0 --seed 42`. The replay
+   `tracemux replay --session <dir> --rate 1.0 --seed 42`. The replay
    engine drives `Source` → `Framer` → `Decoder` → `LogSink` with the
    captured timing.
 3. If non-deterministic (timer-driven / async race), bisect with
@@ -23,4 +23,4 @@ description: Reproduce a flaky / misbehaving channel deterministically
 ## Pitfalls
 
 - Replays must roundtrip through the wire-protocol exactly when the
-  bug is in the server. Use `wanlogger replay --via-server`.
+  bug is in the server. Use `tracemux replay --via-server`.

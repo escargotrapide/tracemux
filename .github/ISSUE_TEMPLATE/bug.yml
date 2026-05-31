@@ -13,7 +13,7 @@ body:
     attributes:
       label: Minimal reproduction
       description: |
-        Prefer a `session-dir/` snippet or a `wanlogger replay` invocation.
+        Prefer a `session-dir/` snippet or a `tracemux replay` invocation.
         See `.github/skills/repro-channel/SKILL.md`.
     validations:
       required: true
@@ -26,7 +26,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: wanlogger version
+      label: tracemux version
       placeholder: "0.1.0"
     validations:
       required: true

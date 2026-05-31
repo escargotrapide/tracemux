@@ -68,8 +68,8 @@ if (-not (Test-Path $report)) {
         $required = @('encoding-check', 'fmt-check', 'clippy', 'test', 'rtm')
         $passRequired = @('pass', 'passed', 'ok', 'success')
         $passAny = $passRequired + @('skip', 'skipped')
-        if ($j.schema -ne 'wanlogger/ai-verify/v1') {
-            Add-Problem "ai-verify report schema is '$($j.schema)' (expected wanlogger/ai-verify/v1)"
+        if ($j.schema -ne 'tracemux/ai-verify/v1') {
+            Add-Problem "ai-verify report schema is '$($j.schema)' (expected tracemux/ai-verify/v1)"
         }
         if ($j.summary -ne 'green') {
             Add-Problem "ai-verify report summary is '$($j.summary)' (expected green)"

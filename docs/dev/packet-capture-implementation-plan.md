@@ -111,9 +111,9 @@ Tests:
 Checks:
 
 - `cargo fmt`.
-- `cargo test -p wanlogger-core exporter::pcapng` or nearest exact test target.
-- `cargo test -p wanlogger-cli` for export dispatch.
-- `cargo test -p wanlogger-server export_api` if available.
+- `cargo test -p tracemux-core exporter::pcapng` or nearest exact test target.
+- `cargo test -p tracemux-cli` for export dispatch.
+- `cargo test -p tracemux-server export_api` if available.
 - `pnpm --dir web test -- --run` if web tests are changed.
 - `cargo deny check` because dependencies changed.
 
@@ -155,7 +155,7 @@ Tests:
 Checks:
 
 - `cargo fmt`.
-- `cargo test -p wanlogger-core packet_summary`.
+- `cargo test -p tracemux-core packet_summary`.
 - `cargo deny check` because dependencies changed.
 
 Risks:
@@ -199,7 +199,7 @@ Tests:
 Checks:
 
 - `cargo fmt`.
-- `cargo test -p wanlogger-core source_pcap` or exact module tests.
+- `cargo test -p tracemux-core source_pcap` or exact module tests.
 
 Risks:
 
@@ -241,8 +241,8 @@ Tests:
 Checks:
 
 - `cargo fmt`.
-- `cargo test -p wanlogger-cli spec`.
-- `cargo test -p wanlogger-server ws`.
+- `cargo test -p tracemux-cli spec`.
+- `cargo test -p tracemux-server ws`.
 - `pnpm --dir web test -- --run sourceSpec` if test filtering exists.
 
 Risks:
@@ -270,7 +270,7 @@ Implementation notes:
 - Write packet bytes to `raw.bin`.
 - Write `Kind::Datagram` rows to `index.jsonl`.
 - Write metadata summary to `frames.jsonl` with schema id
-  `wanlogger.pcap.packet.v1`.
+  `tracemux.pcap.packet.v1`.
 - Use packet `ts_origin` and server `ts_ingest`.
 - Commit and close writers on normal completion.
 - Keep UI publish configurable; default can be statistics-only or sampled.
@@ -288,8 +288,8 @@ Tests:
 Checks:
 
 - `cargo fmt`.
-- `cargo test -p wanlogger-server pcap`.
-- `cargo test -p wanlogger-core exporter::pcapng`.
+- `cargo test -p tracemux-server pcap`.
+- `cargo test -p tracemux-core exporter::pcapng`.
 
 Risks:
 
@@ -326,7 +326,7 @@ Tests:
 
 Checks:
 
-- `cargo test -p wanlogger-server metrics` or pcap-specific test.
+- `cargo test -p tracemux-server metrics` or pcap-specific test.
 - Web unit tests only if UI state changes.
 
 Risks:
@@ -364,7 +364,7 @@ Tests:
 
 Checks:
 
-- `cargo test -p wanlogger-server routes`.
+- `cargo test -p tracemux-server routes`.
 - `pnpm --dir web test -- --run sourceDiscovery` if available.
 
 Risks:
@@ -477,14 +477,14 @@ Tests:
 
 - Unit tests remain fake-backend based.
 - Ignored or env-gated live tests:
-  - `WANLOGGER_PCAP_TEST_IFACE`.
-  - optional `WANLOGGER_PCAP_TEST_FILTER`.
+  - `TRACEMUX_PCAP_TEST_IFACE`.
+  - optional `TRACEMUX_PCAP_TEST_FILTER`.
 - Manual Windows Npcap test.
 - Manual Linux libpcap/capability test.
 
 Checks:
 
-- `cargo test -p wanlogger-core --features pcap-capture` where environment can
+- `cargo test -p tracemux-core --features pcap-capture` where environment can
   build libpcap/Npcap.
 - `cargo deny check`.
 - `just ai-verify` on a configured environment.
@@ -523,7 +523,7 @@ Tests:
 
 Checks:
 
-- `cargo test -p wanlogger-server pcapng`.
+- `cargo test -p tracemux-server pcapng`.
 - Manual long-running capture smoke test.
 
 Risks:

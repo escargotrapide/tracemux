@@ -1,8 +1,8 @@
-//! `wanlogger ai-verify` — reads `target/ai-verify.json` produced by
+//! `tracemux ai-verify` — reads `target/ai-verify.json` produced by
 //! `just ai-verify` and prints a concise human-readable summary.
 //!
 //! The aggregate gate itself runs as a `just` recipe. This subcommand
-//! is the read-side: useful for CI, AI agents and `wanlogger`
+//! is the read-side: useful for CI, AI agents and `tracemux`
 //! shell-out integrations that want a structured exit code without
 //! re-parsing raw `cargo` output.
 
@@ -12,7 +12,7 @@ use anyhow::Context;
 use serde::Deserialize;
 
 const DEFAULT_REPORT_PATH: &str = "target/ai-verify.json";
-const EXPECTED_SCHEMA: &str = "wanlogger/ai-verify/v1";
+const EXPECTED_SCHEMA: &str = "tracemux/ai-verify/v1";
 const REQUIRED_STEPS: &[&str] = &["encoding-check", "fmt-check", "clippy", "test", "rtm"];
 
 #[derive(Debug, Deserialize)]
@@ -165,7 +165,7 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0);
             let seq = TEMP_JSON_SEQ.fetch_add(1, Ordering::Relaxed);
-            p.push(format!("wanlogger-aiverify-{pid}-{nonce}-{seq}.json"));
+            p.push(format!("tracemux-aiverify-{pid}-{nonce}-{seq}.json"));
             let mut f = std::fs::File::create(&p).unwrap();
             f.write_all(contents.as_bytes()).unwrap();
             Self(p)
@@ -180,7 +180,7 @@ mod tests {
     #[tokio::test]
     async fn ok_when_all_steps_pass() {
         let t = TempJson::new(
-            r#"{"schema":"wanlogger/ai-verify/v1","summary":"green","steps":[
+            r#"{"schema":"tracemux/ai-verify/v1","summary":"green","steps":[
                                  {"name":"encoding-check","status":"pass"},
                                  {"name":"fmt-check","status":"pass"},
                                  {"name":"clippy","status":"ok"},
@@ -194,7 +194,7 @@ mod tests {
     #[tokio::test]
     async fn errors_when_any_step_fails() {
         let t = TempJson::new(
-            r#"{"schema":"wanlogger/ai-verify/v1","summary":"1 failed","steps":[
+            r#"{"schema":"tracemux/ai-verify/v1","summary":"1 failed","steps":[
                  {"name":"encoding-check","status":"pass"},
                  {"name":"fmt-check","status":"pass"},
                  {"name":"clippy","status":"fail"},
@@ -208,8 +208,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_steps_are_rejected() {
-        let t =
-            TempJson::new(r#"{"schema":"wanlogger/ai-verify/v1","summary":"green","steps":[]}"#);
+        let t = TempJson::new(r#"{"schema":"tracemux/ai-verify/v1","summary":"green","steps":[]}"#);
         let err = run_at(&t.0).await.unwrap_err();
         assert!(err.to_string().contains("no steps"));
     }
@@ -217,7 +216,7 @@ mod tests {
     #[tokio::test]
     async fn missing_required_step_is_rejected() {
         let t = TempJson::new(
-            r#"{"schema":"wanlogger/ai-verify/v1","summary":"green","steps":[
+            r#"{"schema":"tracemux/ai-verify/v1","summary":"green","steps":[
                  {"name":"encoding-check","status":"pass"},
                  {"name":"fmt-check","status":"pass"},
                  {"name":"clippy","status":"pass"},
@@ -231,7 +230,7 @@ mod tests {
     #[tokio::test]
     async fn skipped_required_step_is_rejected() {
         let t = TempJson::new(
-            r#"{"schema":"wanlogger/ai-verify/v1","summary":"green","steps":[
+            r#"{"schema":"tracemux/ai-verify/v1","summary":"green","steps":[
                  {"name":"encoding-check","status":"pass"},
                  {"name":"fmt-check","status":"pass"},
                  {"name":"clippy","status":"skipped"},

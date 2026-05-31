@@ -1,7 +1,7 @@
-// WSS adapter for the wanlogger.v1 wire protocol.
+// WSS adapter for the tracemux.v1 wire protocol.
 //
 // Spec: docs/protocols/wire-protocol.md
-// - Subprotocol: `wanlogger.v1` + `bearer.<token>`
+// - Subprotocol: `tracemux.v1` + `bearer.<token>`
 // - Binary frames are MessagePack maps with fields:
 //     { type, sid?, ch?, seq, payload }
 //
@@ -154,7 +154,7 @@ export interface WireClientOptions {
   backoffMaxMs?: number;
 }
 
-const SUBPROTO = "wanlogger.v1";
+const SUBPROTO = "tracemux.v1";
 const DEFAULT_DEV_URL = "ws://127.0.0.1:9000/ws";
 const VITE_DEV_PORT = "5173";
 
@@ -243,7 +243,7 @@ export class WireClient {
       this.send({
         type: "hello",
         seq: 0,
-        payload: { app: "wanlogger-web", version: "0.1.0-dev" },
+        payload: { app: "tracemux-web", version: "0.1.0-dev" },
       });
     });
 
@@ -354,8 +354,8 @@ export class WireClient {
 }
 
 /** Resolve the WebSocket endpoint to use, honouring env overrides. */
-export function resolveWanloggerUrl(): string {
-  const fromEnv = import.meta.env.VITE_WANLOGGER_URL?.trim();
+export function resolveTraceMuxUrl(): string {
+  const fromEnv = import.meta.env.VITE_TRACEMUX_URL?.trim();
   if (fromEnv && fromEnv.length > 0) return fromEnv;
 
   if (typeof window !== "undefined") {
@@ -376,15 +376,15 @@ export function resolveWanloggerUrl(): string {
 }
 
 /** Resolve the optional bearer token shared by WSS and HTTP API requests. */
-export function resolveWanloggerToken(): string | undefined {
-  const token = import.meta.env.VITE_WANLOGGER_TOKEN?.trim();
+export function resolveTraceMuxToken(): string | undefined {
+  const token = import.meta.env.VITE_TRACEMUX_TOKEN?.trim();
   return token && token.length > 0 ? token : undefined;
 }
 
 /** Resolve a server HTTP API URL matching the configured WSS endpoint. */
-export function resolveWanloggerHttpUrl(path: string): string {
+export function resolveTraceMuxHttpUrl(path: string): string {
   try {
-    const url = new URL(resolveWanloggerUrl());
+    const url = new URL(resolveTraceMuxUrl());
     url.protocol = url.protocol === "wss:" ? "https:" : "http:";
     url.pathname = path.startsWith("/") ? path : `/${path}`;
     url.search = "";

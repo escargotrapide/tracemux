@@ -1,7 +1,7 @@
 # Packet capture live backend setup
 
 This note covers the optional `pcap-capture` feature added for live Npcap/libpcap
-packet capture. Default wanlogger builds keep this feature disabled so normal CI
+packet capture. Default tracemux builds keep this feature disabled so normal CI
 and development machines do not need packet-capture drivers, SDKs, or elevated
 capture privileges.
 
@@ -9,14 +9,14 @@ capture privileges.
 
 Enable the native backend with:
 
-- `wanlogger-core/pcap-capture` for library builds.
-- `wanlogger-server/pcap-capture` for server-only builds.
-- `wanlogger-cli/pcap-capture` for the `wanlogger` binary.
+- `tracemux-core/pcap-capture` for library builds.
+- `tracemux-server/pcap-capture` for server-only builds.
+- `tracemux-cli/pcap-capture` for the `tracemux` binary.
 
 Example package build:
 
 ```pwsh
-cargo build -p wanlogger-cli --features pcap-capture
+cargo build -p tracemux-cli --features pcap-capture
 ```
 
 When the feature is disabled, opening a `pcap://...` source fails with `E-1101`
@@ -27,8 +27,8 @@ it links host-native packet-capture libraries. On machines with Npcap/libpcap
 configured, run an explicit feature check in addition to the default gate:
 
 ```pwsh
-cargo check -p wanlogger-cli --features pcap-capture
-cargo clippy -p wanlogger-core --features pcap-capture --lib -- -D warnings
+cargo check -p tracemux-cli --features pcap-capture
+cargo clippy -p tracemux-core --features pcap-capture --lib -- -D warnings
 ```
 
 ## Windows / Npcap
@@ -39,13 +39,13 @@ cargo clippy -p wanlogger-core --features pcap-capture --lib -- -D warnings
 3. Make the SDK library directory visible to the linker, for example by adding
    the SDK `Lib` or `Lib/x64` directory to `LIB` in the build shell.
 4. Build with `--features pcap-capture`.
-5. Run wanlogger from an account allowed to capture on the selected adapter.
+5. Run tracemux from an account allowed to capture on the selected adapter.
 
 Manual smoke test:
 
 ```pwsh
-$env:WANLOGGER_PCAP_TEST_IFACE = "<Npcap device name>"
-cargo test -p wanlogger-core --features pcap-capture -- --ignored native_backend_can_open_env_iface
+$env:TRACEMUX_PCAP_TEST_IFACE = "<Npcap device name>"
+cargo test -p tracemux-core --features pcap-capture -- --ignored native_backend_can_open_env_iface
 ```
 
 Use `/api/detect` from a feature-enabled server to discover candidate device
@@ -63,7 +63,7 @@ security policy for authenticated discovery is finalized.
 Manual smoke test:
 
 ```sh
-WANLOGGER_PCAP_TEST_IFACE=eth0 cargo test -p wanlogger-core --features pcap-capture -- --ignored native_backend_can_open_env_iface
+TRACEMUX_PCAP_TEST_IFACE=eth0 cargo test -p tracemux-core --features pcap-capture -- --ignored native_backend_can_open_env_iface
 ```
 
 ## macOS / libpcap
@@ -77,7 +77,7 @@ and BPF filter behavior.
 
 - `snaplen`, promiscuous mode, timeout, buffer size, and BPF filter are applied
   before packet publication.
-- `save=session` persists the normal wanlogger session-dir only.
+- `save=session` persists the normal tracemux session-dir only.
 - `save=pcapng` writes a direct pcapng artifact only. `save=both` writes the
    session-dir and direct pcapng artifact together.
 - If `pcapng_path` is omitted and a server session-dir exists, direct pcapng

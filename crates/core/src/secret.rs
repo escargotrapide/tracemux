@@ -3,7 +3,7 @@
 //!
 //! Configuration files only ever store `secret://<name>` strings. The
 //! actual secret value lives in the OS keyring under
-//! `service = "wanlogger"`, `username = <name>`. The
+//! `service = "tracemux"`, `username = <name>`. The
 //! [`SecretResolver`] trait abstracts the backend so tests can use an
 //! in-memory store.
 //!
@@ -15,10 +15,10 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error_id::{ErrorId, WanloggerError};
+use crate::error_id::{ErrorId, TraceMuxError};
 
-/// Service name used in every keyring entry written by wanlogger.
-pub const KEYRING_SERVICE: &str = "wanlogger";
+/// Service name used in every keyring entry written by tracemux.
+pub const KEYRING_SERVICE: &str = "tracemux";
 
 /// Reference to a secret stored in the OS keyring.
 ///
@@ -75,11 +75,11 @@ impl<T: Clone> Clone for Redact<T> {
 /// Backend trait for resolving / writing secrets.
 pub trait SecretResolver: Send + Sync {
     /// Read `name` from the backend.
-    fn get(&self, name: &str) -> Result<Redact<String>, WanloggerError>;
+    fn get(&self, name: &str) -> Result<Redact<String>, TraceMuxError>;
     /// Write `name = value` to the backend.
-    fn set(&self, name: &str, value: &str) -> Result<(), WanloggerError>;
+    fn set(&self, name: &str, value: &str) -> Result<(), TraceMuxError>;
     /// Remove `name` from the backend. Idempotent.
-    fn delete(&self, name: &str) -> Result<(), WanloggerError>;
+    fn delete(&self, name: &str) -> Result<(), TraceMuxError>;
 }
 
 /// In-memory backend for tests. **Never use in production.**
@@ -97,7 +97,7 @@ impl MemorySecretResolver {
 }
 
 impl SecretResolver for MemorySecretResolver {
-    fn get(&self, name: &str) -> Result<Redact<String>, WanloggerError> {
+    fn get(&self, name: &str) -> Result<Redact<String>, TraceMuxError> {
         self.inner
             .lock()
             .expect("poisoned")
@@ -105,20 +105,20 @@ impl SecretResolver for MemorySecretResolver {
             .cloned()
             .map(Redact)
             .ok_or_else(|| {
-                WanloggerError::new(
+                TraceMuxError::new(
                     ErrorId::E1001PipelineGeneric,
                     format!("secret '{name}' not found"),
                 )
             })
     }
-    fn set(&self, name: &str, value: &str) -> Result<(), WanloggerError> {
+    fn set(&self, name: &str, value: &str) -> Result<(), TraceMuxError> {
         self.inner
             .lock()
             .expect("poisoned")
             .insert(name.to_owned(), value.to_owned());
         Ok(())
     }
-    fn delete(&self, name: &str) -> Result<(), WanloggerError> {
+    fn delete(&self, name: &str) -> Result<(), TraceMuxError> {
         self.inner.lock().expect("poisoned").remove(name);
         Ok(())
     }
@@ -137,16 +137,16 @@ impl KeyringResolver {
 }
 
 impl SecretResolver for KeyringResolver {
-    fn get(&self, name: &str) -> Result<Redact<String>, WanloggerError> {
+    fn get(&self, name: &str) -> Result<Redact<String>, TraceMuxError> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, name).map_err(map_kr)?;
         let v = entry.get_password().map_err(map_kr)?;
         Ok(Redact(v))
     }
-    fn set(&self, name: &str, value: &str) -> Result<(), WanloggerError> {
+    fn set(&self, name: &str, value: &str) -> Result<(), TraceMuxError> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, name).map_err(map_kr)?;
         entry.set_password(value).map_err(map_kr)
     }
-    fn delete(&self, name: &str) -> Result<(), WanloggerError> {
+    fn delete(&self, name: &str) -> Result<(), TraceMuxError> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, name).map_err(map_kr)?;
         match entry.delete_password() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -155,8 +155,8 @@ impl SecretResolver for KeyringResolver {
     }
 }
 
-fn map_kr(e: keyring::Error) -> WanloggerError {
-    WanloggerError::new(ErrorId::E1001PipelineGeneric, format!("keyring: {e}")).with_source(e)
+fn map_kr(e: keyring::Error) -> TraceMuxError {
+    TraceMuxError::new(ErrorId::E1001PipelineGeneric, format!("keyring: {e}")).with_source(e)
 }
 
 /// Resolve a [`SecretRef`] against `backend`.
@@ -165,7 +165,7 @@ fn map_kr(e: keyring::Error) -> WanloggerError {
 pub fn resolve<R: SecretResolver + ?Sized>(
     backend: &R,
     sref: &SecretRef,
-) -> Result<Redact<String>, WanloggerError> {
+) -> Result<Redact<String>, TraceMuxError> {
     backend.get(sref.name())
 }
 

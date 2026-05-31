@@ -1,12 +1,12 @@
 [package]
-name = "wanlogger-core"
+name = "tracemux-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Core library for wanlogger: frozen v0.1 traits + impls"
+description = "Core library for tracemux: frozen v0.1 traits + impls"
 
 [lints]
 workspace = true

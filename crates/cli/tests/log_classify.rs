@@ -1,4 +1,4 @@
-//! Integration tests for `wanlogger log` classification.
+//! Integration tests for `tracemux log` classification.
 
 #![allow(clippy::missing_panics_doc)]
 
@@ -6,11 +6,11 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_wanlogger"))
+    PathBuf::from(env!("CARGO_BIN_EXE_tracemux"))
 }
 
 fn must_succeed(c: &mut Command) {
-    let out = c.output().expect("spawn wanlogger");
+    let out = c.output().expect("spawn tracemux");
     assert!(
         out.status.success(),
         "command failed: status={} stderr={}",

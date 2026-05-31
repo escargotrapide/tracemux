@@ -18,13 +18,13 @@
 //!   decode paths,
 //! * surfaces malformed / oversize errors as [`E-2001`] / [`E-2002`].
 //!
-//! [`E-2001`]: wanlogger_core::ErrorId::E2001WireMalformed
-//! [`E-2002`]: wanlogger_core::ErrorId::E2002WireLimit
+//! [`E-2001`]: tracemux_core::ErrorId::E2001WireMalformed
+//! [`E-2002`]: tracemux_core::ErrorId::E2002WireLimit
 
 use rmpv::Value;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use wanlogger_core::{ErrorId, WanloggerError};
+use tracemux_core::{ErrorId, TraceMuxError};
 
 /// Maximum size of a single wire frame in bytes (1 MiB).
 ///
@@ -147,7 +147,7 @@ impl Envelope {
 /// Errors produced while encoding or decoding a wire frame.
 ///
 /// Every variant maps to a stable [`ErrorId`] and is surfaced through
-/// the canonical [`WanloggerError`] via [`From`].
+/// the canonical [`TraceMuxError`] via [`From`].
 #[derive(Debug, Error)]
 pub enum WireError {
     /// The frame is structurally invalid (wrong shape, unknown
@@ -175,10 +175,10 @@ impl WireError {
     }
 }
 
-impl From<WireError> for WanloggerError {
+impl From<WireError> for TraceMuxError {
     fn from(e: WireError) -> Self {
         let id = e.id();
-        WanloggerError::new(id, e.to_string())
+        TraceMuxError::new(id, e.to_string())
     }
 }
 
@@ -308,10 +308,10 @@ mod tests {
     }
 
     #[test]
-    fn wanlogger_error_carries_canonical_id() {
-        let we: WanloggerError = WireError::Malformed("x".into()).into();
+    fn tracemux_error_carries_canonical_id() {
+        let we: TraceMuxError = WireError::Malformed("x".into()).into();
         assert_eq!(we.id, ErrorId::E2001WireMalformed);
-        let we: WanloggerError = WireError::TooLarge { size: 1, limit: 1 }.into();
+        let we: TraceMuxError = WireError::TooLarge { size: 1, limit: 1 }.into();
         assert_eq!(we.id, ErrorId::E2002WireLimit);
     }
 

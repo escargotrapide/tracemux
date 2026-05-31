@@ -6,14 +6,14 @@ authoritative design decisions. This page is a navigable summary.
 ## Pipeline
 
 ```
-                          wanlogger serve (single binary)
+                          tracemux serve (single binary)
    ┌─────────────┐     ┌──────────┐     ┌──────────┐     ┌────────────────┐
   │   Source    │ ──▶ │  Framer  │ ──▶ │ Decoder  │ ──▶ │ LogSink + UI   │
    │ (transport) │     │ (frames) │     │(records) │     │(session-dir,   │
    └─────────────┘     └──────────┘     └──────────┘     │ ring, fan-out) │
                                                         └────────────────┘
                                        ▲
-                                       │  WSS  (subprotocol "wanlogger.v1", MessagePack)
+                                       │  WSS  (subprotocol "tracemux.v1", MessagePack)
                                        │
                           ┌────────────┴────────────┐
                           │  browser / Tauri / CLI  │
@@ -24,21 +24,21 @@ authoritative design decisions. This page is a navigable summary.
 
 ## Crates
 
-- **`wanlogger-core`** — traits + impls for Source/Sink/Framer/Decoder/
+- **`tracemux-core`** — traits + impls for Source/Sink/Framer/Decoder/
   LogSink/Importer/Exporter/TimeseriesSink/TimeSource, session
   registry, ring buffers, on-disk format, secrets, error registry.
-- **`wanlogger-server`** — axum + rustls; WSS mux; auth; ingest;
+- **`tracemux-server`** — axum + rustls; WSS mux; auth; ingest;
   source lifecycle manager; source runner; AI endpoints; audit;
   coalescing; panel-priority routing.
-- **`wanlogger-cli`** — clap binary with subcommands
+- **`tracemux-cli`** — clap binary with subcommands
   `serve | connect | detect | log | profile | replay | extcap |
   import | export | ai-verify | json-schema`.
-- **`wanlogger-replay`** — drives a session-dir back through the same
+- **`tracemux-replay`** — drives a session-dir back through the same
   pipeline (deterministic with `--seed`).
 
 ## Apps
 
-- **`app-tauri/`** — Tauri 2 shell that sidecars `wanlogger serve` on
+- **`app-tauri/`** — Tauri 2 shell that sidecars `tracemux serve` on
   loopback and connects via WSS.
 - **`web/`** — SolidJS + xterm.js (WebGL) + Dockview UI, deployable
   standalone (browser) or inside Tauri.
@@ -52,8 +52,8 @@ events or a full `sources` snapshot. The browser requests `list` on
 connect/reconnect and after lifecycle acknowledgements so the table
 converges back to server truth.
 
-`wanlogger serve` can also seed source lifecycle state at process start
-from a v1 TOML config file (`--config wanlogger.toml`). The config file
+`tracemux serve` can also seed source lifecycle state at process start
+from a v1 TOML config file (`--config tracemux.toml`). The config file
 can set server startup defaults such as bind address, session root,
 encoding, content-detection mode, session naming pattern, auth policy,
 TLS state, retention keep-days, serial startup, export defaults, live

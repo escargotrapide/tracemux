@@ -2627,6 +2627,130 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
+name = "tracemux-cli"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "clap",
+ "futures",
+ "rmpv",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tempfile",
+ "time",
+ "tokio",
+ "tokio-tungstenite",
+ "toml",
+ "tracemux-core",
+ "tracemux-replay",
+ "tracemux-server",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "tracemux-core"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "crc32fast",
+ "dashmap",
+ "encoding_rs",
+ "etherparse",
+ "futures",
+ "keyring",
+ "parking_lot",
+ "pcap",
+ "pcap-file",
+ "regex",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tokio-serial",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "uuid",
+ "zstd",
+]
+
+[[package]]
+name = "tracemux-replay"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tokio",
+ "tracemux-core",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "tracemux-server"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "axum",
+ "axum-server",
+ "bytes",
+ "dashmap",
+ "futures",
+ "parking_lot",
+ "rcgen",
+ "rmp-serde",
+ "rmpv",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tokio-tungstenite",
+ "tower 0.4.13",
+ "tower-http",
+ "tracemux-core",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "tracemux-virt-peer"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "futures",
+ "rmpv",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tempfile",
+ "time",
+ "tokio",
+ "tokio-tungstenite",
+ "tracemux-server",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "tracing"
 version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2804,130 +2928,6 @@ name = "waker-fn"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "317211a0dc0ceedd78fb2ca9a44aed3d7b9b26f81870d485c07122b4350673b7"
-
-[[package]]
-name = "wanlogger-cli"
-version = "0.1.0-dev"
-dependencies = [
- "anyhow",
- "bytes",
- "clap",
- "futures",
- "rmpv",
- "serde",
- "serde_json",
- "serialport",
- "tempfile",
- "time",
- "tokio",
- "tokio-tungstenite",
- "toml",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "wanlogger-core",
- "wanlogger-replay",
- "wanlogger-server",
-]
-
-[[package]]
-name = "wanlogger-core"
-version = "0.1.0-dev"
-dependencies = [
- "anyhow",
- "async-trait",
- "bytes",
- "crc32fast",
- "dashmap",
- "encoding_rs",
- "etherparse",
- "futures",
- "keyring",
- "parking_lot",
- "pcap",
- "pcap-file",
- "regex",
- "rmp-serde",
- "serde",
- "serde_json",
- "serialport",
- "tempfile",
- "thiserror 1.0.69",
- "time",
- "tokio",
- "tokio-serial",
- "tokio-util",
- "toml",
- "tracing",
- "uuid",
- "zstd",
-]
-
-[[package]]
-name = "wanlogger-replay"
-version = "0.1.0-dev"
-dependencies = [
- "anyhow",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
- "wanlogger-core",
-]
-
-[[package]]
-name = "wanlogger-server"
-version = "0.1.0-dev"
-dependencies = [
- "anyhow",
- "argon2",
- "async-trait",
- "axum",
- "axum-server",
- "bytes",
- "dashmap",
- "futures",
- "parking_lot",
- "rcgen",
- "rmp-serde",
- "rmpv",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 1.0.69",
- "time",
- "tokio",
- "tokio-tungstenite",
- "tower 0.4.13",
- "tower-http",
- "tracing",
- "uuid",
- "wanlogger-core",
-]
-
-[[package]]
-name = "wanlogger-virt-peer"
-version = "0.1.0-dev"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "futures",
- "rmpv",
- "serde",
- "serde_json",
- "serialport",
- "tempfile",
- "time",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "wanlogger-server",
-]
 
 [[package]]
 name = "wasi"

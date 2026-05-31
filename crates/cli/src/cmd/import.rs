@@ -1,14 +1,14 @@
-//! `wanlogger import` -- convert a foreign log artefact into a v0.1
+//! `tracemux import` -- convert a foreign log artefact into a v0.1
 //! session-dir.
 //!
 //! Dispatches `kind` to the matching implementation in
-//! [`wanlogger_core::importer`]. `text` and `csv` are wired through;
+//! [`tracemux_core::importer`]. `text` and `csv` are wired through;
 //! `teraterm` and `pcapng` still bail with a clear error.
 
 use std::path::Path;
 
 use anyhow::{bail, Result};
-use wanlogger_core::importer::{csv::CsvImporter, text::TextImporter, Importer};
+use tracemux_core::importer::{csv::CsvImporter, text::TextImporter, Importer};
 
 /// Stable list of importer kinds known to v0.1.
 pub const KINDS: &[&str] = &["teraterm", "pcapng", "csv", "text"];

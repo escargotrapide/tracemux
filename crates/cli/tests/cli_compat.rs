@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_wanlogger"))
+    PathBuf::from(env!("CARGO_BIN_EXE_tracemux"))
 }
 
 fn fixture_dir() -> PathBuf {
@@ -30,7 +30,7 @@ fn check_stdout(name: &str, args: &[&str]) {
     let out = Command::new(bin())
         .args(args)
         .output()
-        .expect("spawn wanlogger");
+        .expect("spawn tracemux");
     assert!(
         out.status.success(),
         "command failed: status={} stderr={}",
@@ -45,7 +45,7 @@ fn check_stdout(name: &str, args: &[&str]) {
 
     let path = fixture_dir().join(name);
     let stdout = normalize_lf(&out.stdout);
-    if std::env::var_os("WANLOGGER_CLI_BLESS").is_some() || !path.exists() {
+    if std::env::var_os("TRACEMUX_CLI_BLESS").is_some() || !path.exists() {
         std::fs::create_dir_all(path.parent().unwrap()).expect("create fixture dir");
         std::fs::write(&path, &stdout).expect("write fixture");
         eprintln!("cli-compat: wrote {}", path.display());
@@ -55,7 +55,7 @@ fn check_stdout(name: &str, args: &[&str]) {
     assert_eq!(
         expected,
         stdout,
-        "fixture {name} drifted. If intentional, update the cli-output compat notes and re-run with WANLOGGER_CLI_BLESS=1."
+        "fixture {name} drifted. If intentional, update the cli-output compat notes and re-run with TRACEMUX_CLI_BLESS=1."
     );
 }
 
@@ -70,7 +70,7 @@ fn extcap_interfaces_snapshot_is_stable() {
 fn extcap_dlts_snapshot_is_stable() {
     check_stdout(
         "extcap_dlts.txt",
-        &["extcap", "--extcap-dlts", "--extcap-interface", "wanlogger"],
+        &["extcap", "--extcap-dlts", "--extcap-interface", "tracemux"],
     );
 }
 
@@ -83,7 +83,7 @@ fn extcap_config_snapshot_is_stable() {
             "extcap",
             "--extcap-config",
             "--extcap-interface",
-            "wanlogger",
+            "tracemux",
         ],
     );
 }

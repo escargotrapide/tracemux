@@ -2,12 +2,12 @@
 //!
 //! Spins up the public router on `127.0.0.1:0` and walks through:
 //!
-//! 1. subprotocol negotiation (`wanlogger.v1`)
+//! 1. subprotocol negotiation (`tracemux.v1`)
 //! 2. loopback `--no-auth` accept path (FR-WIRE-002)
 //! 3. ping/pong round-trip via the wire envelope (FR-WIRE-001)
 //! 4. connection cap (`MAX_CONNS`) enforcement
 //!
-//! No TLS in v0.1; that lives in [`wanlogger_server::tls`] and is
+//! No TLS in v0.1; that lives in [`tracemux_server::tls`] and is
 //! exercised separately.
 
 use std::net::SocketAddr;
@@ -22,14 +22,14 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 
-use wanlogger_core::session::registry::SessionState;
-use wanlogger_server::audit::AuditLog;
-use wanlogger_server::auth::BearerVerifier;
-use wanlogger_server::ingest::Ingest;
-use wanlogger_server::ratelimit::ConnCounter;
-use wanlogger_server::source_manager::SourceManager;
-use wanlogger_server::wire::{decode, encode, Envelope, FrameType};
-use wanlogger_server::ws::{self, WsState};
+use tracemux_core::session::registry::SessionState;
+use tracemux_server::audit::AuditLog;
+use tracemux_server::auth::BearerVerifier;
+use tracemux_server::ingest::Ingest;
+use tracemux_server::ratelimit::ConnCounter;
+use tracemux_server::source_manager::SourceManager;
+use tracemux_server::wire::{decode, encode, Envelope, FrameType};
+use tracemux_server::ws::{self, WsState};
 
 async fn spawn_server(no_auth: bool, max_conns: u32) -> SocketAddr {
     spawn_server_with_ingest(no_auth, max_conns, Arc::new(Ingest::new())).await
@@ -85,7 +85,7 @@ fn ws_request(addr: SocketAddr) -> tokio_tungstenite::tungstenite::handshake::cl
     let mut req = url.into_client_request().unwrap();
     req.headers_mut().insert(
         "Sec-WebSocket-Protocol",
-        HeaderValue::from_static("wanlogger.v1"),
+        HeaderValue::from_static("tracemux.v1"),
     );
     req
 }
@@ -148,7 +148,7 @@ async fn loopback_no_auth_ping_pong_round_trip() {
             .transpose()
             .ok()
             .flatten(),
-        Some("wanlogger.v1")
+        Some("tracemux.v1")
     );
 
     let ping = Envelope::new(FrameType::Ping, 17, Value::Nil);
@@ -358,7 +358,7 @@ async fn ctl_start_source_open_failure_returns_source_error() {
         .await
         .expect("connect");
     let missing = std::env::temp_dir()
-        .join(format!("wanlogger-missing-{}.log", uuid::Uuid::new_v4()))
+        .join(format!("tracemux-missing-{}.log", uuid::Uuid::new_v4()))
         .to_string_lossy()
         .to_string();
 
@@ -492,7 +492,7 @@ async fn write_frame_reaches_tcp_sink_and_returns_ack() {
 
     let manager = Arc::new(SourceManager::new(Arc::new(Ingest::new())));
     let audit_dir =
-        std::env::temp_dir().join(format!("wanlogger-ws-audit-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("tracemux-ws-audit-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&audit_dir).unwrap();
     let audit = Arc::new(AuditLog::create(&audit_dir).unwrap());
     let addr = spawn_server_with_manager_and_audit(true, 8, manager.clone(), Some(audit)).await;
@@ -620,7 +620,7 @@ async fn malformed_write_payload_returns_ctl_error() {
 // REQ: FR-LOG-001
 #[tokio::test]
 async fn ctl_start_file_source_persists_session_dir() {
-    let root = std::env::temp_dir().join(format!("wanlogger-ws-persist-{}", uuid::Uuid::new_v4()));
+    let root = std::env::temp_dir().join(format!("tracemux-ws-persist-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let input = root.join("input.log");
     std::fs::write(&input, b"via-ws\n").unwrap();
@@ -728,7 +728,7 @@ async fn ctl_start_file_source_persists_session_dir() {
 #[tokio::test]
 async fn ctl_start_file_source_accepts_start_options() {
     let root = std::env::temp_dir().join(format!(
-        "wanlogger-ws-start-options-{}",
+        "tracemux-ws-start-options-{}",
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
@@ -799,7 +799,7 @@ async fn ctl_start_file_source_accepts_start_options() {
         .expect("started sid");
     manager.wait(sid).await.expect("task handle").unwrap();
 
-    let session = sessions.join("wanlogger-file-input.log-ws");
+    let session = sessions.join("tracemux-file-input.log-ws");
     assert!(session.is_dir(), "expected {}", session.display());
     let lines = std::fs::read_to_string(session.join("lines.jsonl")).unwrap();
     let line_row: serde_json::Value = serde_json::from_str(lines.trim()).unwrap();
@@ -843,7 +843,7 @@ async fn ctl_start_file_source_accepts_start_options() {
 // REQ: FR-LOG-001
 #[tokio::test]
 async fn ctl_resume_completed_file_source_reuses_sid_and_session_dir() {
-    let root = std::env::temp_dir().join(format!("wanlogger-ws-resume-{}", uuid::Uuid::new_v4()));
+    let root = std::env::temp_dir().join(format!("tracemux-ws-resume-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let input = root.join("input.log");
     std::fs::write(&input, b"again-ws\n").unwrap();

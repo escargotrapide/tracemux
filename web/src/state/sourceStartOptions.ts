@@ -2,7 +2,7 @@ import { createStore } from "solid-js/store";
 import { wireClassificationRules } from "~/state/classificationRules";
 import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/state/storage";
 
-export const SOURCE_START_OPTIONS_STORAGE_KEY = "wanlogger.sourceStartOptions.v1";
+export const SOURCE_START_OPTIONS_STORAGE_KEY = "tracemux.sourceStartOptions.v1";
 export const DEFAULT_SOURCE_ENCODING = "utf-8";
 export const SUPPORTED_SOURCE_ENCODINGS = [
   "utf-8",

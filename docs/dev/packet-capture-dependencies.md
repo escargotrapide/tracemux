@@ -7,7 +7,7 @@ in `docs/dev/packet-capture-mvp.md` and
 The repository policy constraints that matter most are:
 
 - workspace Rust toolchain is 1.88.
-- `unsafe_code = "deny"` applies to wanlogger code.
+- `unsafe_code = "deny"` applies to tracemux code.
 - `cargo deny` bans `openssl-sys` and only allows specific licenses.
 - `Cargo.lock` is a critical path and requires human review when changed.
 
@@ -125,7 +125,7 @@ Cons:
 Recommendation:
 
 - Use `pcap-file = "2.0"` for pcapng export and later direct streaming.
-- Keep the wanlogger exporter responsible for mapping session-dir metadata to
+- Keep the tracemux exporter responsible for mapping session-dir metadata to
   pcapng blocks.
 - Add a synthetic export fixture and verify that Wireshark or the existing
   minimal importer can read the result.

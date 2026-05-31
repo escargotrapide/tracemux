@@ -11,7 +11,7 @@
 //! * `pcap://Ethernet?snaplen=65535&promisc=1&filter=tcp%20port%20502`
 //! * `remote://wss%3A%2F%2Fedge%3A9000%2Fws%3Fsid%3D...%26ch%3D0`
 //!
-//! The output is a [`ChannelSpec`] from `wanlogger-core`.
+//! The output is a [`ChannelSpec`] from `tracemux-core`.
 //!
 //! Boxed `Source` factory is provided by [`open`].
 
@@ -21,10 +21,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Result};
-use wanlogger_core::source::pcap::{
+use tracemux_core::source::pcap::{
     PcapConfig, PcapPublishMode, PcapSaveMode, DEFAULT_SNAPLEN, DEFAULT_TIMEOUT_MS,
 };
-use wanlogger_core::source::{ChannelSpec, Source};
+use tracemux_core::source::{ChannelSpec, Source};
 
 /// Parse a URI-style spec string into a [`ChannelSpec`].
 ///
@@ -94,7 +94,7 @@ pub fn parse(spec: &str) -> Result<ChannelSpec> {
 /// Returns an `anyhow::Error` if the kind is not yet implemented in
 /// this build.
 pub fn open(spec: &ChannelSpec) -> Result<Box<dyn Source>> {
-    use wanlogger_core::source::{
+    use tracemux_core::source::{
         file::FileSource, mock::MockSource, pcap::PcapConfig, pcap::PcapSource,
         process::ProcessSource, serial::SerialSource, tcp::TcpSource, udp::UdpSource,
     };
