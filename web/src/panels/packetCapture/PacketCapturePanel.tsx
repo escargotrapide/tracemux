@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "so
 import { sourcesStore, useChannel } from "~/state";
 import {
   appendPacketRing,
+  DEFAULT_PACKET_RING_CAPACITY,
   packetFromDataPayload,
   type PacketCaptureEntry,
 } from "~/state/packetCapture";
@@ -17,6 +18,7 @@ export function PacketCapturePanel() {
   const [paused, setPaused] = createSignal(false);
   const [follow, setFollow] = createSignal(true);
   const [packets, setPackets] = createSignal<PacketCaptureEntry[]>([]);
+  const [droppedCount, setDroppedCount] = createSignal(0);
   const [selectedId, setSelectedId] = createSignal<number | undefined>(undefined);
   let nextPacketId = 1;
   let unsubscribe: (() => void) | undefined;
@@ -32,6 +34,7 @@ export function PacketCapturePanel() {
     unsubscribe?.();
     unsubscribe = undefined;
     setPackets([]);
+    setDroppedCount(0);
     setSelectedId(undefined);
     nextPacketId = 1;
     const sid = selectedSid();
@@ -41,6 +44,8 @@ export function PacketCapturePanel() {
       const packet = packetFromDataPayload(payload, nextPacketId++);
       if (!packet) return;
       setPackets((prev) => {
+        const dropped = Math.max(0, prev.length + 1 - DEFAULT_PACKET_RING_CAPACITY);
+        if (dropped > 0) setDroppedCount((value) => value + dropped);
         const next = appendPacketRing(prev, packet);
         if (follow()) setSelectedId(packet.id);
         return next;
@@ -59,6 +64,7 @@ export function PacketCapturePanel() {
 
   function clearPackets(): void {
     setPackets([]);
+    setDroppedCount(0);
     setSelectedId(undefined);
     nextPacketId = 1;
   }
@@ -94,6 +100,12 @@ export function PacketCapturePanel() {
         </button>
         <span style={{ color: "var(--wl-fg-muted)" }}>
           {t("packetCapture.count")}: {packets().length}
+        </span>
+        <span class="wl-packet-stat">
+          {t("packetCapture.capacity")}: {DEFAULT_PACKET_RING_CAPACITY}
+        </span>
+        <span class="wl-packet-stat" title={t("packetCapture.dropped_title")}>
+          {t("packetCapture.dropped")}: {droppedCount()}
         </span>
       </div>
       <Show

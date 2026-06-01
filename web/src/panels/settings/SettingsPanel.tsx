@@ -4,7 +4,7 @@
 //
 // REQ: FR-UI-014
 
-import { createEffect, createSignal, For } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { t } from "~/i18n";
 import { connState, pushToast } from "~/state";
 import {
@@ -18,7 +18,13 @@ import {
   upsertClassificationRule,
   type ClassificationMatchKind,
 } from "~/state/classificationRules";
-import { displaySettings, updateDisplaySettings } from "~/state/displaySettings";
+import {
+  displaySettings,
+  DISPLAY_SETTING_LIMITS,
+  isValidDisplayTimezone,
+  resetDisplaySettings,
+  updateDisplaySettings,
+} from "~/state/displaySettings";
 import {
   logTypeNotes,
   normalizeLogTypeKey,
@@ -26,6 +32,7 @@ import {
 } from "~/state/logTypeNotes";
 import {
   normalizeEncoding,
+  resetSourceStartOptions,
   sourceStartOptions,
   type DetectionMode,
   SUPPORTED_DETECTION_MODES,
@@ -56,6 +63,7 @@ export function SettingsPanel() {
   const [ruleContains, setRuleContains] = createSignal("");
   const [ruleTag, setRuleTag] = createSignal("");
   const [ruleCaseSensitive, setRuleCaseSensitive] = createSignal(false);
+  const timezoneInvalid = createMemo(() => !isValidDisplayTimezone(displaySettings.timezone));
   const selectedLogTypeNote = () => {
     const key = normalizeLogTypeKey(logTypeKey());
     return key ? logTypeNotes[key]?.text ?? "" : "";
@@ -108,6 +116,23 @@ export function SettingsPanel() {
       });
   }
 
+  function resetDisplayDefaults(): void {
+    if (!window.confirm(t("settings.display.reset_confirm"))) return;
+    resetDisplaySettings();
+    pushToast({ level: "info", message: t("settings.display.reset_done") });
+  }
+
+  function resetSourceStartDefaults(): void {
+    if (!window.confirm(t("settings.source_start.reset_confirm"))) return;
+    resetSourceStartOptions();
+    pushToast({ level: "info", message: t("settings.source_start.reset_done") });
+  }
+
+  function deleteRuleWithConfirm(ruleId: string): void {
+    if (!window.confirm(t("settings.classification.delete_confirm"))) return;
+    deleteClassificationRule(ruleId);
+  }
+
   return (
     <div class="wl-settings-panel">
       <section class="wl-settings-section">
@@ -116,8 +141,8 @@ export function SettingsPanel() {
           <span>{t("settings.terminal_scrollback")}</span>
           <input
             type="number"
-            min="100"
-            max="1000000"
+            min={DISPLAY_SETTING_LIMITS.terminalScrollback.min}
+            max={DISPLAY_SETTING_LIMITS.terminalScrollback.max}
             value={displaySettings.terminalScrollback}
             onInput={(ev) => updateDisplaySettings({ terminalScrollback: numberValue(ev.currentTarget.value) })}
           />
@@ -126,8 +151,8 @@ export function SettingsPanel() {
           <span>{t("settings.terminal_max_records")}</span>
           <input
             type="number"
-            min="100"
-            max="1000000"
+            min={DISPLAY_SETTING_LIMITS.terminalMaxRecords.min}
+            max={DISPLAY_SETTING_LIMITS.terminalMaxRecords.max}
             value={displaySettings.terminalMaxRecords}
             onInput={(ev) => updateDisplaySettings({ terminalMaxRecords: numberValue(ev.currentTarget.value) })}
           />
@@ -136,8 +161,8 @@ export function SettingsPanel() {
           <span>{t("settings.tile_scrollback")}</span>
           <input
             type="number"
-            min="50"
-            max="100000"
+            min={DISPLAY_SETTING_LIMITS.tileScrollback.min}
+            max={DISPLAY_SETTING_LIMITS.tileScrollback.max}
             value={displaySettings.tileScrollback}
             onInput={(ev) => updateDisplaySettings({ tileScrollback: numberValue(ev.currentTarget.value) })}
           />
@@ -146,8 +171,8 @@ export function SettingsPanel() {
           <span>{t("settings.tile_max_records")}</span>
           <input
             type="number"
-            min="50"
-            max="100000"
+            min={DISPLAY_SETTING_LIMITS.tileMaxRecords.min}
+            max={DISPLAY_SETTING_LIMITS.tileMaxRecords.max}
             value={displaySettings.tileMaxRecords}
             onInput={(ev) => updateDisplaySettings({ tileMaxRecords: numberValue(ev.currentTarget.value) })}
           />
@@ -160,6 +185,8 @@ export function SettingsPanel() {
             value={displaySettings.timezone}
             onInput={(ev) => updateDisplaySettings({ timezone: ev.currentTarget.value })}
             placeholder={t("settings.timezone.placeholder")}
+            aria-invalid={timezoneInvalid()}
+            classList={{ "wl-field-error": timezoneInvalid() }}
           />
         </label>
         <datalist id="wl-settings-timezones">
@@ -170,8 +197,18 @@ export function SettingsPanel() {
           <option value="GMT+09:00" />
           <option value="+09:00" />
         </datalist>
-        <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+        <div class="wl-settings-help">
           {t("settings.timezone.help")}
+        </div>
+        <Show when={timezoneInvalid()}>
+          <div class="wl-settings-help wl-settings-error" role="status">
+            {t("settings.timezone.invalid")}
+          </div>
+        </Show>
+        <div class="wl-settings-actions">
+          <button type="button" onClick={resetDisplayDefaults}>
+            {t("settings.display.reset")}
+          </button>
         </div>
       </section>
 
@@ -216,8 +253,13 @@ export function SettingsPanel() {
           />
           <span>{t("settings.source_start.send_rules")}</span>
         </label>
-        <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+        <div class="wl-settings-help">
           {t("settings.source_start.help")}
+        </div>
+        <div class="wl-settings-actions">
+          <button type="button" onClick={resetSourceStartDefaults}>
+            {t("settings.source_start.reset")}
+          </button>
         </div>
       </section>
 
@@ -301,7 +343,7 @@ export function SettingsPanel() {
                   <td>{rule.tag}</td>
                   <td>{rule.caseSensitive ? t("settings.classification.yes") : t("settings.classification.no")}</td>
                   <td>
-                    <button type="button" onClick={() => deleteClassificationRule(rule.id)}>
+                    <button type="button" onClick={() => deleteRuleWithConfirm(rule.id)}>
                       {t("settings.classification.delete")}
                     </button>
                   </td>
@@ -346,8 +388,8 @@ export function SettingsPanel() {
           <span>{t("settings.tile_min_width")}</span>
           <input
             type="number"
-            min="120"
-            max="1200"
+            min={DISPLAY_SETTING_LIMITS.tileMinWidth.min}
+            max={DISPLAY_SETTING_LIMITS.tileMinWidth.max}
             value={displaySettings.tileMinWidth}
             onInput={(ev) => updateDisplaySettings({ tileMinWidth: numberValue(ev.currentTarget.value) })}
           />
@@ -356,8 +398,8 @@ export function SettingsPanel() {
           <span>{t("settings.tile_min_height")}</span>
           <input
             type="number"
-            min="80"
-            max="900"
+            min={DISPLAY_SETTING_LIMITS.tileMinHeight.min}
+            max={DISPLAY_SETTING_LIMITS.tileMinHeight.max}
             value={displaySettings.tileMinHeight}
             onInput={(ev) => updateDisplaySettings({ tileMinHeight: numberValue(ev.currentTarget.value) })}
           />

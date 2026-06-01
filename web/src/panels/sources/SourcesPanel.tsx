@@ -26,6 +26,7 @@ import {
 import {
   BUILTIN_SOURCE_PRESETS,
   deleteUserSourcePreset,
+  isValidPresetName,
   loadUserSourcePresets,
   saveUserSourcePreset,
 } from "~/state/sourcePresets";
@@ -41,7 +42,7 @@ import {
   type PcapInterfaceInfo,
   type PcapPublishMode,
 } from "~/state/sourceDiscovery";
-import { sourceAliases, updateSourceAlias } from "~/state/sourceAliases";
+import { MAX_SOURCE_ALIAS_LENGTH, sourceAliases, updateSourceAlias } from "~/state/sourceAliases";
 import {
   channelEncodingKey,
   encodingForChannel,
@@ -55,7 +56,7 @@ import {
   loadAndApplySourceAnnotations,
   syncSourceNoteToServer,
 } from "~/state/annotationSync";
-import { sourceNotes, updateSourceNote } from "~/state/sourceNotes";
+import { MAX_SOURCE_NOTE_LENGTH, sourceNotes, updateSourceNote } from "~/state/sourceNotes";
 import {
   normalizeEncoding,
   sourceStartOptions,
@@ -67,6 +68,7 @@ import { parseSourceSpec } from "~/state/sourceSpec";
 import { t } from "~/i18n";
 
 function onAction(sid: string, action: "stop" | "restart" | "remove"): void {
+  if (action === "remove" && !window.confirm(t("sources.action.remove_confirm"))) return;
   try {
     const sent = sendCtl(sid, action);
     pushToast({
@@ -205,8 +207,10 @@ export function SourcesPanel() {
   const [exporting, setExporting] = createSignal<string | null>(null);
   const [bulkExporting, setBulkExporting] = createSignal<SessionExportFormat | null>(null);
   const [bulkProgress, setBulkProgress] = createSignal<{ completed: number; total: number } | null>(null);
+  const [pendingStarts, setPendingStarts] = createSignal<Array<{ id: number; label: string }>>([]);
   const [loadedNotesSid, setLoadedNotesSid] = createSignal<string | null>(null);
   const [sourceNoteSyncStatus, setSourceNoteSyncStatus] = createSignal<Record<string, AnnotationSyncStatus>>({});
+  let pendingStartSeq = 1;
   const rows = () =>
     filterAndSortSources(
       Object.values(sourcesStore),
@@ -228,6 +232,18 @@ export function SourcesPanel() {
     if (!progress) return "";
     return `${progress.completed}/${progress.total}`;
   });
+  const presetNameInvalid = createMemo(() => {
+    const name = presetName().trim();
+    return name.length > 0 && !isValidPresetName(name);
+  });
+
+  function queuePendingStart(label: string): void {
+    const id = pendingStartSeq++;
+    setPendingStarts((prev) => [...prev.filter((item) => item.label !== label), { id, label }].slice(-8));
+    window.setTimeout(() => {
+      setPendingStarts((prev) => prev.filter((item) => item.id !== id));
+    }, 8_000);
+  }
 
   createEffect(() => {
     const sid = selectedSid();
@@ -249,6 +265,7 @@ export function SourcesPanel() {
     try {
       const spec = parseSourceSpec(specInput());
       const sent = sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>);
+      if (sent) queuePendingStart(specInput().trim());
       pushToast({
         level: sent ? "info" : "error",
         message: sent ? t("sources.start.requested") : t("sources.action.send_failed"),
@@ -275,6 +292,7 @@ export function SourcesPanel() {
   }
 
   function onDeletePreset(): void {
+    if (!window.confirm(t("sources.preset.delete_confirm"))) return;
     const next = deleteUserSourcePreset(presetName());
     setUserPresets(next);
     pushToast({ level: "info", message: t("sources.preset.deleted") });
@@ -347,6 +365,7 @@ export function SourcesPanel() {
         const spec = parseSourceSpec(serialSpecForPort(port, { baud: serialBaud() }));
         if (sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>)) {
           requested += 1;
+          queuePendingStart(`serial ${port}`);
         } else {
           pushToast({ level: "error", message: `${port}: ${t("sources.action.send_failed")}` });
         }
@@ -485,6 +504,14 @@ export function SourcesPanel() {
           {t("sources.spec.help")}
         </span>
       </form>
+      <Show when={pendingStarts().length > 0}>
+        <div class="wl-source-pending" role="status" aria-live="polite">
+          <strong>{t("sources.pending.title")}</strong>
+          <For each={pendingStarts()}>
+            {(item) => <span class="wl-source-pending-item">{item.label}</span>}
+          </For>
+        </div>
+      </Show>
       <div
         style={{
           display: "grid",
@@ -564,15 +591,19 @@ export function SourcesPanel() {
           onInput={(ev) => setPresetName(ev.currentTarget.value)}
           placeholder={t("sources.preset.name_placeholder")}
           aria-label={t("sources.preset.name_label")}
+          pattern="[A-Za-z0-9_.-]+"
+          title={t("sources.preset.name_help")}
           style={{ width: "160px" }}
         />
-        <button type="button" onClick={onSavePreset} disabled={!presetName().trim()}>
+        <button type="button" onClick={onSavePreset} disabled={!presetName().trim() || presetNameInvalid()}>
           {t("sources.preset.save")}
         </button>
         <button type="button" onClick={onDeletePreset} disabled={!presetName().trim()}>
           {t("sources.preset.delete")}
         </button>
-        <span style={{ color: "var(--wl-fg-muted)" }}>{t("sources.preset.help")}</span>
+        <span style={{ color: presetNameInvalid() ? "var(--wl-error)" : "var(--wl-fg-muted)" }}>
+          {presetNameInvalid() ? t("sources.preset.name_invalid") : t("sources.preset.help")}
+        </span>
       </div>
       <div class="wl-serial-detect">
         <div class="wl-serial-detect-actions">
@@ -809,7 +840,7 @@ export function SourcesPanel() {
                   <td>
                     <div class="wl-source-actions">
                       <select
-                        aria-label={`${s.name} encoding`}
+                        aria-label={`${s.name} ${t("sources.detail.encoding")}`}
                         title={t("sources.detail.encoding")}
                         value={sourceDisplayEncoding(s.sid)}
                         onChange={(ev) => updateSourceDisplayEncoding(s.sid, ev.currentTarget.value)}
@@ -828,16 +859,16 @@ export function SourcesPanel() {
                     <button
                       type="button"
                       onClick={() => onOpenTerminal(s.sid, s.channels)}
-                      title={t("sources.action.open_terminal")}
+                      title={`${t("sources.action.open_terminal_first_channel")} ch ${s.channels[0] ?? 0}`}
                     >
-                      {t("sources.action.open_terminal")}
+                      {t("sources.action.open_terminal")} ch {s.channels[0] ?? 0}
                     </button>{" "}
                     <button
                       type="button"
                       onClick={() => onOpenNewTerminal(s.sid, s.channels)}
-                      title={t("sources.action.open_new_terminal")}
+                      title={`${t("sources.action.open_new_terminal_first_channel")} ch ${s.channels[0] ?? 0}`}
                     >
-                      {t("sources.action.open_new_terminal")}
+                      {t("sources.action.open_new_terminal")} ch {s.channels[0] ?? 0}
                     </button>{" "}
                     <button
                       type="button"
@@ -911,10 +942,11 @@ export function SourcesPanel() {
                   value={sourceAliases[source().sid]?.label ?? ""}
                   onInput={(ev) => updateSourceAlias(source().sid, ev.currentTarget.value)}
                   placeholder={t("sources.detail.alias_placeholder")}
+                  maxLength={MAX_SOURCE_ALIAS_LENGTH}
                   style={{ width: "100%" }}
                 />
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
-                  {t("sources.detail.alias_help")}
+                  {t("sources.detail.alias_help")} <span class="wl-source-count">{(sourceAliases[source().sid]?.label ?? "").length}/{MAX_SOURCE_ALIAS_LENGTH}</span>
                 </div>
               </dd>
               <dt>{t("sources.detail.encoding")}</dt>
@@ -1088,6 +1120,7 @@ export function SourcesPanel() {
                   onInput={(ev) => onSourceNoteInput(source().sid, ev.currentTarget.value)}
                   onBlur={() => onSourceNoteBlur(source().sid)}
                   placeholder={t("sources.detail.notes_placeholder")}
+                  maxLength={MAX_SOURCE_NOTE_LENGTH}
                   style={{
                     width: "100%",
                     "min-height": "84px",
@@ -1096,6 +1129,7 @@ export function SourcesPanel() {
                 />
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px", display: "flex", gap: "8px", "align-items": "center", "flex-wrap": "wrap" }}>
                   <span>{t("sources.detail.notes_help")}</span>
+                  <span class="wl-source-count">{(sourceNotes[source().sid]?.text ?? "").length}/{MAX_SOURCE_NOTE_LENGTH}</span>
                   <button
                     type="button"
                     onClick={() => syncSourceNoteNow(source().sid)}

@@ -73,7 +73,7 @@ test("loads shell and shows top-bar title", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("tracemux").first()).toBeVisible();
   await expect(page.getByText(/Terminal|\u30bf\u30fc\u30df\u30ca\u30eb/).first()).toBeVisible();
-  await expect(page.getByText("Log type note sync failed; kept in this browser.")).toHaveCount(0);
+  await expect(page.getByText("Log type note sync failed; saved locally only and not on the server yet.")).toHaveCount(0);
 });
 
 test("language toggle switches between ja and en", async ({ page }) => {
@@ -143,6 +143,67 @@ test("injected data frame populates the sources panel", async ({ page }) => {
       },
   });
   await expect(page.getByRole("cell", { name: "uart-e2e" })).toBeVisible();
+});
+
+test("packet capture panel shows bounded buffer stats", async ({ page }) => {
+  // REQ: FR-UI-PCAP
+  // REQ: NFR-PERF-PCAP
+  const sid = "77777777-7777-4777-8777-777777777777";
+  await page.goto("/");
+  await waitForInject(page);
+  const packetPanel = page.locator('div.wl-panel-content[data-panel-kind="packet"]').first();
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 77,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid,
+          name: "pcap0",
+          kind: "pcap",
+          status: "running",
+          channels: [0],
+          bytes_in: 0,
+          persistent: true,
+          session_dir: "C:/logs/pcap0",
+        },
+      ],
+    },
+  });
+
+  await expect(packetPanel.getByLabel("Source")).toHaveValue(sid);
+  await expect(packetPanel.getByText("Buffer: 512")).toBeVisible();
+  await expect(packetPanel.getByText("Dropped: 0")).toBeVisible();
+
+  await injectFrame(page, {
+    type: "data",
+    seq: 78,
+    payload: {
+      ts_origin: 1_700_000_000_123_456_789,
+      ts_ingest: 1_700_000_000_223_456_789,
+      mono_ns: 42,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid,
+      ch: 0,
+      dir: "in",
+      kind: "datagram",
+      body: new Uint8Array([
+        0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55,
+        0x08, 0x00,
+      ]),
+      source: "pcap:pcap0",
+    },
+  });
+
+  await expect(packetPanel.getByText("Packets: 1")).toBeVisible();
+  await expect(packetPanel.getByRole("cell", { name: "ipv4" })).toBeVisible();
 });
 
 test("terminal toolbar changes the selected channel text encoding", async ({ page }) => {
@@ -552,6 +613,8 @@ test("settings rules and source start defaults are sent with ctl start", async (
   await waitForInject(page);
   await installClientSpy(page);
 
+  await page.getByLabel("Time zone").fill("Not/AZone");
+  await expect(page.getByText("Invalid time zone; timestamps fall back to local time.")).toBeVisible();
   await page.getByLabel("Default text encoding").selectOption("shift_jis");
   await page.getByLabel("Session name pattern").fill("{prefix}_{kind}_{iface}_{unix_ns}");
   await page.getByPlaceholder("ERROR, WARN, voltage...").fill("ERROR");
@@ -587,7 +650,7 @@ test("connection banner and unsent source command are visible", async ({ page })
   await installClientSpy(page, false);
   await setConnState(page, { status: "closed", code: 1006, reason: "lost" });
 
-  await expect(page.getByText(/Disconnected from the tracemux server/)).toBeVisible();
+  await expect(page.getByText(/Disconnected from the TraceMux server/)).toBeVisible();
   await page.getByLabel("Source spec").fill("mock://disconnected-e2e");
   await page.getByRole("button", { name: "Add source" }).click();
   await expect(page.getByText(/Request was not sent/)).toBeVisible();
@@ -618,13 +681,13 @@ test("source details expose persistence, per-source display settings, and notes"
     },
   });
 
-  await expect(page.getByLabel("COM7 Logger encoding")).toHaveValue("utf-8");
-  await page.getByLabel("COM7 Logger encoding").selectOption("cp932");
+  await expect(page.getByLabel("COM7 Logger Display encoding")).toHaveValue("utf-8");
+  await page.getByLabel("COM7 Logger Display encoding").selectOption("cp932");
   await page.getByRole("button", { name: "Details" }).click();
   await expect(page.getByText("Saved to session-dir")).toBeVisible();
   await expect(page.getByText("C:/logs/COM7-session")).toBeVisible();
-  await expect(page.getByText("Source note sync failed; kept in this browser.")).toHaveCount(0);
-  await expect(page.getByLabel("Display encoding")).toHaveValue("cp932");
+  await expect(page.getByText("Source note sync failed; saved locally only and not on the server yet.")).toHaveCount(0);
+  await expect(page.getByLabel("Display encoding", { exact: true })).toHaveValue("cp932");
 
   await page.getByLabel("Channel encoding ch 1").selectOption("shift_jis");
   await page.getByLabel("Display alias").fill("Motor COM7");
@@ -748,5 +811,5 @@ test("source note annotation sync failure is visible but non-fatal", async ({ pa
   await page.getByRole("button", { name: "Details" }).click();
   const details = page.locator("aside");
   await expect(details.getByText("Sync failed")).toBeVisible();
-  await expect(page.getByText("Source note sync failed; kept in this browser.")).toBeVisible();
+  await expect(page.getByText("Source note sync failed; saved locally only and not on the server yet.")).toBeVisible();
 });

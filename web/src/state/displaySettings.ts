@@ -3,6 +3,15 @@ import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/st
 
 export const DISPLAY_SETTINGS_STORAGE_KEY = "tracemux.displaySettings.v1";
 
+export const DISPLAY_SETTING_LIMITS = {
+  terminalScrollback: { min: 100, max: 1_000_000 },
+  tileScrollback: { min: 50, max: 100_000 },
+  terminalMaxRecords: { min: 100, max: 1_000_000 },
+  tileMaxRecords: { min: 50, max: 100_000 },
+  tileMinWidth: { min: 120, max: 1200 },
+  tileMinHeight: { min: 80, max: 900 },
+} as const;
+
 export interface DisplaySettings {
   terminalScrollback: number;
   tileScrollback: number;
@@ -49,29 +58,39 @@ export function normalizeDisplaySettings(value: unknown): DisplaySettings {
     terminalScrollback: clampInt(
       input.terminalScrollback,
       DEFAULT_DISPLAY_SETTINGS.terminalScrollback,
-      100,
-      1_000_000,
+      DISPLAY_SETTING_LIMITS.terminalScrollback.min,
+      DISPLAY_SETTING_LIMITS.terminalScrollback.max,
     ),
     tileScrollback: clampInt(
       input.tileScrollback,
       DEFAULT_DISPLAY_SETTINGS.tileScrollback,
-      50,
-      100_000,
+      DISPLAY_SETTING_LIMITS.tileScrollback.min,
+      DISPLAY_SETTING_LIMITS.tileScrollback.max,
     ),
     terminalMaxRecords: clampInt(
       input.terminalMaxRecords,
       DEFAULT_DISPLAY_SETTINGS.terminalMaxRecords,
-      100,
-      1_000_000,
+      DISPLAY_SETTING_LIMITS.terminalMaxRecords.min,
+      DISPLAY_SETTING_LIMITS.terminalMaxRecords.max,
     ),
     tileMaxRecords: clampInt(
       input.tileMaxRecords,
       DEFAULT_DISPLAY_SETTINGS.tileMaxRecords,
-      50,
-      100_000,
+      DISPLAY_SETTING_LIMITS.tileMaxRecords.min,
+      DISPLAY_SETTING_LIMITS.tileMaxRecords.max,
     ),
-    tileMinWidth: clampInt(input.tileMinWidth, DEFAULT_DISPLAY_SETTINGS.tileMinWidth, 120, 1200),
-    tileMinHeight: clampInt(input.tileMinHeight, DEFAULT_DISPLAY_SETTINGS.tileMinHeight, 80, 900),
+    tileMinWidth: clampInt(
+      input.tileMinWidth,
+      DEFAULT_DISPLAY_SETTINGS.tileMinWidth,
+      DISPLAY_SETTING_LIMITS.tileMinWidth.min,
+      DISPLAY_SETTING_LIMITS.tileMinWidth.max,
+    ),
+    tileMinHeight: clampInt(
+      input.tileMinHeight,
+      DEFAULT_DISPLAY_SETTINGS.tileMinHeight,
+      DISPLAY_SETTING_LIMITS.tileMinHeight.min,
+      DISPLAY_SETTING_LIMITS.tileMinHeight.max,
+    ),
     showTimestamp: boolOr(input.showTimestamp, DEFAULT_DISPLAY_SETTINGS.showTimestamp),
     showKind: boolOr(input.showKind, DEFAULT_DISPLAY_SETTINGS.showKind),
     showSource: boolOr(input.showSource, DEFAULT_DISPLAY_SETTINGS.showSource),
@@ -114,6 +133,13 @@ export function updateDisplaySettings(
   return next;
 }
 
+export function resetDisplaySettings(storage = browserStorage()): DisplaySettings {
+  const next = { ...DEFAULT_DISPLAY_SETTINGS };
+  setDisplaySettingsStore(next);
+  saveDisplaySettings(next, storage);
+  return next;
+}
+
 function nsToDate(tsNs: bigint | number): Date {
   if (typeof tsNs === "bigint") {
     return new Date(Number(tsNs / 1_000_000n));
@@ -133,6 +159,18 @@ function parseGmtOffsetMinutes(timezone: string): number | null {
   if (hours > 14 || minutes > 59) return null;
   const sign = signToken === "+" ? 1 : -1;
   return sign * (hours * 60 + minutes);
+}
+
+export function isValidDisplayTimezone(value: string): boolean {
+  const timezone = value.trim();
+  if (!timezone || timezone === "local") return true;
+  if (parseGmtOffsetMinutes(timezone) !== null) return true;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function formatDateTime(date: Date, timezone: string | undefined): string {

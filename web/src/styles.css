@@ -48,9 +48,19 @@ button:hover {
   border-color: var(--wl-accent);
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--wl-accent);
+  outline-offset: 2px;
+}
+
 button:disabled {
-  cursor: default;
-  opacity: 0.48;
+  cursor: not-allowed;
+  opacity: 0.62;
+  border-color: var(--wl-border);
+  color: var(--wl-fg-muted);
 }
 
 .wl-app {
@@ -188,6 +198,23 @@ button:disabled {
 .wl-settings-row select {
   min-width: 160px;
 }
+.wl-settings-help {
+  color: var(--wl-fg-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.wl-settings-error {
+  color: var(--wl-error);
+}
+.wl-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.wl-field-error {
+  border-color: var(--wl-error) !important;
+}
 
 .wl-serial-detect {
   border: 1px solid var(--wl-border);
@@ -244,6 +271,23 @@ button:disabled {
 .wl-source-actions select {
   max-width: 112px;
 }
+.wl-source-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -2px 0 10px;
+  padding: 6px 8px;
+  border: 1px solid rgba(210, 153, 34, 0.45);
+  border-radius: 6px;
+  background: rgba(210, 153, 34, 0.1);
+  color: var(--wl-fg);
+}
+.wl-source-pending-item,
+.wl-source-count {
+  color: var(--wl-fg-muted);
+  font-size: 12px;
+}
 .wl-serial-candidate {
   display: inline-flex;
   align-items: center;
@@ -268,6 +312,11 @@ button:disabled {
   gap: 8px;
   flex-wrap: wrap;
 }
+.wl-packet-stat {
+  color: var(--wl-fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
 .wl-panel-kind-packet .wl-packet-toolbar,
 .wl-panel-kind-terminal .wl-terminal-toolbar,
 .wl-panel-kind-tiles .wl-tile-toolbar {
@@ -285,7 +334,8 @@ button:disabled {
 }
 .wl-terminal-field,
 .wl-terminal-send,
-.wl-terminal-actions {
+.wl-terminal-actions,
+.wl-terminal-connection {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -309,7 +359,24 @@ button:disabled {
 }
 .wl-terminal-toolbar select:disabled,
 .wl-terminal-toolbar input:disabled {
-  opacity: 0.55;
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+.wl-terminal-connection {
+  color: var(--wl-fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.wl-terminal-connection-open {
+  color: var(--wl-ok);
+}
+.wl-terminal-connection-connecting,
+.wl-terminal-connection-idle {
+  color: var(--wl-warn);
+}
+.wl-terminal-connection-closed,
+.wl-terminal-connection-error {
+  color: var(--wl-error);
 }
 .wl-terminal-source-select {
   max-width: 220px;

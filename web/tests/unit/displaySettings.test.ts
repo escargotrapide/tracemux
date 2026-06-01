@@ -3,8 +3,10 @@ import {
   DEFAULT_DISPLAY_SETTINGS,
   DISPLAY_SETTINGS_STORAGE_KEY,
   formatTimestampNs,
+  isValidDisplayTimezone,
   loadDisplaySettings,
   normalizeDisplaySettings,
+  resetDisplaySettings,
   saveDisplaySettings,
   updateDisplaySettings,
 } from "../../src/state/displaySettings";
@@ -72,6 +74,19 @@ describe("display settings", () => {
     const updated = updateDisplaySettings({ tileMinWidth: 333 }, storage);
     expect(updated.tileMinWidth).toBe(333);
     expect(loadDisplaySettings(storage).tileMinWidth).toBe(333);
+
+    const reset = resetDisplaySettings(storage);
+    expect(reset).toEqual(DEFAULT_DISPLAY_SETTINGS);
+    expect(loadDisplaySettings(storage)).toEqual(DEFAULT_DISPLAY_SETTINGS);
+  });
+
+  it("validates supported time zone inputs", () => {
+    // REQ: FR-UI-014
+    expect(isValidDisplayTimezone("local")).toBe(true);
+    expect(isValidDisplayTimezone("UTC")).toBe(true);
+    expect(isValidDisplayTimezone("Asia/Tokyo")).toBe(true);
+    expect(isValidDisplayTimezone("GMT+09:00")).toBe(true);
+    expect(isValidDisplayTimezone("Not/AZone")).toBe(false);
   });
 
   it("formats UTC and GMT offset timestamps", () => {

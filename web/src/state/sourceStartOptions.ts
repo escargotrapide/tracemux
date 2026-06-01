@@ -101,6 +101,13 @@ export function updateSourceStartOptions(
   return next;
 }
 
+export function resetSourceStartOptions(storage = browserStorage()): SourceStartOptions {
+  const next = { ...DEFAULT_SOURCE_START_OPTIONS };
+  setSourceStartOptionsStore(next);
+  saveSourceStartOptions(next, storage);
+  return next;
+}
+
 export function startCtlOptions(
   options: SourceStartOptions = sourceStartOptionsStore,
 ): StartCtlOptions {
