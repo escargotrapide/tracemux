@@ -153,6 +153,55 @@ test("injected data frame populates the sources panel", async ({ page }) => {
   await expect(page.getByRole("cell", { name: "uart-e2e" })).toBeVisible();
 });
 
+test("multi-channel source lets the user pick which channel opens", async ({ page }) => {
+  // REQ: FR-UI-008
+  const sid = "44444444-4444-4444-8444-444444444444";
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 44,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid,
+          name: "multi-ch",
+          kind: "tcp",
+          status: "running",
+          channels: [0, 1, 2],
+          bytes_in: 0,
+        },
+      ],
+    },
+  });
+
+  const row = page.getByRole("row").filter({ hasText: "multi-ch" });
+  await expect(row.getByRole("cell", { name: "multi-ch" })).toBeVisible();
+
+  // A channel selector appears only because the source exposes >1 channel.
+  const channelSelect = row.getByLabel(/Channel to open|開くチャンネル/);
+  await expect(channelSelect).toBeVisible();
+  await expect(channelSelect.getByRole("option")).toHaveCount(3);
+
+  // The open buttons default to the first channel.
+  await expect(row.getByRole("button", { name: /Open terminal ch 0|端末で開く ch 0/ })).toBeVisible();
+
+  // Choosing channel 2 updates both open actions to target it.
+  await channelSelect.selectOption("2");
+  await expect(
+    row.getByRole("button", { name: /Open terminal ch 2|端末で開く ch 2/ }),
+  ).toBeVisible();
+  await expect(
+    row.getByRole("button", { name: /New terminal ch 2|新規端末 ch 2/ }),
+  ).toBeVisible();
+
+  // Opening the terminal routes the chosen channel; the confirmation toast
+  // reflects the selected channel rather than the default first channel.
+  await row.getByRole("button", { name: /Open terminal ch 2|端末で開く ch 2/ }).click();
+  await expect(page.getByText(/\(ch 2\)/)).toBeVisible();
+});
+
 test("packet capture panel shows bounded buffer stats", async ({ page }) => {
   // REQ: FR-UI-PCAP
   // REQ: NFR-PERF-PCAP

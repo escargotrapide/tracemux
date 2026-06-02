@@ -132,16 +132,35 @@ function statusLabel(status: string): string {
   return t(`sources.status.${status}`);
 }
 
-function onOpenTerminal(sid: string, channels: number[]): void {
-  const ch = channels[0] ?? 0;
-  openTerminalChannel(sid, ch);
-  pushToast({ level: "info", message: t("sources.open_terminal.requested") });
+// Per-source channel chosen for the next "open terminal" action. Defaults to
+// the source's first channel; only surfaced in the UI when a source exposes
+// more than one channel so single-channel sources stay one-click.
+const [openChannelSelection, setOpenChannelSelection] = createSignal<Record<string, number>>({});
+
+function selectedOpenChannel(sid: string, channels: number[]): number {
+  const chosen = openChannelSelection()[sid];
+  if (chosen !== undefined && channels.includes(chosen)) return chosen;
+  return channels[0] ?? 0;
 }
 
-function onOpenNewTerminal(sid: string, channels: number[]): void {
-  const ch = channels[0] ?? 0;
+function setSelectedOpenChannel(sid: string, ch: number): void {
+  setOpenChannelSelection((prev) => ({ ...prev, [sid]: ch }));
+}
+
+function onOpenTerminal(sid: string, ch: number): void {
+  openTerminalChannel(sid, ch);
+  pushToast({
+    level: "info",
+    message: `${t("sources.open_terminal.requested")} (ch ${ch})`,
+  });
+}
+
+function onOpenNewTerminal(sid: string, ch: number): void {
   openNewTerminalChannel(sid, ch);
-  pushToast({ level: "info", message: t("sources.open_terminal.new_requested") });
+  pushToast({
+    level: "info",
+    message: `${t("sources.open_terminal.new_requested")} (ch ${ch})`,
+  });
 }
 
 function sourceTextEncodingFallback(sid: string): string {
@@ -985,19 +1004,45 @@ export function SourcesPanel() {
                     >
                       {t("sources.action.details")}
                     </button>{" "}
+                    <Show when={s.channels.length > 1}>
+                      <select
+                        class="wl-source-channel-select"
+                        aria-label={`${s.name} ${t("sources.action.select_channel")}`}
+                        title={t("sources.action.select_channel")}
+                        value={selectedOpenChannel(s.sid, s.channels)}
+                        onChange={(ev) =>
+                          setSelectedOpenChannel(s.sid, Number(ev.currentTarget.value))
+                        }
+                      >
+                        <For each={s.channels}>
+                          {(channel) => <option value={channel}>ch {channel}</option>}
+                        </For>
+                      </select>{" "}
+                    </Show>
                     <button
                       type="button"
-                      onClick={() => onOpenTerminal(s.sid, s.channels)}
-                      title={`${t("sources.action.open_terminal_first_channel")} ch ${s.channels[0] ?? 0}`}
+                      onClick={() => onOpenTerminal(s.sid, selectedOpenChannel(s.sid, s.channels))}
+                      title={`${
+                        s.channels.length > 1
+                          ? t("sources.action.open_terminal_selected_channel")
+                          : t("sources.action.open_terminal_first_channel")
+                      } ch ${selectedOpenChannel(s.sid, s.channels)}`}
                     >
-                      {t("sources.action.open_terminal")} ch {s.channels[0] ?? 0}
+                      {t("sources.action.open_terminal")} ch {selectedOpenChannel(s.sid, s.channels)}
                     </button>{" "}
                     <button
                       type="button"
-                      onClick={() => onOpenNewTerminal(s.sid, s.channels)}
-                      title={`${t("sources.action.open_new_terminal_first_channel")} ch ${s.channels[0] ?? 0}`}
+                      onClick={() =>
+                        onOpenNewTerminal(s.sid, selectedOpenChannel(s.sid, s.channels))
+                      }
+                      title={`${
+                        s.channels.length > 1
+                          ? t("sources.action.open_new_terminal_selected_channel")
+                          : t("sources.action.open_new_terminal_first_channel")
+                      } ch ${selectedOpenChannel(s.sid, s.channels)}`}
                     >
-                      {t("sources.action.open_new_terminal")} ch {s.channels[0] ?? 0}
+                      {t("sources.action.open_new_terminal")} ch{" "}
+                      {selectedOpenChannel(s.sid, s.channels)}
                     </button>{" "}
                     <button
                       type="button"
