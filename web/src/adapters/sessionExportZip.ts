@@ -33,6 +33,7 @@ export interface SessionExportZipOptions {
   timestamp?: Date | number | string | undefined;
   fetchExportBlob?: ((sid: string, options: SessionExportOptions) => Promise<Blob>) | undefined;
   onProgress?: ((progress: SessionExportZipProgress) => void) | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 export interface SessionExportZipResult {
@@ -108,6 +109,13 @@ function sessionExportBundleDownloadUrl(ticket: string): string {
   return url.toString();
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  const err = new Error("export aborted");
+  err.name = "AbortError";
+  throw err;
+}
+
 async function requestSessionExportBundleTicket(
   entries: SessionExportZipEntry[],
   options: SessionExportZipOptions,
@@ -129,11 +137,13 @@ async function requestSessionExportBundleTicket(
     ...(timezone ? { tz: timezone } : {}),
     ...(filenamePattern ? { filename_pattern: filenamePattern } : {}),
   };
-  const response = await fetch(sessionExportBundleTicketUrl(), {
+  const requestInit: RequestInit = {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-  });
+  };
+  if (options.signal) requestInit.signal = options.signal;
+  const response = await fetch(sessionExportBundleTicketUrl(), requestInit);
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new Error(detail || `bundle export ticket failed: HTTP ${response.status}`);
@@ -324,6 +334,7 @@ export async function createSessionExportZip(
   const entryNames: string[] = [];
 
   for (const [index, entry] of entries.entries()) {
+    throwIfAborted(options.signal);
     const exportOptions: SessionExportOptions = {
       format: options.format,
       timestamp,
@@ -333,6 +344,7 @@ export async function createSessionExportZip(
       ...(entry.sourceName !== undefined ? { sourceName: entry.sourceName } : {}),
     };
     const blob = await fetchExportBlob(entry.sid, exportOptions);
+    throwIfAborted(options.signal);
     const filename = renderSessionExportFilename(options.filenamePattern, {
       sid: entry.sid,
       format: options.format,
@@ -365,8 +377,10 @@ export async function downloadSessionExportZip(
   options: SessionExportZipOptions,
 ): Promise<SessionExportZipResult> {
   if (entries.length === 0) throw new Error("no persisted sources to export");
+  throwIfAborted(options.signal);
   const timestamp = timestampDate(options.timestamp);
   const { ticket } = await requestSessionExportBundleTicket(entries, options, timestamp);
+  throwIfAborted(options.signal);
   const filename = sessionExportZipFilename(options.format, timestamp);
   const url = sessionExportBundleDownloadUrl(ticket);
   downloadUrl(url, filename);

@@ -328,7 +328,7 @@ pub async fn run_with_session_root_classifier_encoding_pattern_startup_and_optio
             %fingerprint,
             "tracemux-server: listening (HTTPS/WSS)"
         );
-        axum_server::from_tcp_rustls(listener, config)
+        axum_server::from_tcp_rustls(listener, config)?
             .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await?;
     } else {

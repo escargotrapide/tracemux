@@ -470,8 +470,10 @@ Implementation notes:
 - Apply snaplen, promisc, timeout, buffer size, and BPF before activation.
 - Read backend statistics for kernel drops.
 - Convert backend timestamps to `ts_origin_ns` carefully.
-- Return `E-1101` for missing driver, missing permission, invalid interface, and
-  invalid BPF filter where appropriate.
+- Return pcap-specific source-open IDs when classification is possible:
+  `E-1103` backend unavailable, `E-1104` permission denied, `E-1105` invalid
+  BPF filter, `E-1106` interface unavailable, and `E-1101` for unclassified
+  source-open failures.
 
 Tests:
 

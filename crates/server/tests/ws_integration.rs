@@ -424,6 +424,7 @@ async fn ctl_unknown_stop_and_remove_return_errors() {
         assert_eq!(got.seq, seq);
         assert_eq!(payload_str(&got.payload, "event"), Some("error"));
         assert_eq!(payload_str(&got.payload, "error_id"), Some("E-2001"));
+        assert_eq!(payload_str(&got.payload, "sid"), Some(sid.as_str()));
     }
 }
 
@@ -585,6 +586,10 @@ async fn write_frame_to_unknown_sid_returns_ctl_error() {
     assert_eq!(got.seq, 72);
     assert_eq!(payload_str(&got.payload, "event"), Some("error"));
     assert_eq!(payload_str(&got.payload, "error_id"), Some("E-2001"));
+    assert_eq!(
+        payload_str(&got.payload, "sid"),
+        Some(sid.to_string().as_str())
+    );
 }
 
 // REQ: FR-WIRE-001

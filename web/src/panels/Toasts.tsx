@@ -4,6 +4,7 @@
 
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { t } from "~/i18n";
+import { errorRunbookPath, errorRunbookUrl } from "~/state/errorRunbooks";
 import {
   clearNotificationHistory,
   dismissAllToasts,
@@ -18,6 +19,30 @@ function formatNotificationTime(ts: number): string {
     minute: "2-digit",
     second: "2-digit",
   });
+}
+
+function ErrorIdWithRunbook(props: { errorId: string }) {
+  const path = () => errorRunbookPath(props.errorId);
+  const url = () => errorRunbookUrl(props.errorId);
+
+  return (
+    <>
+      <span class="wl-error-id"> ({props.errorId})</span>
+      <Show when={url()}>
+        {(href) => (
+          <a
+            class="wl-error-runbook"
+            href={href()}
+            target="_blank"
+            rel="noreferrer"
+            title={path()}
+          >
+            {t("notifications.runbook")}
+          </a>
+        )}
+      </Show>
+    </>
+  );
 }
 
 export function Toasts() {
@@ -89,7 +114,7 @@ export function Toasts() {
                       <span class="wl-notification-message">
                         {item.message}
                         <Show when={item.errorId}>
-                          {(errorId) => <span class="wl-error-id"> ({errorId()})</span>}
+                          {(errorId) => <ErrorIdWithRunbook errorId={errorId()} />}
                         </Show>
                       </span>
                     </li>
@@ -107,7 +132,7 @@ export function Toasts() {
               <span class="wl-toast-message">
                 {item.message}
                 <Show when={item.errorId}>
-                  {(errorId) => <span class="wl-error-id"> ({errorId()})</span>}
+                  {(errorId) => <ErrorIdWithRunbook errorId={errorId()} />}
                 </Show>
                 <Show when={item.count > 1}>
                   <span class="wl-toast-count"> x{item.count}</span>

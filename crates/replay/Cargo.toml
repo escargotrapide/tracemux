@@ -12,7 +12,7 @@ description = "tracemux session-dir replay engine"
 workspace = true
 
 [dependencies]
-tracemux-core = { path = "../core" }
+tracemux-core = { path = "../core", version = "0.1.0-dev" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }

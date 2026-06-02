@@ -8,7 +8,13 @@ all-features = false
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
-ignore = []
+ignore = [
+    # keyring 2.x -> secret-service/zbus transitively pulls derivative and instant.
+    # Both advisories have no safe upgrade path in-place; revisit when moving keyring
+    # to a newer major version and revalidating OS keyring behavior.
+    "RUSTSEC-2024-0388", # derivative unmaintained
+    "RUSTSEC-2024-0384", # instant unmaintained
+]
 
 [licenses]
 allow = [

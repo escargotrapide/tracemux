@@ -51,6 +51,10 @@ encoding-fix:
 test:
     cargo test --workspace --features {{ci-safe-features}}
 
+# Driver-free runtime smoke: virtual peer TCP -> server WSS -> session-dir -> export.
+local-smoke:
+    cargo test -p tracemux-virt-peer --test tcp_wss_e2e
+
 # ---- Security -------------------------------------------------------------
 
 audit:
@@ -75,12 +79,12 @@ mutants:
 
 fuzz-smoke:
     @echo "Smoke-fuzzing each target for 60s"
-    cargo +nightly fuzz run --release telnet_iac -- -max_total_time=60 || true
-    cargo +nightly fuzz run --release vt_escape  -- -max_total_time=60 || true
-    cargo +nightly fuzz run --release index_jsonl -- -max_total_time=60 || true
-    cargo +nightly fuzz run --release wire_proto -- -max_total_time=60 || true
-    cargo +nightly fuzz run --release framer    -- -max_total_time=60 || true
-    cargo +nightly fuzz run --release decoder   -- -max_total_time=60 || true
+    cargo +nightly fuzz run --manifest-path crates/fuzz/Cargo.toml --release telnet_iac -- -max_total_time=60 || true
+    cargo +nightly fuzz run --manifest-path crates/fuzz/Cargo.toml --release vt_escape  -- -max_total_time=60 || true
+    cargo +nightly fuzz run --manifest-path crates/fuzz/Cargo.toml --release index_jsonl -- -max_total_time=60 || true
+    cargo +nightly fuzz run --manifest-path crates/fuzz/Cargo.toml --release wire_proto -- -max_total_time=60 || true
+    cargo +nightly fuzz run --manifest-path crates/fuzz/Cargo.toml --release framer    -- -max_total_time=60 || true
+    cargo +nightly fuzz run --manifest-path crates/fuzz/Cargo.toml --release decoder   -- -max_total_time=60 || true
 
 # ---- Docs / Schema / RTM --------------------------------------------------
 
@@ -107,6 +111,18 @@ e2e:
 [unix]
 e2e:
     pnpm --filter ./web e2e
+
+# Driver-free GUI smoke: build the CLI + virtual peer, then drive the live UI
+# against a real server + TCP peer (browser -> WSS -> source -> xterm render).
+[windows]
+gui-smoke:
+    cargo build -p tracemux-cli -p tracemux-virt-peer
+    pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/pnpm.ps1 --filter ./web e2e:realbackend
+
+[unix]
+gui-smoke:
+    cargo build -p tracemux-cli -p tracemux-virt-peer
+    pnpm --filter ./web e2e:realbackend
 
 # ---- Internal helpers (platform-split) ------------------------------------
 

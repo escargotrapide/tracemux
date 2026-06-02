@@ -69,6 +69,14 @@ async function sentFrames(page: Page): Promise<unknown[]> {
   );
 }
 
+async function clearSentFrames(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const frames = (window as unknown as { __tracemuxSentFrames?: unknown[] })
+      .__tracemuxSentFrames;
+    if (frames) frames.length = 0;
+  });
+}
+
 test("loads shell and shows top-bar title", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("tracemux").first()).toBeVisible();
@@ -505,8 +513,8 @@ test("source detail export button calls the HTTP export API", async ({ page }) =
 
   await expect(page.getByRole("cell", { name: "Export Source" })).toBeVisible();
   await page.getByRole("button", { name: "Details" }).click();
-  await page.getByLabel("Export timezone").fill("GMT+9");
-  await page.getByLabel("Export filename pattern").fill("{source}_{timestamp}.{ext}");
+  await page.getByLabel("Shared export timezone").last().fill("GMT+9");
+  await page.getByLabel("Shared export filename pattern").last().fill("{source}_{timestamp}.{ext}");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download text" }).click();
   const download = await downloadPromise;
@@ -516,6 +524,47 @@ test("source detail export button calls the HTTP export API", async ({ page }) =
   expect(exportUrl).toContain("tz=GMT%2B9");
   expect(await download.failure()).toBeNull();
   await expect(page.getByText("Export download requested")).toBeVisible();
+});
+
+test("source detail shows recent source lifecycle errors", async ({ page }) => {
+  // REQ: FR-UI-009
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 18,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "99999999-9999-4999-8999-999999999999",
+          name: "Faulty Source",
+          kind: "serial",
+          status: "stopped",
+          channels: [0],
+          bytes_in: 0,
+          persistent: false,
+        },
+      ],
+    },
+  });
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 19,
+    payload: {
+      event: "error",
+      sid: "99999999-9999-4999-8999-999999999999",
+      message: "source restart failed: access denied",
+      error_id: "E-1104",
+    },
+  });
+
+  await expect(page.getByRole("cell", { name: "Faulty Source" })).toBeVisible();
+  await page.getByRole("button", { name: "Details" }).click();
+  await expect(page.getByText("Recent errors")).toBeVisible();
+  const errorHistory = page.locator(".wl-source-error-history");
+  await expect(errorHistory).toContainText("source restart failed: access denied");
+  await expect(errorHistory).toContainText("E-1104");
 });
 
 test("source panel can bulk export all persisted sources as one zip", async ({ page }) => {
@@ -587,7 +636,7 @@ test("source panel can bulk export all persisted sources as one zip", async ({ p
     },
   });
 
-  await page.getByLabel("All sources timezone").fill("UTC");
+  await page.getByLabel("Shared export timezone").fill("UTC");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Zip all text" }).click();
   const download = await downloadPromise;
@@ -605,6 +654,54 @@ test("source panel can bulk export all persisted sources as one zip", async ({ p
   expect(bundleDownloadUrl).toContain("/api/exports/bundle?ticket=bundle-ticket");
   expect(await download.failure()).toBeNull();
   await expect(page.getByText(/Bulk export ZIP download requested/)).toBeVisible();
+});
+
+test("source panel can cancel an in-flight bulk export", async ({ page }) => {
+  // REQ: FR-UI-018
+  let releaseBundleTicket: (() => void) | undefined;
+  await page.route("http://127.0.0.1:9000/api/exports/bundle-ticket", async (route) => {
+    await new Promise<void>((resolve) => {
+      releaseBundleTicket = resolve;
+    });
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ticket: "cancelled-bundle-ticket",
+        expires_in_ms: 60_000,
+        expires_at_ms: 1_780_134_200_000,
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 21,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          name: "Cancellable Bulk",
+          kind: "tcp",
+          status: "stopped",
+          channels: [0],
+          bytes_in: 128,
+          persistent: true,
+          session_dir: "C:/tmp/cancellable-bulk",
+        },
+      ],
+    },
+  });
+
+  await page.getByRole("button", { name: "Zip all text" }).click();
+  await expect(page.getByText(/Preparing ZIP download TEXT 0\/1/)).toBeVisible();
+  await page.getByRole("button", { name: "Cancel export" }).click();
+  releaseBundleTicket?.();
+  await expect(page.getByText("Bulk export cancelled")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Zip all text" })).toBeEnabled();
 });
 
 test("settings rules and source start defaults are sent with ctl start", async ({ page }) => {
@@ -654,6 +751,113 @@ test("connection banner and unsent source command are visible", async ({ page })
   await page.getByLabel("Source spec").fill("mock://disconnected-e2e");
   await page.getByRole("button", { name: "Add source" }).click();
   await expect(page.getByText(/Request was not sent/)).toBeVisible();
+});
+
+test("reconnect replays source list request and active channel subscription", async ({ page }) => {
+  // REQ: FR-UI-009
+  // REQ: FR-UI-011
+  const sid = "99999999-9999-4999-8999-999999999999";
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page);
+
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 9,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid,
+          name: "pcap-reconnect",
+          kind: "pcap",
+          status: "running",
+          channels: [0],
+          bytes_in: 0,
+          persistent: true,
+          session_dir: "C:/logs/pcap-reconnect",
+        },
+      ],
+    },
+  });
+
+  await expect
+    .poll(async () => {
+      const frames = await sentFrames(page);
+      return frames.some((frame) => {
+        const candidate = frame as { type?: string; sid?: string; ch?: number };
+        return candidate.type === "sub" && candidate.sid === sid && candidate.ch === 0;
+      });
+    })
+    .toBe(true);
+
+  await clearSentFrames(page);
+  await setConnState(page, { status: "closed", code: 1006, reason: "lost" });
+  await setConnState(page, { status: "open", since: Date.now() });
+
+  const frames = await sentFrames(page);
+  expect(frames).toContainEqual({ type: "ctl", payload: { action: "list" } });
+  expect(frames).toContainEqual({ type: "sub", sid, ch: 0, payload: {} });
+});
+
+test("source list stays usable with 1000 live sources", async ({ page }) => {
+  // REQ: FR-UI-008
+  // REQ: NFR-PERF-001
+  const sourceCount = 1000;
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page);
+
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 1000,
+    payload: {
+      event: "sources",
+      sources: Array.from({ length: sourceCount }, (_, sourceIndex) => {
+        const suffix = sourceIndex.toString().padStart(4, "0");
+        return {
+          sid: `00000000-0000-4000-8000-${sourceIndex.toString().padStart(12, "0")}`,
+          name: `source-${suffix}`,
+          kind: sourceIndex % 10 === 0 ? "pcap" : "mock",
+          status: sourceIndex % 5 === 0 ? "stopped" : "running",
+          channels: [0],
+          bytes_in: sourceIndex * 64,
+          persistent: sourceIndex % 3 === 0,
+          session_dir: `C:/logs/source-${suffix}`,
+        };
+      }),
+    },
+  });
+
+  const sourceRows = page.locator(".wl-sources-table tbody tr");
+  await expect(sourceRows).toHaveCount(sourceCount, { timeout: 10_000 });
+  await expect(page.getByRole("cell", { name: "source-0999" })).toBeVisible();
+  await expect(page.locator(".wl-tile")).toHaveCount(16);
+
+  await expect
+    .poll(async () => {
+      const frames = await sentFrames(page);
+      return new Set(
+        frames
+          .filter((frame) => {
+            const candidate = frame as { type?: string; sid?: string; ch?: number };
+            return candidate.type === "sub" && candidate.sid && candidate.ch === 0;
+          })
+          .map((frame) => (frame as { sid: string; ch: number }).sid),
+      ).size;
+    })
+    .toBe(16);
+
+  await expect
+    .poll(() => page.evaluate(async () => {
+      const { __flushUiPerfForTest } = await import("/src/state/index.ts");
+      return __flushUiPerfForTest().sourceSyncs;
+    }))
+    .toBeGreaterThanOrEqual(1);
+
+  await page.getByLabel("Search sources").fill("source-0999");
+  await expect(sourceRows).toHaveCount(1);
+  await expect(page.getByRole("cell", { name: "source-0999" })).toBeVisible();
 });
 
 test("source details expose persistence, per-source display settings, and notes", async ({ page }) => {

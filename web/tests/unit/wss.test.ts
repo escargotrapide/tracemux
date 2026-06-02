@@ -140,7 +140,7 @@ describe("resolveTraceMuxUrl", () => {
     ws?.open();
     ws?.receive(new Uint8Array([0x81]).buffer);
 
-    expect(errors).toContain("E-UI-0010");
+    expect(errors).toContain("E-4001");
   });
 
   it("emits protocol errors for unsupported frame types", () => {
@@ -157,7 +157,7 @@ describe("resolveTraceMuxUrl", () => {
     ws?.open();
     ws?.receive(packed({ type: "future_frame", seq: 1, payload: {} }));
 
-    expect(errors).toContain("E-UI-0010:Unsupported WSS frame ignored");
+    expect(errors).toContain("E-4001:Unsupported WSS frame ignored");
     expect(frames).toEqual([]);
   });
 
@@ -175,7 +175,7 @@ describe("resolveTraceMuxUrl", () => {
     ws?.open();
     ws?.receive(packed({ type: "metrics", seq: 1 }));
 
-    expect(errors).toContain("E-UI-0010:Malformed WSS frame ignored");
+    expect(errors).toContain("E-4001:Malformed WSS frame ignored");
     expect(frames).toEqual([]);
   });
 });

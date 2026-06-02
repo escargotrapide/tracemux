@@ -19,7 +19,7 @@ Example package build:
 cargo build -p tracemux-cli --features pcap-capture
 ```
 
-When the feature is disabled, opening a `pcap://...` source fails with `E-1101`
+When the feature is disabled, opening a `pcap://...` source fails with `E-1103`
 and a message that the backend is not available in this build.
 
 The default `just ai-verify` gate intentionally excludes `pcap-capture` because
@@ -51,6 +51,22 @@ cargo test -p tracemux-core --features pcap-capture -- --ignored native_backend_
 Use `/api/detect` from a feature-enabled server to discover candidate device
 names. The detect payload intentionally omits interface addresses until the
 security policy for authenticated discovery is finalized.
+
+## Failure-path checks
+
+Validate these paths before treating a packet-capture build as operator-ready:
+
+| Scenario | How to trigger | Expected operator signal |
+| --- | --- | --- |
+| Feature disabled | Run a default build and open `pcap://NoSuchInterface`. | `E-1103` with `pcap capture backend is not available in this build; enable the pcap-capture feature`. |
+| Interface not found | Use a feature-enabled build with a name not returned by `/api/detect`. | `E-1106` with `creating pcap capture` or `activating pcap capture` context. |
+| Driver or library missing | Use a feature-enabled build on a machine without Npcap/libpcap runtime support. | `E-1103` if the backend is unavailable, otherwise `E-1101` with the backend error from Npcap/libpcap. |
+| Permission denied | Select a valid interface from an account without capture rights. | `E-1104` with an activation/opening error; grant capture privileges or rerun from an approved account. |
+| Invalid BPF filter | Set `TRACEMUX_PCAP_TEST_FILTER` or a URI `filter` to invalid BPF syntax. | `E-1105` with `applying pcap BPF filter` context; correct or remove the filter. |
+
+The WSS control path returns the full source-start cause chain to the UI. The
+notification history should include both the high-level `source start failed`
+message and the actionable backend/filter/interface cause.
 
 ## Linux / libpcap
 

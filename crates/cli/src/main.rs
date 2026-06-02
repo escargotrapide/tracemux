@@ -4,7 +4,7 @@
 //! replay | extcap | import | export | ai-verify | json-schema`.
 
 use clap::{Parser, Subcommand};
-use tracemux_core::config::schema_v1::ConfigV1;
+use tracemux_core::config::{migrate::migrate_config_to_latest, schema_v1::ConfigV1};
 use tracemux_server::{
     run_with_session_root_classifier_encoding_pattern_startup_and_options as run_server_with_options,
     ServerRunOptions,
@@ -420,15 +420,8 @@ fn load_serve_config(path: Option<&std::path::Path>) -> anyhow::Result<Option<Co
     };
     let body = std::fs::read_to_string(path)
         .map_err(|err| anyhow::anyhow!("reading config {}: {err}", path.display()))?;
-    let config: ConfigV1 = toml::from_str(&body)
+    let config = migrate_config_to_latest(&body)
         .map_err(|err| anyhow::anyhow!("parsing config {}: {err}", path.display()))?;
-    if config.config_version != 1 {
-        anyhow::bail!(
-            "unsupported config_version {} in {}; expected 1",
-            config.config_version,
-            path.display()
-        );
-    }
     Ok(Some(config))
 }
 

@@ -40,6 +40,16 @@ export interface SourceInfo {
   detection?: DetectionReportPayload | undefined;
 }
 
+export interface SourceErrorInfo {
+  id: number;
+  sid: string;
+  level: "warn" | "error";
+  event: string;
+  message: string;
+  errorId?: string;
+  ts: number;
+}
+
 export interface ChannelKey {
   sid: string;
   ch: number;
@@ -72,6 +82,7 @@ export interface UiPerfSnapshot {
 
 const [conn, setConn] = createSignal<ConnState>({ status: "idle" });
 const [sources, setSources] = createStore<Record<string, SourceInfo>>({});
+const [sourceErrorHistory, setSourceErrorHistory] = createStore<Record<string, SourceErrorInfo[]>>({});
 const [metrics, setMetrics] = createSignal<MetricsPayload | null>(null);
 const [terminalChannelState, setTerminalChannelState] = createSignal<ChannelKey | null>(null);
 const [terminalFocusRequestState, setTerminalFocusRequestState] =
@@ -132,6 +143,7 @@ const [toasts, setToasts] = createStore<ToastInfo[]>([]);
 const [notificationHistory, setNotificationHistory] = createStore<NotificationInfo[]>([]);
 const MAX_TOASTS = 4;
 const MAX_NOTIFICATION_HISTORY = 128;
+const MAX_SOURCE_ERROR_HISTORY = 8;
 const DUPLICATE_TOAST_WINDOW_MS = 2_000;
 const TOAST_TTL_MS: Record<ToastInfo["level"], number> = {
   info: 3_000,
@@ -139,6 +151,7 @@ const TOAST_TTL_MS: Record<ToastInfo["level"], number> = {
   error: 8_000,
 };
 let toastSeq = 1;
+let sourceErrorSeq = 1;
 const toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
 uiPerfCounters.maxToasts = MAX_TOASTS;
@@ -341,36 +354,62 @@ function upsertSourceStatus(
 function removeSource(sid: string): void {
   clearChannelFrames(sid);
   setSources(sid, undefined as unknown as SourceInfo);
+  setSourceErrorHistory(sid, undefined as unknown as SourceErrorInfo[]);
+}
+
+function recordSourceError(
+  sid: string | undefined,
+  level: SourceErrorInfo["level"],
+  event: string,
+  message: string | undefined,
+  errorId: string | undefined,
+): void {
+  if (!sid) return;
+  const entry: SourceErrorInfo = {
+    id: sourceErrorSeq++,
+    sid,
+    level,
+    event,
+    message: message ?? event,
+    ...(errorId ? { errorId } : {}),
+    ts: Date.now(),
+  };
+  setSourceErrorHistory(sid, (prev: SourceErrorInfo[] | undefined) => [
+    entry,
+    ...(prev ?? []),
+  ].slice(0, MAX_SOURCE_ERROR_HISTORY));
 }
 
 function syncSources(items: SourceSyncPayload[]): void {
   recordUiPerf((p) => {
     p.sourceSyncs += 1;
   });
-  const seen = new Set<string>();
-  for (const item of items) {
-    if (!item.sid) continue;
-    seen.add(item.sid);
-    const existing = sources[item.sid];
-    setSources(item.sid, {
-      sid: item.sid,
-      name: item.name ?? existing?.name ?? item.sid.slice(0, 8),
-      kind: item.kind ?? existing?.kind ?? "unknown",
-      status: item.status ?? existing?.status ?? "unknown",
-      channels: item.channels && item.channels.length > 0 ? item.channels : existing?.channels ?? [0],
-      lastTsMs: item.last_ts_ms ?? existing?.lastTsMs ?? 0,
-      bytesIn: item.bytes_in ?? existing?.bytesIn ?? 0,
-      persistent: item.persistent ?? existing?.persistent,
-      sessionDir: item.session_dir ?? existing?.sessionDir,
-      decoder: item.decoder ?? existing?.decoder,
-      encoding: item.encoding ?? existing?.encoding,
-      detectionMode: item.detection_mode ?? existing?.detectionMode,
-      detection: item.detection ?? existing?.detection,
+  batch(() => {
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (!item.sid) continue;
+      seen.add(item.sid);
+      const existing = sources[item.sid];
+      setSources(item.sid, {
+        sid: item.sid,
+        name: item.name ?? existing?.name ?? item.sid.slice(0, 8),
+        kind: item.kind ?? existing?.kind ?? "unknown",
+        status: item.status ?? existing?.status ?? "unknown",
+        channels: item.channels && item.channels.length > 0 ? item.channels : existing?.channels ?? [0],
+        lastTsMs: item.last_ts_ms ?? existing?.lastTsMs ?? 0,
+        bytesIn: item.bytes_in ?? existing?.bytesIn ?? 0,
+        persistent: item.persistent ?? existing?.persistent,
+        sessionDir: item.session_dir ?? existing?.sessionDir,
+        decoder: item.decoder ?? existing?.decoder,
+        encoding: item.encoding ?? existing?.encoding,
+        detectionMode: item.detection_mode ?? existing?.detectionMode,
+        detection: item.detection ?? existing?.detection,
+      });
+    }
+    for (const sid of Object.keys(sources)) {
+      if (!seen.has(sid)) removeSource(sid);
+    }
     });
-  }
-  for (const sid of Object.keys(sources)) {
-    if (!seen.has(sid)) removeSource(sid);
-  }
 }
 
 function resubscribeChannels(): void {
@@ -493,6 +532,7 @@ function handleFrame(frame: Frame): void {
     if (evt === "sources") {
       syncSources(p.sources ?? []);
     } else if (evt === "error" || evt === "auth_failed" || evt === "ratelimited") {
+      recordSourceError(p.sid, "error", evt, p.message, p.error_id);
       pushToast({
         level: "error",
         message: p.message ?? evt,
@@ -504,6 +544,7 @@ function handleFrame(frame: Frame): void {
       // the Terminal panel.
     } else if (evt === "disconnected" || evt === "eof") {
       if (p.sid) upsertSourceStatus(p.sid, "stopped");
+      recordSourceError(p.sid, "warn", evt, p.message, p.error_id);
       pushToast({ level: "warn", message: p.message ?? evt });
     } else if (
       evt === "started" ||
@@ -615,6 +656,7 @@ export function sendWrite(sid: string, ch: number, body: Uint8Array): boolean {
 
 export const connState = conn;
 export const sourcesStore = sources;
+export const sourceErrorHistoryStore = sourceErrorHistory;
 export const metricsState = metrics;
 export const uiPerfState = uiPerf;
 export const terminalChannel = terminalChannelState;
@@ -641,6 +683,10 @@ export function __setClientForTest(next: Pick<WireClient, "send"> | null): void 
   client = next as WireClient | null;
   channelListeners.clear();
   clearChannelFrames();
+  for (const sid of Object.keys(sourceErrorHistory)) {
+    setSourceErrorHistory(sid, undefined as unknown as SourceErrorInfo[]);
+  }
+  sourceErrorSeq = 1;
   resetNotificationsForTest();
   setTerminalChannelState(null);
   setTerminalFocusRequestState(null);

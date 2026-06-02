@@ -2115,7 +2115,7 @@ mod tests {
 
         assert!(err
             .chain()
-            .any(|cause| cause.to_string().contains("E-1101")));
+            .any(|cause| cause.to_string().contains("E-1103")));
         assert!(manager.active_ids().is_empty());
         assert!(ingest.registry.ids().is_empty());
     }

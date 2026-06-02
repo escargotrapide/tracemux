@@ -19,6 +19,7 @@ import {
   openTerminalChannel,
   connState,
   sourcesStore,
+  sourceErrorHistoryStore,
   sendCtl,
   pushToast,
   type SourceInfo,
@@ -179,10 +180,33 @@ function suggestedEncodingForSource(source: SourceInfo): string | null {
 }
 
 const EXPORT_FORMATS: SessionExportFormat[] = ["text", "csv", "jsonl", "pcapng"];
+const PCAP_PUBLISH_MODES: PcapPublishMode[] = ["stats-only", "sampled", "full"];
 type AnnotationSyncStatus = "idle" | "loading" | "syncing" | "synced" | "error";
+type SerialOpenResultStatus = "requested" | "failed";
+type SerialOpenResult = {
+  port: string;
+  status: SerialOpenResultStatus;
+  detail: string;
+};
 
 function annotationSyncLabel(status: AnnotationSyncStatus): string {
   return t(`annotations.sync.${status}`);
+}
+
+function pcapPublishModeLabel(mode: PcapPublishMode): string {
+  return t(`sources.pcap.publish_mode.${mode}`);
+}
+
+function pcapPublishModeHint(mode: PcapPublishMode): string {
+  return t(`sources.pcap.publish_hint.${mode}`);
+}
+
+function serialOpenStatusLabel(status: SerialOpenResultStatus): string {
+  return t(`sources.serial.open_result.${status}`);
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
 }
 
 export function SourcesPanel() {
@@ -195,6 +219,7 @@ export function SourcesPanel() {
   const [selectedSid, setSelectedSid] = createSignal<string | null>(null);
   const [serialCandidates, setSerialCandidates] = createSignal<string[]>([]);
   const [selectedSerialPorts, setSelectedSerialPorts] = createSignal<string[]>([]);
+  const [serialOpenResults, setSerialOpenResults] = createSignal<SerialOpenResult[]>([]);
   const [serialDetecting, setSerialDetecting] = createSignal(false);
   const [serialBaud, setSerialBaud] = createSignal(115_200);
   const [pcapInterfaces, setPcapInterfaces] = createSignal<PcapInterfaceInfo[]>([]);
@@ -207,6 +232,8 @@ export function SourcesPanel() {
   const [exporting, setExporting] = createSignal<string | null>(null);
   const [bulkExporting, setBulkExporting] = createSignal<SessionExportFormat | null>(null);
   const [bulkProgress, setBulkProgress] = createSignal<{ completed: number; total: number } | null>(null);
+  const [bulkExportAbort, setBulkExportAbort] = createSignal<AbortController | null>(null);
+  const [bulkExportCancelling, setBulkExportCancelling] = createSignal(false);
   const [pendingStarts, setPendingStarts] = createSignal<Array<{ id: number; label: string }>>([]);
   const [loadedNotesSid, setLoadedNotesSid] = createSignal<string | null>(null);
   const [sourceNoteSyncStatus, setSourceNoteSyncStatus] = createSignal<Record<string, AnnotationSyncStatus>>({});
@@ -222,6 +249,10 @@ export function SourcesPanel() {
     const sid = selectedSid();
     return sid ? sourcesStore[sid] : undefined;
   };
+  const selectedSourceErrors = () => {
+    const sid = selectedSid();
+    return sid ? sourceErrorHistoryStore[sid] ?? [] : [];
+  };
   const persistentSources = createMemo(() => Object.values(sourcesStore).filter((source) => source.persistent));
   const exportableSources = (format: SessionExportFormat) => {
     const sources = persistentSources();
@@ -231,6 +262,20 @@ export function SourcesPanel() {
     const progress = bulkProgress();
     if (!progress) return "";
     return `${progress.completed}/${progress.total}`;
+  });
+  const serialDetectProgressLabel = createMemo(() => (
+    serialDetecting() ? t("sources.serial.detect_progress") : ""
+  ));
+  const bulkExportProgressLabel = createMemo(() => {
+    const format = bulkExporting();
+    if (!format) return "";
+    if (bulkExportCancelling()) return t("sources.export_all.cancelling");
+    return `${t("sources.export_all.progress")} ${format.toUpperCase()} ${bulkProgressLabel()}`.trim();
+  });
+  const singleExportProgressLabel = createMemo(() => {
+    const format = exporting();
+    if (!format) return "";
+    return `${t("sources.export.progress")} ${format.toUpperCase()}`;
   });
   const presetNameInvalid = createMemo(() => {
     const name = presetName().trim();
@@ -304,6 +349,7 @@ export function SourcesPanel() {
       const report = await detectSources();
       setSerialCandidates(report.serial_candidates);
       setSelectedSerialPorts(report.serial_candidates);
+      setSerialOpenResults([]);
       setPcapInterfaces(report.pcap_interfaces);
       setSelectedPcapDevice((prev) => {
         if (report.pcap_interfaces.some((iface) => iface.device === prev)) return prev;
@@ -360,26 +406,37 @@ export function SourcesPanel() {
       return;
     }
     let requested = 0;
+    const results: SerialOpenResult[] = [];
     for (const port of ports) {
       try {
         const spec = parseSourceSpec(serialSpecForPort(port, { baud: serialBaud() }));
         if (sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>)) {
           requested += 1;
+          results.push({
+            port,
+            status: "requested",
+            detail: t("sources.serial.open_result.start_sent"),
+          });
           queuePendingStart(`serial ${port}`);
         } else {
-          pushToast({ level: "error", message: `${port}: ${t("sources.action.send_failed")}` });
+          const detail = t("sources.action.send_failed");
+          results.push({ port, status: "failed", detail });
+          pushToast({ level: "error", message: `${port}: ${detail}` });
         }
       } catch (err) {
+        const detail = (err as Error).message ?? t("sources.start.invalid");
+        results.push({ port, status: "failed", detail });
         pushToast({
           level: "error",
-          message: `${port}: ${(err as Error).message ?? t("sources.start.invalid")}`,
+          message: `${port}: ${detail}`,
         });
       }
     }
+    setSerialOpenResults(results);
     if (requested > 0) {
       pushToast({
         level: "info",
-        message: `${t("sources.serial.open_requested")} (${requested})`,
+        message: `${t("sources.serial.open_requested")} (${requested}/${ports.length})`,
       });
     }
   }
@@ -425,6 +482,9 @@ export function SourcesPanel() {
       sourceName: sourceAliases[source.sid]?.label ?? source.name ?? source.sid,
       encoding: sourceEncodings[sourceEncodingKey(source.sid)]?.encoding,
     }));
+    const abortController = new AbortController();
+    setBulkExportAbort(abortController);
+    setBulkExportCancelling(false);
     setBulkExporting(format);
     setBulkProgress({ completed: 0, total: entries.length });
     try {
@@ -432,6 +492,7 @@ export function SourcesPanel() {
         format,
         timezone: exportTimezone(),
         filenamePattern: exportSettings.filenamePattern,
+        signal: abortController.signal,
         onProgress: ({ completed, total }) => setBulkProgress({ completed, total }),
       });
       pushToast({
@@ -439,6 +500,10 @@ export function SourcesPanel() {
         message: `${t("sources.export_all.requested")} (${entries.length})`,
       });
     } catch (err) {
+      if (isAbortError(err)) {
+        pushToast({ level: "info", message: t("sources.export_all.cancelled") });
+        return;
+      }
       pushToast({
         level: "error",
         message: (err as Error).message ?? t("sources.export_all.failed"),
@@ -446,7 +511,38 @@ export function SourcesPanel() {
     } finally {
       setBulkExporting(null);
       setBulkProgress(null);
+      setBulkExportAbort(null);
+      setBulkExportCancelling(false);
     }
+  }
+
+  function onCancelBulkExport(): void {
+    const controller = bulkExportAbort();
+    if (!controller || controller.signal.aborted) return;
+    setBulkExportCancelling(true);
+    controller.abort();
+  }
+
+  function exportSettingsControls() {
+    return (
+      <div class="wl-export-settings-controls">
+        <input
+          type="text"
+          value={exportTimezone()}
+          onInput={(ev) => setExportTimezone(ev.currentTarget.value)}
+          placeholder={t("sources.export.timezone_placeholder")}
+          aria-label={t("sources.export.shared_timezone")}
+        />
+        <input
+          type="text"
+          value={exportSettings.filenamePattern}
+          onInput={(ev) => updateExportSettings({ filenamePattern: ev.currentTarget.value })}
+          placeholder={t("sources.export.filename_pattern_placeholder")}
+          aria-label={t("sources.export.shared_filename_pattern")}
+        />
+        <span class="wl-export-settings-shared">{t("sources.export.shared_settings")}</span>
+      </div>
+    );
   }
 
   function onSourceNoteInput(sid: string, text: string): void {
@@ -631,6 +727,11 @@ export function SourcesPanel() {
             {t("sources.serial.open_selected")}
           </button>
           <span style={{ color: "var(--wl-fg-muted)" }}>{t("sources.serial.help")}</span>
+          <Show when={serialDetecting()}>
+            <span class="wl-operation-progress" role="status" aria-live="polite">
+              {serialDetectProgressLabel()}
+            </span>
+          </Show>
         </div>
         <Show when={serialCandidates().length > 0}>
           <div class="wl-serial-candidates" aria-label={t("sources.serial.candidates")}>
@@ -646,6 +747,27 @@ export function SourcesPanel() {
                 </label>
               )}
             </For>
+          </div>
+        </Show>
+        <Show when={serialOpenResults().length > 0}>
+          <div
+            class="wl-serial-open-results"
+            role="status"
+            aria-live="polite"
+            aria-label={t("sources.serial.open_results")}
+          >
+            <strong>{t("sources.serial.open_results")}</strong>
+            <div class="wl-serial-open-result-list">
+              <For each={serialOpenResults()}>
+                {(result) => (
+                  <div class={`wl-serial-open-result wl-serial-open-result-${result.status}`}>
+                    <code>{result.port}</code>
+                    <span>{serialOpenStatusLabel(result.status)}</span>
+                    <span class="wl-serial-open-result-detail">{result.detail}</span>
+                  </div>
+                )}
+              </For>
+            </div>
           </div>
         </Show>
         <Show when={pcapInterfaces().length > 0}>
@@ -686,13 +808,17 @@ export function SourcesPanel() {
               {t("sources.pcap.publish")} {" "}
               <select
                 value={pcapPublishMode()}
+                aria-describedby="pcap-publish-mode-hint"
                 onChange={(ev) => setPcapPublishMode(ev.currentTarget.value as PcapPublishMode)}
               >
-                <option value="stats-only">stats-only</option>
-                <option value="sampled">sampled</option>
-                <option value="full">full</option>
+                <For each={PCAP_PUBLISH_MODES}>
+                  {(mode) => <option value={mode}>{pcapPublishModeLabel(mode)}</option>}
+                </For>
               </select>
             </label>
+            <span id="pcap-publish-mode-hint" class="wl-pcap-publish-hint">
+              {pcapPublishModeHint(pcapPublishMode())}
+            </span>
             <input
               type="text"
               value={pcapFilter()}
@@ -751,20 +877,7 @@ export function SourcesPanel() {
       </div>
       <div class="wl-source-bulk-export">
         <strong>{t("sources.export_all.title")}</strong>
-        <input
-          type="text"
-          value={exportTimezone()}
-          onInput={(ev) => setExportTimezone(ev.currentTarget.value)}
-          placeholder={t("sources.export.timezone_placeholder")}
-          aria-label={t("sources.export_all.timezone")}
-        />
-        <input
-          type="text"
-          value={exportSettings.filenamePattern}
-          onInput={(ev) => updateExportSettings({ filenamePattern: ev.currentTarget.value })}
-          placeholder={t("sources.export.filename_pattern_placeholder")}
-          aria-label={t("sources.export_all.filename_pattern")}
-        />
+        {exportSettingsControls()}
         <For each={EXPORT_FORMATS}>
           {(format) => (
             <button
@@ -787,6 +900,22 @@ export function SourcesPanel() {
             </button>
           )}
         </For>
+        <Show when={bulkExporting() !== null}>
+          <span class="wl-operation-progress" role="status" aria-live="polite">
+            {bulkExportProgressLabel()}
+          </span>
+        </Show>
+        <Show when={bulkExporting() !== null}>
+          <button
+            type="button"
+            onClick={onCancelBulkExport}
+            disabled={bulkExportCancelling()}
+          >
+            {bulkExportCancelling()
+              ? t("sources.export_all.cancelling")
+              : t("sources.export_all.cancel")}
+          </button>
+        </Show>
         <span style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
           {persistentSources().length > 0
             ? `${t("sources.export_all.help")} (${persistentSources().length})`
@@ -1041,6 +1170,11 @@ export function SourcesPanel() {
                     )}
                   </For>
                 </div>
+                <Show when={exporting() !== null}>
+                  <div class="wl-operation-progress" role="status" aria-live="polite">
+                    {singleExportProgressLabel()}
+                  </div>
+                </Show>
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {t("sources.detail.channel_encoding_help")}
                 </div>
@@ -1070,22 +1204,7 @@ export function SourcesPanel() {
               <dt>{t("sources.export.title")}</dt>
               <dd>
                 <div style={{ display: "flex", gap: "6px", "flex-wrap": "wrap" }}>
-                  <input
-                    type="text"
-                    value={exportTimezone()}
-                    onInput={(ev) => setExportTimezone(ev.currentTarget.value)}
-                    placeholder={t("sources.export.timezone_placeholder")}
-                    aria-label={t("sources.export.timezone")}
-                    style={{ "min-width": "160px" }}
-                  />
-                  <input
-                    type="text"
-                    value={exportSettings.filenamePattern}
-                    onInput={(ev) => updateExportSettings({ filenamePattern: ev.currentTarget.value })}
-                    placeholder={t("sources.export.filename_pattern_placeholder")}
-                    aria-label={t("sources.export.filename_pattern")}
-                    style={{ "min-width": "260px" }}
-                  />
+                  {exportSettingsControls()}
                   <For each={EXPORT_FORMATS}>
                     {(format) => (
                       <button
@@ -1100,6 +1219,11 @@ export function SourcesPanel() {
                     )}
                   </For>
                 </div>
+                <Show when={exporting() !== null}>
+                  <div class="wl-operation-progress" role="status" aria-live="polite">
+                    {singleExportProgressLabel()}
+                  </div>
+                </Show>
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {source().persistent
                     ? `${t("sources.export.help")} ${t("sources.export.filename_pattern_help")}`
@@ -1112,6 +1236,30 @@ export function SourcesPanel() {
               <dd>{source().bytesIn}</dd>
               <dt>{t("sources.detail.last")}</dt>
               <dd>{source().lastTsMs ? new Date(source().lastTsMs).toISOString() : "-"}</dd>
+              <dt>{t("sources.detail.recent_errors")}</dt>
+              <dd>
+                <Show
+                  when={selectedSourceErrors().length > 0}
+                  fallback={<span style={{ color: "var(--wl-fg-muted)" }}>{t("sources.detail.no_recent_errors")}</span>}
+                >
+                  <div class="wl-source-error-history">
+                    <For each={selectedSourceErrors()}>
+                      {(entry) => (
+                        <div class={`wl-source-error-history-item wl-source-error-history-${entry.level}`}>
+                          <time dateTime={new Date(entry.ts).toISOString()}>
+                            {new Date(entry.ts).toLocaleTimeString()}
+                          </time>
+                          <span class="wl-source-error-event">{entry.event}</span>
+                          <span class="wl-source-error-message">{entry.message}</span>
+                          <Show when={entry.errorId}>
+                            {(errorId) => <code>{errorId()}</code>}
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </dd>
               <dt>{t("sources.detail.notes")}</dt>
               <dd>
                 <textarea
