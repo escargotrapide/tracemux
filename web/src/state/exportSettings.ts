@@ -3,6 +3,8 @@ import { browserStorage, safeGetItem, safeSetItem, type StorageLike } from "~/st
 
 export const EXPORT_SETTINGS_STORAGE_KEY = "tracemux.exportSettings.v1";
 
+export const MAX_EXPORT_FILENAME_PATTERN_LENGTH = 240;
+
 export interface ExportSettings {
   filenamePattern: string;
 }
@@ -18,7 +20,7 @@ function stringOrEmpty(value: unknown, maxLength: number): string {
 export function normalizeExportSettings(value: unknown): ExportSettings {
   const input = value && typeof value === "object" ? value as Partial<ExportSettings> : {};
   return {
-    filenamePattern: stringOrEmpty(input.filenamePattern, 240),
+    filenamePattern: stringOrEmpty(input.filenamePattern, MAX_EXPORT_FILENAME_PATTERN_LENGTH),
   };
 }
 

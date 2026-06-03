@@ -203,8 +203,19 @@ button:disabled {
   font-size: 12px;
   margin-top: 4px;
 }
+.wl-settings-rule-error {
+  color: var(--wl-error);
+  font-size: 12px;
+  margin: 2px 0 6px;
+}
+.wl-settings-row input[aria-invalid="true"] {
+  border-color: var(--wl-error);
+}
 .wl-settings-error {
   color: var(--wl-error);
+}
+.wl-settings-clamp {
+  color: var(--wl-warn);
 }
 .wl-settings-actions {
   display: flex;
@@ -336,6 +347,43 @@ button:disabled {
 .wl-source-count {
   color: var(--wl-fg-muted);
   font-size: 12px;
+}
+.wl-source-count-limit {
+  color: var(--wl-warn);
+  font-weight: 600;
+}
+.wl-settings-count-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+.wl-source-note-local-only {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--wl-warn);
+  background: color-mix(in srgb, var(--wl-warn) 12%, transparent);
+  color: var(--wl-warn);
+  font-size: 12px;
+  border-radius: 3px;
+}
+.wl-encoding-origin {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--wl-border);
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--wl-fg-muted);
+}
+.wl-encoding-origin-inherited {
+  color: var(--wl-fg-muted);
+}
+.wl-encoding-origin-source,
+.wl-encoding-origin-channel {
+  color: var(--wl-accent);
+  border-color: color-mix(in srgb, var(--wl-accent) 50%, var(--wl-border));
 }
 .wl-serial-candidate {
   display: inline-flex;
@@ -716,6 +764,33 @@ button:disabled {
 }
 .wl-tile-toolbar input {
   width: 72px;
+}
+.wl-tile-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.wl-tile-stale {
+  font-size: 12px;
+  color: var(--wl-error);
+  white-space: nowrap;
+}
+.wl-tile-grid[data-stale="true"] {
+  opacity: 0.72;
+}
+.wl-tile-paused {
+  font-size: 12px;
+  color: var(--wl-warn);
+  white-space: nowrap;
+}
+.wl-tile-pause[aria-pressed="true"] {
+  color: var(--wl-warn);
+  border-color: color-mix(in srgb, var(--wl-warn) 55%, var(--wl-border));
+}
+.wl-tile-grid[data-paused="true"] {
+  opacity: 0.85;
 }
 .wl-tile-grid {
   display: grid;

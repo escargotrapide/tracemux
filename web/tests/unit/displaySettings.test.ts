@@ -53,6 +53,15 @@ describe("display settings", () => {
     });
   });
 
+  it("coerces the tile rendering pause flag", () => {
+    // REQ: FR-UI-012
+    expect(normalizeDisplaySettings({ tileRenderingPaused: true }).tileRenderingPaused).toBe(true);
+    expect(normalizeDisplaySettings({ tileRenderingPaused: "yes" }).tileRenderingPaused).toBe(
+      false,
+    );
+    expect(DEFAULT_DISPLAY_SETTINGS.tileRenderingPaused).toBe(false);
+  });
+
   it("loads defaults for malformed storage", () => {
     // REQ: FR-UI-014
     const storage = new FakeStorage();

@@ -52,7 +52,11 @@ import {
   updateChannelEncoding,
   updateSourceEncoding,
 } from "~/state/sourceEncodings";
-import { exportSettings, updateExportSettings } from "~/state/exportSettings";
+import {
+  exportSettings,
+  MAX_EXPORT_FILENAME_PATTERN_LENGTH,
+  updateExportSettings,
+} from "~/state/exportSettings";
 import {
   loadAndApplySourceAnnotations,
   syncSourceNoteToServer,
@@ -187,6 +191,23 @@ function sourceDisplayEncoding(sid: string): string {
   return sourceEncodings[sourceEncodingKey(sid)]?.encoding ?? sourceTextEncodingFallback(sid);
 }
 
+function sourceServerEncoding(sid: string): string {
+  return sourcesStore[sid]?.encoding ?? sourceStartOptions.encoding;
+}
+
+function sourceEncodingOrigin(sid: string): "inherited" | "source" {
+  return sourceEncodings[sourceEncodingKey(sid)]?.encoding ? "source" : "inherited";
+}
+
+function channelEncodingOrigin(sid: string, ch: number): "inherited" | "source" | "channel" {
+  if (sourceEncodings[channelEncodingKey(sid, ch)]?.encoding) return "channel";
+  return sourceEncodingOrigin(sid);
+}
+
+function encodingOriginLabel(origin: "inherited" | "source" | "channel"): string {
+  return t(`sources.detail.encoding_origin.${origin}`);
+}
+
 function channelDisplayEncoding(sid: string, ch: number): string {
   return encodingForChannel(sid, ch, sourceTextEncodingFallback(sid));
 }
@@ -308,6 +329,19 @@ export function SourcesPanel() {
       setPendingStarts((prev) => prev.filter((item) => item.id !== id));
     }, 8_000);
   }
+
+  // Clear pending start requests as the server acknowledges them by registering
+  // new sources. Labels (specs) cannot be matched to server-assigned sids, so we
+  // retire the oldest pending entries as the live source count grows.
+  let lastSourceCount = Object.keys(sourcesStore).length;
+  createEffect(() => {
+    const count = Object.keys(sourcesStore).length;
+    const added = count - lastSourceCount;
+    lastSourceCount = count;
+    if (added > 0 && pendingStarts().length > 0) {
+      setPendingStarts((prev) => prev.slice(added));
+    }
+  });
 
   createEffect(() => {
     const sid = selectedSid();
@@ -558,7 +592,17 @@ export function SourcesPanel() {
           onInput={(ev) => updateExportSettings({ filenamePattern: ev.currentTarget.value })}
           placeholder={t("sources.export.filename_pattern_placeholder")}
           aria-label={t("sources.export.shared_filename_pattern")}
+          maxLength={MAX_EXPORT_FILENAME_PATTERN_LENGTH}
         />
+        <span
+          class="wl-source-count"
+          classList={{
+            "wl-source-count-limit":
+              exportSettings.filenamePattern.length >= MAX_EXPORT_FILENAME_PATTERN_LENGTH,
+          }}
+        >
+          {exportSettings.filenamePattern.length}/{MAX_EXPORT_FILENAME_PATTERN_LENGTH}
+        </span>
         <span class="wl-export-settings-shared">{t("sources.export.shared_settings")}</span>
       </div>
     );
@@ -1120,7 +1164,7 @@ export function SourcesPanel() {
                   style={{ width: "100%" }}
                 />
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
-                  {t("sources.detail.alias_help")} <span class="wl-source-count">{(sourceAliases[source().sid]?.label ?? "").length}/{MAX_SOURCE_ALIAS_LENGTH}</span>
+                  {t("sources.detail.alias_help")} <span class="wl-source-count" classList={{ "wl-source-count-limit": (sourceAliases[source().sid]?.label ?? "").length >= MAX_SOURCE_ALIAS_LENGTH }}>{(sourceAliases[source().sid]?.label ?? "").length}/{MAX_SOURCE_ALIAS_LENGTH}</span>
                 </div>
               </dd>
               <dt>{t("sources.detail.encoding")}</dt>
@@ -1136,6 +1180,11 @@ export function SourcesPanel() {
                       {(encoding) => <option value={encoding}>{encoding}</option>}
                     </For>
                   </select>
+                  <span
+                    class={`wl-encoding-origin wl-encoding-origin-${sourceEncodingOrigin(source().sid)}`}
+                  >
+                    {encodingOriginLabel(sourceEncodingOrigin(source().sid))}
+                  </span>
                   <button
                     type="button"
                     onClick={() => onRestartWithServerEncoding(source().sid)}
@@ -1143,6 +1192,10 @@ export function SourcesPanel() {
                   >
                     {t("sources.detail.server_encoding_apply")}
                   </button>
+                </div>
+                <div class="wl-encoding-server" style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+                  {t("sources.detail.server_encoding")}: <code>{sourceServerEncoding(source().sid)}</code>
+                  {" "}{t("sources.detail.server_encoding_value_help")}
                 </div>
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {t("sources.detail.encoding_help")} {t("sources.detail.server_encoding_help")}
@@ -1208,9 +1261,12 @@ export function SourcesPanel() {
                             {(encoding) => <option value={encoding}>{encoding}</option>}
                           </For>
                         </select>
-                        <Show when={sourceEncodings[channelEncodingKey(source().sid, channel)]?.encoding}>
-                          <span style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>override</span>
-                        </Show>
+                        <span
+                          class={`wl-encoding-origin wl-encoding-origin-${channelEncodingOrigin(source().sid, channel)}`}
+                          style={{ "font-size": "12px" }}
+                        >
+                          {encodingOriginLabel(channelEncodingOrigin(source().sid, channel))}
+                        </span>
                       </label>
                     )}
                   </For>
@@ -1322,7 +1378,7 @@ export function SourcesPanel() {
                 />
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px", display: "flex", gap: "8px", "align-items": "center", "flex-wrap": "wrap" }}>
                   <span>{t("sources.detail.notes_help")}</span>
-                  <span class="wl-source-count">{(sourceNotes[source().sid]?.text ?? "").length}/{MAX_SOURCE_NOTE_LENGTH}</span>
+                  <span class="wl-source-count" classList={{ "wl-source-count-limit": (sourceNotes[source().sid]?.text ?? "").length >= MAX_SOURCE_NOTE_LENGTH }}>{(sourceNotes[source().sid]?.text ?? "").length}/{MAX_SOURCE_NOTE_LENGTH}</span>
                   <button
                     type="button"
                     onClick={() => syncSourceNoteNow(source().sid)}
@@ -1332,6 +1388,11 @@ export function SourcesPanel() {
                   </button>
                   <span>{annotationSyncLabel(sourceNoteStatus(source().sid))}</span>
                 </div>
+                <Show when={sourceNoteStatus(source().sid) === "error"}>
+                  <p class="wl-source-note-local-only" role="status">
+                    {t("sources.detail.notes_local_only")}
+                  </p>
+                </Show>
               </dd>
             </dl>
           </aside>

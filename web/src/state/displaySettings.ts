@@ -23,6 +23,7 @@ export interface DisplaySettings {
   showKind: boolean;
   showSource: boolean;
   timezone: string;
+  tileRenderingPaused: boolean;
 }
 
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
@@ -36,6 +37,7 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   showKind: false,
   showSource: false,
   timezone: "local",
+  tileRenderingPaused: false,
 };
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -95,6 +97,10 @@ export function normalizeDisplaySettings(value: unknown): DisplaySettings {
     showKind: boolOr(input.showKind, DEFAULT_DISPLAY_SETTINGS.showKind),
     showSource: boolOr(input.showSource, DEFAULT_DISPLAY_SETTINGS.showSource),
     timezone: stringOr(input.timezone, DEFAULT_DISPLAY_SETTINGS.timezone),
+    tileRenderingPaused: boolOr(
+      input.tileRenderingPaused,
+      DEFAULT_DISPLAY_SETTINGS.tileRenderingPaused,
+    ),
   };
 }
 

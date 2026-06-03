@@ -153,6 +153,211 @@ test("injected data frame populates the sources panel", async ({ page }) => {
   await expect(page.getByRole("cell", { name: "uart-e2e" })).toBeVisible();
 });
 
+test("removing a source asks for confirmation before sending the ctl", async ({ page }) => {
+  // REQ: FR-UI-005
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "remove-e2e",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73]),
+      source: "uart-remove",
+    },
+  });
+
+  const removeButton = page
+    .getByRole("row", { name: /uart-remove/ })
+    .getByRole("button", { name: /^Remove$|^削除$/ });
+
+  const removeSent = async (): Promise<boolean> =>
+    (await sentFrames(page)).some((frame) => {
+      const f = frame as { type?: string; sid?: string; payload?: { action?: string } };
+      return f.type === "ctl" && f.sid === "remove-e2e" && f.payload?.action === "remove";
+    });
+
+  // Dismissing the confirmation must not send a remove ctl.
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toMatch(/Remove this source|サーバーの登録一覧から削除/);
+    void dialog.dismiss();
+  });
+  await removeButton.click();
+  expect(await removeSent()).toBe(false);
+
+  // Accepting the confirmation sends the remove ctl.
+  page.once("dialog", (dialog) => void dialog.accept());
+  await removeButton.click();
+  await expect.poll(removeSent).toBe(true);
+});
+
+test("export filename pattern shows a length counter and enforces the limit", async ({ page }) => {
+  // REQ: FR-UI-008
+  await page.goto("/");
+  await waitForInject(page);
+
+  const section = page.locator(".wl-source-bulk-export");
+  const input = section.getByLabel(/Shared export filename pattern|共通エクスポートファイル名パターン/);
+  const counter = section.locator(".wl-source-count");
+
+  await input.fill("tracemux-{source}.{ext}");
+  await expect(counter).toHaveText(/^\d+\/240$/);
+  await expect(counter).not.toHaveClass(/wl-source-count-limit/);
+
+  // The limit is surfaced rather than silently truncating without feedback.
+  await input.fill("x".repeat(300));
+  await expect(input).toHaveValue("x".repeat(240));
+  await expect(counter).toHaveText("240/240");
+  await expect(counter).toHaveClass(/wl-source-count-limit/);
+});
+
+
+test("source details distinguish server-side encoding from the browser display override", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 70,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid: "77777777-7777-4777-8777-777777777777",
+          name: "enc-source",
+          kind: "serial",
+          status: "running",
+          channels: [0],
+          bytes_in: 0,
+          encoding: "shift_jis",
+        },
+      ],
+    },
+  });
+
+  const row = page.getByRole("row").filter({ hasText: "enc-source" });
+  await expect(row.getByRole("cell", { name: "enc-source" })).toBeVisible();
+  await row.getByRole("button", { name: /^Details$|^詳細$/ }).click();
+
+  const aside = page.locator("aside");
+  // The server-side decoded/persisted encoding is shown distinctly.
+  const serverLine = aside.locator(".wl-encoding-server");
+  await expect(serverLine).toContainText(/Server-side encoding|サーバー側エンコーディング/);
+  await expect(serverLine.locator("code")).toHaveText("shift_jis");
+
+  // With no browser override, the effective display value is shown as inherited.
+  const sourceSelect = aside.getByLabel("Display encoding");
+  const originBadge = sourceSelect.locator("xpath=following-sibling::span[1]");
+  await expect(originBadge).toHaveText(/Inherited from server|サーバーから継承/);
+
+  // Choosing a different display encoding flips the origin to a source override.
+  await sourceSelect.selectOption("euc-jp");
+  await expect(originBadge).toHaveText(/Source override|ソース上書き/);
+  // The server-side value is unchanged by a browser-only display override.
+  await expect(serverLine.locator("code")).toHaveText("shift_jis");
+});
+
+
+test("manual source start shows a pending acknowledgement until the server registers it", async ({ page }) => {
+  // REQ: FR-UI-008
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page);
+
+  await page.getByLabel("Source spec").fill("mock://pending-e2e");
+  await page.getByRole("button", { name: "Add source" }).click();
+
+  // The request is reflected as a pending state, not just a transient toast.
+  const pending = page.locator(".wl-source-pending");
+  await expect(pending).toBeVisible();
+  await expect(pending.getByText("Waiting for server acknowledgement:")).toBeVisible();
+  await expect(pending.getByText("mock://pending-e2e")).toBeVisible();
+
+  // When the server acknowledges by registering a source, the pending entry clears.
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "pending-ack-e2e",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73]),
+      source: "mock-pending",
+    },
+  });
+  await expect(page.getByRole("cell", { name: "mock-pending" })).toBeVisible();
+  await expect(pending.getByText("mock://pending-e2e")).toHaveCount(0);
+});
+
+
+test("source notes show a local-only fallback notice when server sync fails", async ({ page }) => {
+  // REQ: FR-UI-008
+  await page.goto("/");
+  await waitForInject(page);
+  await installClientSpy(page);
+  // The note load effect only runs while the WSS reports an open connection.
+  await setConnState(page, { status: "open", detail: "" });
+
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "notes-fallback-e2e",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73]),
+      source: "uart-notes",
+    },
+  });
+
+  const row = page.getByRole("row").filter({ hasText: "uart-notes" });
+  await expect(row.getByRole("cell", { name: "uart-notes" })).toBeVisible();
+  await row.getByRole("button", { name: /^Details$|^詳細$/ }).click();
+
+  // With no reachable server the annotation fetch fails, so the note is kept
+  // in the browser only and the UI must say so explicitly.
+  await expect(
+    page.getByText(
+      /this note is kept in this browser only|このメモはこのブラウザ内だけに保存され/,
+    ),
+  ).toBeVisible();
+});
+
+
 test("multi-channel source lets the user pick which channel opens", async ({ page }) => {
   // REQ: FR-UI-008
   const sid = "44444444-4444-4444-8444-444444444444";
@@ -312,6 +517,169 @@ test("terminal toolbar changes the selected channel text encoding", async ({ pag
   );
 });
 
+test("changing terminal encoding on a large buffer asks for confirmation", async ({ page }) => {
+  // REQ: FR-UI-014
+  const sid = "88888888-8888-4888-8888-888888888888";
+  await page.goto("/");
+  await waitForInject(page);
+
+  // Fill the channel past the redraw-confirmation threshold.
+  await page.evaluate((targetSid) => {
+    const inject = (
+      window as unknown as { __tracemuxInject: (f: unknown) => void }
+    ).__tracemuxInject;
+    for (let i = 0; i < 600; i += 1) {
+      inject({
+        type: "data",
+        seq: i + 1,
+        payload: {
+          ts_origin: 0,
+          ts_ingest: 1_000_000,
+          mono_ns: 0,
+          boot_id: "b",
+          node_id: "n",
+          clock_offset_ms: 0,
+          clock_quality: "best-effort",
+          drift_ppm: 0,
+          clock_source: "system",
+          sid: targetSid,
+          ch: 0,
+          dir: "in",
+          kind: "bytes",
+          body: new Uint8Array([0x41]),
+          source: "serial:COM41",
+        },
+      });
+    }
+  }, sid);
+
+  const terminal = page.locator('div.wl-panel-content[data-panel-kind="terminal"]').first();
+  await expect(terminal.getByText(/COM41 \/ ch 0/)).toBeVisible();
+  const encodingSelect = terminal.getByLabel(/Text encoding|文字コード/);
+
+  // Dismissing the confirmation leaves the encoding unchanged.
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toMatch(/Change the display encoding|表示エンコーディングを変更/);
+    void dialog.dismiss();
+  });
+  await encodingSelect.selectOption("shift_jis");
+  await expect.poll(() => page.evaluate(async (targetSid) => {
+    const { sourceEncodings } = await import("/src/state/sourceEncodings.ts");
+    return sourceEncodings[`${targetSid}/0`]?.encoding ?? "";
+  }, sid)).toBe("");
+
+  // Accepting the confirmation applies the new encoding.
+  page.once("dialog", (dialog) => void dialog.accept());
+  await encodingSelect.selectOption("shift_jis");
+  await expect.poll(() => page.evaluate(async (targetSid) => {
+    const { sourceEncodings } = await import("/src/state/sourceEncodings.ts");
+    return sourceEncodings[`${targetSid}/0`]?.encoding ?? "";
+  }, sid)).toBe("shift_jis");
+});
+
+test("terminal send controls disable and explain why when the WSS is closed", async ({ page }) => {
+  // REQ: FR-UI-009
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "55555555-5555-4555-8555-555555555555",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73]),
+      source: "serial:COM21",
+    },
+  });
+
+  const terminal = page.locator('div.wl-panel-content[data-panel-kind="terminal"]').first();
+  await expect(terminal.getByText(/COM21 \/ ch 0/)).toBeVisible();
+
+  const sendInput = terminal.locator(".wl-terminal-send-input");
+  const sendButton = terminal.getByRole("button", { name: /Send$|送信$/ });
+
+  // With a source selected and the connection open, controls are usable.
+  await setConnState(page, { status: "open", since: Date.now() });
+  await expect(sendInput).toBeEnabled();
+  await sendInput.fill("ping");
+  await expect(sendButton).toBeEnabled();
+
+  // Losing the connection disables both the input and the button and
+  // explains, via the control title, that commands cannot be sent.
+  await setConnState(page, { status: "closed", code: 1006, reason: "lost" });
+  await expect(sendInput).toBeDisabled();
+  await expect(sendButton).toBeDisabled();
+  await expect(sendInput).toHaveAttribute(
+    "title",
+    /Commands will not be sent until the connection reopens|再接続するまでコマンドは送信されません/,
+  );
+
+  // Reconnecting restores the controls.
+  await setConnState(page, { status: "open", since: Date.now() });
+  await expect(sendInput).toBeEnabled();
+  await expect(sendButton).toBeEnabled();
+});
+
+test("tile grid marks data as stale when the WSS is not open", async ({ page }) => {
+  // REQ: FR-UI-009
+  // REQ: FR-UI-012
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "66666666-6666-4666-8666-666666666666",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73]),
+      source: "serial:COM31",
+    },
+  });
+
+  const grid = page.getByTestId("tile-grid");
+  await expect(grid).toBeVisible();
+
+  // Live: no stale marker on the grid and no stale note in the toolbar.
+  await setConnState(page, { status: "open", since: Date.now() });
+  await expect(grid).not.toHaveAttribute("data-stale", "true");
+  await expect(page.locator(".wl-tile-stale")).toHaveCount(0);
+
+  // Disconnected: the grid is flagged stale and the toolbar warns that the
+  // displayed data is the last received, not live.
+  await setConnState(page, { status: "closed", code: 1006, reason: "lost" });
+  await expect(grid).toHaveAttribute("data-stale", "true");
+  await expect(
+    page.locator(".wl-tile-stale").getByText(/showing last received data|最後に受信したデータ/),
+  ).toBeVisible();
+
+  // Reconnecting clears the stale state.
+  await setConnState(page, { status: "open", since: Date.now() });
+  await expect(grid).not.toHaveAttribute("data-stale", "true");
+  await expect(page.locator(".wl-tile-stale")).toHaveCount(0);
+});
+
 test("source alias updates terminal and tile labels", async ({ page }) => {
   // REQ: FR-UI-014
   await page.goto("/");
@@ -424,6 +792,50 @@ test("tile viewport auto-follows the newest log while at bottom", async ({ page 
   await expect.poll(async () => viewport.evaluate((node) => (
     node.scrollHeight - node.scrollTop - node.clientHeight
   ))).toBeLessThan(8);
+});
+
+test("tile grid offers a rendering pause escape hatch", async ({ page }) => {
+  // REQ: FR-UI-012
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "data",
+    seq: 1,
+    payload: {
+      ts_origin: 0,
+      ts_ingest: 1_000_000,
+      mono_ns: 0,
+      boot_id: "b",
+      node_id: "n",
+      clock_offset_ms: 0,
+      clock_quality: "best-effort",
+      drift_ppm: 0,
+      clock_source: "system",
+      sid: "tile-pause-source",
+      ch: 0,
+      dir: "in",
+      kind: "bytes",
+      body: new Uint8Array([72, 73, 10]),
+      source: "serial:COM12",
+    },
+  });
+
+  const grid = page.getByTestId("tile-grid");
+  await expect(grid).toBeVisible();
+  await expect(grid).not.toHaveAttribute("data-paused", "true");
+
+  const pauseButton = page.getByRole("button", { name: /Pause rendering|描画を一時停止$/ });
+  await pauseButton.click();
+
+  await expect(grid).toHaveAttribute("data-paused", "true");
+  await expect(page.getByText(/Rendering paused|描画を一時停止中/)).toBeVisible();
+
+  const resumeButton = page.getByRole("button", { name: /Resume rendering|描画を再開/ });
+  await expect(resumeButton).toBeVisible();
+  await resumeButton.click();
+
+  await expect(grid).not.toHaveAttribute("data-paused", "true");
+  await expect(page.getByText(/Rendering paused|描画を一時停止中/)).toBeHidden();
 });
 
 test("tile viewport preserves manual scroll and resumes bottom follow", async ({ page }) => {
@@ -787,6 +1199,100 @@ test("settings rules and source start defaults are sent with ctl start", async (
   expect(start?.payload?.encoding).toBe("shift_jis");
   expect(start?.payload?.session_name_pattern).toBe("{prefix}_{kind}_{iface}_{unix_ns}");
   expect(start?.payload?.classifier).toContainEqual({ contains: "ERROR", tag: "fault" });
+});
+
+test("classification rule form flags an invalid regex inline", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+
+  await page.getByLabel(/Match type|マッチ種別/).selectOption("regex");
+  await page.getByPlaceholder("ERROR, WARN, voltage...").fill("a(");
+  await page.getByPlaceholder("fault, warning, power...").fill("regex-tag");
+
+  const error = page.getByText(/Invalid regular expression|正規表現が不正です/);
+  await expect(error).toBeVisible();
+  await expect(page.getByRole("button", { name: /Add rule|ルール追加/ })).toBeDisabled();
+
+  // Correcting the pattern clears the inline error and re-enables submission.
+  await page.getByPlaceholder("ERROR, WARN, voltage...").fill("a(b)");
+  await expect(error).toBeHidden();
+  await expect(page.getByRole("button", { name: /Add rule|ルール追加/ })).toBeEnabled();
+});
+
+test("log type note editing is disabled while sync loads and offers retry on failure", async ({
+  page,
+}) => {
+  // REQ: FR-UI-014
+  let failNext = true;
+  await page.route("**/api/annotations**", async (route) => {
+    if (failNext) {
+      failNext = false;
+      await route.fulfill({ status: 503, contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+
+  // Bring the connection up so the panel kicks off the annotation load.
+  await setConnState(page, { status: "open" });
+
+  const noteField = page.getByPlaceholder(/Free-form memo|自由記述/);
+  // The first load fails, exposing the retry path.
+  const retry = page.getByRole("button", { name: /Retry sync|同期を再試行/ });
+  await expect(retry).toBeVisible();
+
+  // Retrying succeeds, the retry button disappears, and editing is available.
+  await retry.click();
+  await expect(retry).toBeHidden();
+  await expect(noteField).toBeEnabled();
+});
+
+test("classification rules explain local-vs-server scope", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+
+  const help = page.getByTestId("classification-scope-help");
+  await expect(help).toBeVisible();
+  await expect(help).toContainText(
+    /stored in this browser|このブラウザに保存/,
+  );
+  await expect(help).toContainText(
+    /Send classification rules|分類ルールを送信/,
+  );
+});
+
+test("numeric display settings show a clamp notice out of range", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+
+  const scrollback = page.getByLabel(/Terminal max lines|ターミナル最大行数/);
+  await scrollback.fill("1");
+  const notice = page
+    .locator(".wl-settings-clamp")
+    .filter({ hasText: /Adjusted to 100|100 に調整/ });
+  await expect(notice.first()).toBeVisible();
+  await expect(scrollback).toHaveAttribute("aria-invalid", "true");
+
+  // A value back inside the range clears the notice.
+  await scrollback.fill("12000");
+  await expect(notice).toHaveCount(0);
+  await expect(scrollback).not.toHaveAttribute("aria-invalid", "true");
+});
+
+test("log type note shows a live character counter", async ({ page }) => {
+  // REQ: FR-UI-014
+  await page.goto("/");
+  await waitForInject(page);
+
+  const noteField = page.getByPlaceholder(/Free-form memo|自由記述/);
+  await noteField.fill("hello");
+  await expect(page.getByText("5/20000")).toBeVisible();
 });
 
 test("connection banner and unsent source command are visible", async ({ page }) => {
