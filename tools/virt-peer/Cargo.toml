@@ -33,4 +33,4 @@ rmpv = { workspace = true }
 tempfile = { workspace = true }
 tokio-tungstenite = "0.24"
 uuid = { workspace = true }
-tracemux-server = { path = "../../crates/server", version = "0.1.0-dev" }
+tracemux-server = { path = "../../crates/server", version = "0.1.0" }

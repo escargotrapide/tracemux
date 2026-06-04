@@ -243,7 +243,7 @@ export class WireClient {
       this.send({
         type: "hello",
         seq: 0,
-        payload: { app: "tracemux-web", version: "0.1.0-dev" },
+        payload: { app: "tracemux-web", version: "0.1.0" },
       });
     });
 
