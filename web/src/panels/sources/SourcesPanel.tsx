@@ -294,7 +294,12 @@ export function SourcesPanel() {
     return sid ? sourceErrorHistoryStore[sid] ?? [] : [];
   };
   const persistentSources = createMemo(() => Object.values(sourcesStore).filter((source) => source.persistent));
-  const exportableSources = (format: SessionExportFormat) => {
+  const selectedPcapDown = createMemo(() => {
+    const iface = selectedPcapInterface();
+    if (!iface) return false;
+    const flags = iface.flags.map((flag) => flag.toLowerCase());
+    return flags.includes("down") || (!flags.includes("up") && !flags.includes("running"));
+  });  const exportableSources = (format: SessionExportFormat) => {
     const sources = persistentSources();
     return format === "pcapng" ? sources.filter((source) => source.kind === "pcap") : sources;
   };
@@ -850,6 +855,37 @@ export function SourcesPanel() {
                 </For>
               </select>
             </label>
+            <Show when={selectedPcapInterface()}>
+              {(iface) => (
+                <div class="wl-pcap-iface-info" role="status">
+                  <Show when={iface().description}>
+                    <span class="wl-pcap-iface-desc">{iface().description}</span>
+                  </Show>
+                  <Show when={iface().flags.length > 0}>
+                    <span class="wl-pcap-iface-flags">
+                      {t("sources.pcap.iface_flags")}: {iface().flags.join(", ")}
+                    </span>
+                  </Show>
+                  <Show
+                    when={iface().addresses.length > 0}
+                    fallback={
+                      <span class="wl-pcap-iface-addrs wl-pcap-iface-empty">
+                        {t("sources.pcap.iface_no_address")}
+                      </span>
+                    }
+                  >
+                    <span class="wl-pcap-iface-addrs">
+                      {t("sources.pcap.iface_addresses")}: {iface().addresses.join(", ")}
+                    </span>
+                  </Show>
+                  <Show when={selectedPcapDown()}>
+                    <span class="wl-pcap-iface-down" role="alert">
+                      {t("sources.pcap.iface_down")}
+                    </span>
+                  </Show>
+                </div>
+              )}
+            </Show>
             <label>
               {t("sources.pcap.snaplen")} {" "}
               <input

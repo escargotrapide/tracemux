@@ -108,10 +108,28 @@ export function PacketCapturePanel() {
           {t("packetCapture.dropped")}: {droppedCount()}
         </span>
       </div>
+      <Show when={droppedCount() > 0}>
+        <div class="wl-packet-warning" role="alert">
+          {t("packetCapture.dropped_warning").replace("{count}", String(droppedCount()))}
+        </div>
+      </Show>
+      <details class="wl-packet-legend">
+        <summary>{t("packetCapture.publish_legend.title")}</summary>
+        <ul>
+          <li>{t("packetCapture.publish_legend.stats_only")}</li>
+          <li>{t("packetCapture.publish_legend.sampled")}</li>
+          <li>{t("packetCapture.publish_legend.full")}</li>
+        </ul>
+      </details>
       <Show
         when={selectedSid()}
         fallback={<div class="wl-empty">{t("packetCapture.no_source")}</div>}
       >
+        <Show when={packets().length === 0 && !paused()}>
+          <div class="wl-packet-empty-hint" role="status">
+            {t("packetCapture.stats_only_hint")}
+          </div>
+        </Show>
         <div class="wl-packet-grid">
           <PacketList packets={packets()} selectedId={selectedId()} onSelect={selectPacket} />
           <PacketDetail packet={selectedPacket()} />

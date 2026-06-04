@@ -4,7 +4,7 @@
 
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { t } from "~/i18n";
-import { errorRunbookPath, errorRunbookUrl } from "~/state/errorRunbooks";
+import { errorInlineRemedyKey, errorRunbookPath, errorRunbookUrl } from "~/state/errorRunbooks";
 import {
   clearNotificationHistory,
   dismissAllToasts,
@@ -24,6 +24,7 @@ function formatNotificationTime(ts: number): string {
 function ErrorIdWithRunbook(props: { errorId: string }) {
   const path = () => errorRunbookPath(props.errorId);
   const url = () => errorRunbookUrl(props.errorId);
+  const remedyKey = () => errorInlineRemedyKey(props.errorId);
 
   return (
     <>
@@ -40,6 +41,9 @@ function ErrorIdWithRunbook(props: { errorId: string }) {
             {t("notifications.runbook")}
           </a>
         )}
+      </Show>
+      <Show when={remedyKey()}>
+        {(key) => <span class="wl-error-remedy"> {t(key())}</span>}
       </Show>
     </>
   );

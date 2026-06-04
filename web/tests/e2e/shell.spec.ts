@@ -114,6 +114,29 @@ test("injected ctl error frame surfaces a toast", async ({ page }) => {
   await expect(center.getByText("E-2001")).toBeVisible();
 });
 
+test("error without a runbook still shows an inline remedy", async ({ page }) => {
+  // REQ: FR-UI-009
+  await page.goto("/");
+  await waitForInject(page);
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 1,
+    payload: {
+      event: "error",
+      message: "mystery failure in e2e",
+      error_id: "E-9999",
+    },
+  });
+
+  const toast = page.locator(".wl-toast", { hasText: "mystery failure in e2e" });
+  await expect(toast).toBeVisible();
+  await expect(toast.getByText("E-9999")).toBeVisible();
+  // No public runbook link for this id ...
+  await expect(toast.locator(".wl-error-runbook")).toHaveCount(0);
+  // ... but a short inline remedy is shown instead.
+  await expect(toast.locator(".wl-error-remedy")).toBeVisible();
+});
+
 test("dock tabs expose distinct panel accent bands", async ({ page }) => {
   await page.goto("/");
 
@@ -466,6 +489,159 @@ test("packet capture panel shows bounded buffer stats", async ({ page }) => {
 
   await expect(packetPanel.getByText("Packets: 1")).toBeVisible();
   await expect(packetPanel.getByRole("cell", { name: "ipv4" })).toBeVisible();
+});
+
+test("packet capture panel explains publish modes and the stats-only empty state", async ({ page }) => {
+  // REQ: FR-UI-PCAP
+  const sid = "88888888-8888-4888-8888-888888888888";
+  await page.goto("/");
+  await waitForInject(page);
+  const packetPanel = page.locator('div.wl-panel-content[data-panel-kind="packet"]').first();
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 88,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid,
+          name: "pcap-quiet",
+          kind: "pcap",
+          status: "running",
+          channels: [0],
+          bytes_in: 0,
+          persistent: true,
+          session_dir: "C:/logs/pcap-quiet",
+        },
+      ],
+    },
+  });
+
+  await expect(packetPanel.getByLabel("Source")).toHaveValue(sid);
+  // Publish-mode legend is always available.
+  await expect(packetPanel.getByText(/Publish modes|配信モード/)).toBeVisible();
+  // With no packets yet, the stats-only hint clarifies the empty list is by design.
+  await expect(
+    packetPanel.locator(".wl-packet-empty-hint"),
+  ).toBeVisible();
+  await expect(packetPanel.locator(".wl-packet-empty-hint")).toContainText(
+    /stays empty by design|仕様上空のまま/,
+  );
+});
+
+test("packet capture panel warns when the UI ring drops packets", async ({ page }) => {
+  // REQ: FR-UI-PCAP
+  // REQ: NFR-PERF-PCAP
+  const sid = "99999999-9999-4999-8999-999999999999";
+  await page.goto("/");
+  await waitForInject(page);
+  const packetPanel = page.locator('div.wl-panel-content[data-panel-kind="packet"]').first();
+  await injectFrame(page, {
+    type: "ctl",
+    seq: 99,
+    payload: {
+      event: "sources",
+      sources: [
+        {
+          sid,
+          name: "pcap-flood",
+          kind: "pcap",
+          status: "running",
+          channels: [0],
+          bytes_in: 0,
+          persistent: true,
+          session_dir: "C:/logs/pcap-flood",
+        },
+      ],
+    },
+  });
+  await expect(packetPanel.getByLabel("Source")).toHaveValue(sid);
+
+  // Overflow the bounded ring (capacity 512) to trigger drops.
+  await page.evaluate((targetSid) => {
+    const inject = (window as unknown as {
+      __tracemuxInject: (frame: unknown) => void;
+    }).__tracemuxInject;
+    for (let i = 0; i < 600; i += 1) {
+      inject({
+        type: "data",
+        seq: 1000 + i,
+        payload: {
+          ts_origin: 1_700_000_000_000_000_000 + i,
+          ts_ingest: 1_700_000_000_000_000_000 + i,
+          mono_ns: i,
+          boot_id: "b",
+          node_id: "n",
+          clock_offset_ms: 0,
+          clock_quality: "best-effort",
+          drift_ppm: 0,
+          clock_source: "system",
+          sid: targetSid,
+          ch: 0,
+          dir: "in",
+          kind: "datagram",
+          body: new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x08, 0x00]),
+          source: "pcap:pcap-flood",
+        },
+      });
+    }
+  }, sid);
+
+  await expect(
+    packetPanel.getByText(/dropped from the UI buffer|UIバッファから破棄/),
+  ).toBeVisible();
+});
+
+test("pcap interface selector surfaces flags and addresses", async ({ page }) => {
+  // REQ: FR-UI-PCAP
+  await page.route("**/api/detect", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        serial_candidates: [],
+        pcap_interfaces: [
+          {
+            device: "eth0",
+            display_name: "Ethernet",
+            description: "Primary NIC",
+            addresses: ["192.168.1.10", "fe80::1"],
+            flags: ["UP", "RUNNING"],
+          },
+          {
+            device: "eth1",
+            display_name: "Down NIC",
+            description: "",
+            addresses: [],
+            flags: ["DOWN"],
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await waitForInject(page);
+  const sourcesPanel = page
+    .locator('div.wl-panel-content[data-panel-kind="sources"]')
+    .first();
+  await sourcesPanel
+    .getByRole("button", { name: /Detect COM ports|COMポート検出/ })
+    .click();
+
+  const ifaceInfo = sourcesPanel.locator(".wl-pcap-iface-info");
+  await expect(ifaceInfo).toBeVisible();
+  // Select the up interface explicitly and verify its flags/addresses.
+  await sourcesPanel.getByLabel(/Interface|インターフェース/).selectOption("eth0");
+  await expect(ifaceInfo).toContainText(/Flags|フラグ/);
+  await expect(ifaceInfo).toContainText("RUNNING, UP");
+  await expect(ifaceInfo).toContainText(/Addresses|アドレス/);
+  await expect(ifaceInfo).toContainText("192.168.1.10, fe80::1");
+
+  // Selecting the down interface warns the user.
+  await sourcesPanel.getByLabel(/Interface|インターフェース/).selectOption("eth1");
+  await expect(sourcesPanel.locator(".wl-pcap-iface-down")).toBeVisible();
+  await expect(sourcesPanel.locator(".wl-pcap-iface-empty")).toBeVisible();
 });
 
 test("terminal toolbar changes the selected channel text encoding", async ({ page }) => {
