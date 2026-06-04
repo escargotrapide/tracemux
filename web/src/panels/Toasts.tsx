@@ -2,7 +2,7 @@
 //
 // REQ: FR-UI-009
 
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { t } from "~/i18n";
 import { errorInlineRemedyKey, errorRunbookPath, errorRunbookUrl } from "~/state/errorRunbooks";
 import {
@@ -57,6 +57,29 @@ export function Toasts() {
     0,
   );
 
+  let triggerButton: HTMLButtonElement | undefined;
+  let dialogRef: HTMLElement | undefined;
+
+  function closeHistory(): void {
+    setHistoryOpen(false);
+    // Return focus to the trigger so keyboard users are not stranded.
+    triggerButton?.focus();
+  }
+
+  function onDialogKeyDown(ev: KeyboardEvent): void {
+    if (ev.key === "Escape") {
+      ev.stopPropagation();
+      closeHistory();
+    }
+  }
+
+  // Move focus into the dialog when it opens so it is reachable by keyboard.
+  createEffect(() => {
+    if (historyOpen()) {
+      queueMicrotask(() => dialogRef?.focus());
+    }
+  });
+
   return (
     <>
       <div class="wl-notification-entry">
@@ -67,6 +90,7 @@ export function Toasts() {
           aria-haspopup="dialog"
           aria-expanded={historyOpen()}
           title={t("notifications.open")}
+          ref={triggerButton}
           onClick={() => setHistoryOpen((open) => !open)}
         >
           <span>{t("notifications.title")}</span>
@@ -77,7 +101,11 @@ export function Toasts() {
             class="wl-notification-center"
             data-testid="notification-center"
             role="dialog"
+            aria-modal="true"
             aria-label={t("notifications.title")}
+            tabindex="-1"
+            ref={dialogRef}
+            onKeyDown={onDialogKeyDown}
           >
             <header class="wl-notification-center-header">
               <strong>{t("notifications.title")}</strong>
@@ -95,6 +123,15 @@ export function Toasts() {
                   disabled={notificationHistoryStore.length === 0}
                 >
                   {t("notifications.clear")}
+                </button>
+                <button
+                  type="button"
+                  class="wl-notification-center-close"
+                  onClick={closeHistory}
+                  aria-label={t("notifications.close")}
+                  title={t("notifications.close")}
+                >
+                  &times;
                 </button>
               </span>
             </header>

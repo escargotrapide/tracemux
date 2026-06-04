@@ -770,11 +770,12 @@ export function SourcesPanel() {
         </span>
       </div>
       <div class="wl-serial-detect">
-        <div class="wl-serial-detect-actions">
+        <div class="wl-serial-detect-actions" aria-busy={serialDetecting()}>
           <button
             type="button"
             onClick={() => void onDetectSerial()}
             disabled={serialDetecting()}
+            aria-busy={serialDetecting()}
           >
             {serialDetecting() ? t("sources.serial.detecting") : t("sources.serial.detect")}
           </button>
@@ -974,7 +975,7 @@ export function SourcesPanel() {
           </select>
         </label>
       </div>
-      <div class="wl-source-bulk-export">
+      <div class="wl-source-bulk-export" aria-busy={bulkExporting() !== null}>
         <strong>{t("sources.export_all.title")}</strong>
         {exportSettingsControls()}
         <For each={EXPORT_FORMATS}>
@@ -983,6 +984,7 @@ export function SourcesPanel() {
               type="button"
               onClick={() => void onDownloadAllExports(format)}
               disabled={exportableSources(format).length === 0 || bulkExporting() !== null}
+              aria-busy={bulkExporting() === format}
               title={
                 exportableSources(format).length === 0
                   ? t(
@@ -1340,7 +1342,10 @@ export function SourcesPanel() {
               </dd>
               <dt>{t("sources.export.title")}</dt>
               <dd>
-                <div style={{ display: "flex", gap: "6px", "flex-wrap": "wrap" }}>
+                <div
+                  style={{ display: "flex", gap: "6px", "flex-wrap": "wrap" }}
+                  aria-busy={exporting() !== null}
+                >
                   {exportSettingsControls()}
                   <For each={EXPORT_FORMATS}>
                     {(format) => (
@@ -1348,6 +1353,7 @@ export function SourcesPanel() {
                         type="button"
                         onClick={() => void onDownloadExport(source().sid, format)}
                         disabled={!source().persistent || exporting() !== null}
+                        aria-busy={exporting() === format}
                       >
                         {exporting() === format
                           ? t("sources.export.downloading")

@@ -114,6 +114,28 @@ test("injected ctl error frame surfaces a toast", async ({ page }) => {
   await expect(center.getByText("E-2001")).toBeVisible();
 });
 
+test("notification center is a modal dialog with Escape and focus return", async ({ page }) => {
+  // REQ: FR-UI-009
+  await page.goto("/");
+  await waitForInject(page);
+
+  const trigger = page.getByTestId("notification-button");
+  await trigger.click();
+  const center = page.getByTestId("notification-center");
+  await expect(center).toBeVisible();
+  await expect(center).toHaveAttribute("aria-modal", "true");
+  await expect(center).toHaveAttribute("role", "dialog");
+
+  // Focus moves into the dialog when it opens.
+  await expect(center).toBeFocused();
+
+  // Escape closes the dialog and returns focus to the trigger button.
+  await page.keyboard.press("Escape");
+  await expect(center).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+});
+
 test("error without a runbook still shows an inline remedy", async ({ page }) => {
   // REQ: FR-UI-009
   await page.goto("/");

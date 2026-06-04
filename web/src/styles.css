@@ -63,6 +63,14 @@ button:disabled {
   color: var(--wl-fg-muted);
 }
 
+[aria-busy="true"] {
+  cursor: progress;
+}
+
+button[aria-busy="true"] {
+  position: relative;
+}
+
 .wl-app {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
