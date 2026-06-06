@@ -27,6 +27,14 @@ pub enum ErrorId {
     E1101SourceOpen,
     /// `E-1102` — source closed unexpectedly.
     E1102SourceClosed,
+    /// `E-1103` — packet capture backend unavailable.
+    E1103PcapBackendUnavailable,
+    /// `E-1104` — packet capture permission denied.
+    E1104PcapPermissionDenied,
+    /// `E-1105` — packet capture BPF filter invalid.
+    E1105PcapInvalidFilter,
+    /// `E-1106` — packet capture interface unavailable.
+    E1106PcapInterfaceUnavailable,
     // ---- decoder (1300..=1399) ----
     /// `E-1301` — decoder schema mismatch.
     E1301DecoderSchema,
@@ -59,6 +67,10 @@ impl ErrorId {
             Self::E1003FramerOverflow => "E-1003",
             Self::E1101SourceOpen => "E-1101",
             Self::E1102SourceClosed => "E-1102",
+            Self::E1103PcapBackendUnavailable => "E-1103",
+            Self::E1104PcapPermissionDenied => "E-1104",
+            Self::E1105PcapInvalidFilter => "E-1105",
+            Self::E1106PcapInterfaceUnavailable => "E-1106",
             Self::E1301DecoderSchema => "E-1301",
             Self::E1401WalFsync => "E-1401",
             Self::E1402RotateFail => "E-1402",
@@ -116,6 +128,10 @@ mod tests {
             ErrorId::E1003FramerOverflow,
             ErrorId::E1101SourceOpen,
             ErrorId::E1102SourceClosed,
+            ErrorId::E1103PcapBackendUnavailable,
+            ErrorId::E1104PcapPermissionDenied,
+            ErrorId::E1105PcapInvalidFilter,
+            ErrorId::E1106PcapInterfaceUnavailable,
             ErrorId::E1301DecoderSchema,
             ErrorId::E1401WalFsync,
             ErrorId::E1402RotateFail,

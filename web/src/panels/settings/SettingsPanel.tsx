@@ -4,7 +4,7 @@
 //
 // REQ: FR-UI-014
 
-import { createEffect, createSignal, For } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { t } from "~/i18n";
 import { connState, pushToast } from "~/state";
 import {
@@ -18,14 +18,23 @@ import {
   upsertClassificationRule,
   type ClassificationMatchKind,
 } from "~/state/classificationRules";
-import { displaySettings, updateDisplaySettings } from "~/state/displaySettings";
+import {
+  displaySettings,
+  DISPLAY_SETTING_LIMITS,
+  isValidDisplayTimezone,
+  resetDisplaySettings,
+  updateDisplaySettings,
+  type DisplaySettings,
+} from "~/state/displaySettings";
 import {
   logTypeNotes,
+  MAX_LOG_TYPE_NOTE_LENGTH,
   normalizeLogTypeKey,
   updateLogTypeNote,
 } from "~/state/logTypeNotes";
 import {
   normalizeEncoding,
+  resetSourceStartOptions,
   sourceStartOptions,
   type DetectionMode,
   SUPPORTED_DETECTION_MODES,
@@ -56,15 +65,63 @@ export function SettingsPanel() {
   const [ruleContains, setRuleContains] = createSignal("");
   const [ruleTag, setRuleTag] = createSignal("");
   const [ruleCaseSensitive, setRuleCaseSensitive] = createSignal(false);
+  // Inline validation for the classification-rule form: surface an invalid
+  // regex (or empty pattern) immediately instead of only on submit.
+  const rulePatternError = createMemo<string | null>(() => {
+    const pattern = ruleContains();
+    if (!pattern.trim()) return null;
+    if (ruleMatchKind() !== "regex") return null;
+    try {
+      new RegExp(pattern);
+      return null;
+    } catch (err) {
+      return (err as Error).message;
+    }
+  });
+  const timezoneInvalid = createMemo(() => !isValidDisplayTimezone(displaySettings.timezone));
+  const annotationBusy = createMemo(
+    () => logTypeSyncStatus() === "loading" || logTypeSyncStatus() === "syncing",
+  );
+
+  // Surface a short notice when a numeric display setting is clamped into its
+  // safe range so the entered value is not silently rewritten.
+  type NumericDisplayField = keyof typeof DISPLAY_SETTING_LIMITS;
+  const [clampNotices, setClampNotices] = createSignal<Partial<Record<NumericDisplayField, number>>>(
+    {},
+  );
+
+  function applyNumericSetting(field: NumericDisplayField, rawValue: string): void {
+    const limits = DISPLAY_SETTING_LIMITS[field];
+    const parsed = numberValue(rawValue);
+    updateDisplaySettings({ [field]: parsed } as Partial<DisplaySettings>);
+    const clamped = Number.isFinite(parsed) && (parsed < limits.min || parsed > limits.max);
+    setClampNotices((prev) => {
+      if (clamped) {
+        const target = parsed < limits.min ? limits.min : limits.max;
+        return { ...prev, [field]: target };
+      }
+      if (prev[field] === undefined) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
+
+  function clampMessage(field: NumericDisplayField): string {
+    const limits = DISPLAY_SETTING_LIMITS[field];
+    const applied = clampNotices()[field];
+    return t("settings.clamped")
+      .replace("{min}", String(limits.min))
+      .replace("{max}", String(limits.max))
+      .replace("{value}", String(applied ?? ""));
+  }
   const selectedLogTypeNote = () => {
     const key = normalizeLogTypeKey(logTypeKey());
     return key ? logTypeNotes[key]?.text ?? "" : "";
   };
   let logTypeAnnotationsRequested = false;
 
-  createEffect(() => {
-    if (logTypeAnnotationsRequested || connState().status !== "open") return;
-    logTypeAnnotationsRequested = true;
+  function loadLogTypeNotes(): void {
     setLogTypeSyncStatus("loading");
     void loadAndApplyLogTypeAnnotations()
       .then(() => setLogTypeSyncStatus("synced"))
@@ -73,6 +130,20 @@ export function SettingsPanel() {
         console.warn("E-UI-ANNOTATION-SYNC load log type notes failed", err);
         pushToast({ level: "warn", message: t("settings.log_type_notes.sync_failed") });
       });
+  }
+
+  function retryLogTypeNotesSync(): void {
+    if (connState().status !== "open") {
+      pushToast({ level: "warn", message: t("settings.log_type_notes.sync_failed") });
+      return;
+    }
+    loadLogTypeNotes();
+  }
+
+  createEffect(() => {
+    if (logTypeAnnotationsRequested || connState().status !== "open") return;
+    logTypeAnnotationsRequested = true;
+    loadLogTypeNotes();
   });
 
   function addRule(): void {
@@ -108,6 +179,23 @@ export function SettingsPanel() {
       });
   }
 
+  function resetDisplayDefaults(): void {
+    if (!window.confirm(t("settings.display.reset_confirm"))) return;
+    resetDisplaySettings();
+    pushToast({ level: "info", message: t("settings.display.reset_done") });
+  }
+
+  function resetSourceStartDefaults(): void {
+    if (!window.confirm(t("settings.source_start.reset_confirm"))) return;
+    resetSourceStartOptions();
+    pushToast({ level: "info", message: t("settings.source_start.reset_done") });
+  }
+
+  function deleteRuleWithConfirm(ruleId: string): void {
+    if (!window.confirm(t("settings.classification.delete_confirm"))) return;
+    deleteClassificationRule(ruleId);
+  }
+
   return (
     <div class="wl-settings-panel">
       <section class="wl-settings-section">
@@ -116,42 +204,66 @@ export function SettingsPanel() {
           <span>{t("settings.terminal_scrollback")}</span>
           <input
             type="number"
-            min="100"
-            max="1000000"
+            min={DISPLAY_SETTING_LIMITS.terminalScrollback.min}
+            max={DISPLAY_SETTING_LIMITS.terminalScrollback.max}
             value={displaySettings.terminalScrollback}
-            onInput={(ev) => updateDisplaySettings({ terminalScrollback: numberValue(ev.currentTarget.value) })}
+            aria-invalid={clampNotices().terminalScrollback !== undefined ? "true" : undefined}
+            onInput={(ev) => applyNumericSetting("terminalScrollback", ev.currentTarget.value)}
           />
         </label>
+        <Show when={clampNotices().terminalScrollback !== undefined}>
+          <div class="wl-settings-help wl-settings-clamp" role="status">
+            {clampMessage("terminalScrollback")}
+          </div>
+        </Show>
         <label class="wl-settings-row">
           <span>{t("settings.terminal_max_records")}</span>
           <input
             type="number"
-            min="100"
-            max="1000000"
+            min={DISPLAY_SETTING_LIMITS.terminalMaxRecords.min}
+            max={DISPLAY_SETTING_LIMITS.terminalMaxRecords.max}
             value={displaySettings.terminalMaxRecords}
-            onInput={(ev) => updateDisplaySettings({ terminalMaxRecords: numberValue(ev.currentTarget.value) })}
+            aria-invalid={clampNotices().terminalMaxRecords !== undefined ? "true" : undefined}
+            onInput={(ev) => applyNumericSetting("terminalMaxRecords", ev.currentTarget.value)}
           />
         </label>
+        <Show when={clampNotices().terminalMaxRecords !== undefined}>
+          <div class="wl-settings-help wl-settings-clamp" role="status">
+            {clampMessage("terminalMaxRecords")}
+          </div>
+        </Show>
         <label class="wl-settings-row">
           <span>{t("settings.tile_scrollback")}</span>
           <input
             type="number"
-            min="50"
-            max="100000"
+            min={DISPLAY_SETTING_LIMITS.tileScrollback.min}
+            max={DISPLAY_SETTING_LIMITS.tileScrollback.max}
             value={displaySettings.tileScrollback}
-            onInput={(ev) => updateDisplaySettings({ tileScrollback: numberValue(ev.currentTarget.value) })}
+            aria-invalid={clampNotices().tileScrollback !== undefined ? "true" : undefined}
+            onInput={(ev) => applyNumericSetting("tileScrollback", ev.currentTarget.value)}
           />
         </label>
+        <Show when={clampNotices().tileScrollback !== undefined}>
+          <div class="wl-settings-help wl-settings-clamp" role="status">
+            {clampMessage("tileScrollback")}
+          </div>
+        </Show>
         <label class="wl-settings-row">
           <span>{t("settings.tile_max_records")}</span>
           <input
             type="number"
-            min="50"
-            max="100000"
+            min={DISPLAY_SETTING_LIMITS.tileMaxRecords.min}
+            max={DISPLAY_SETTING_LIMITS.tileMaxRecords.max}
             value={displaySettings.tileMaxRecords}
-            onInput={(ev) => updateDisplaySettings({ tileMaxRecords: numberValue(ev.currentTarget.value) })}
+            aria-invalid={clampNotices().tileMaxRecords !== undefined ? "true" : undefined}
+            onInput={(ev) => applyNumericSetting("tileMaxRecords", ev.currentTarget.value)}
           />
         </label>
+        <Show when={clampNotices().tileMaxRecords !== undefined}>
+          <div class="wl-settings-help wl-settings-clamp" role="status">
+            {clampMessage("tileMaxRecords")}
+          </div>
+        </Show>
         <label class="wl-settings-row">
           <span>{t("settings.timezone")}</span>
           <input
@@ -160,6 +272,8 @@ export function SettingsPanel() {
             value={displaySettings.timezone}
             onInput={(ev) => updateDisplaySettings({ timezone: ev.currentTarget.value })}
             placeholder={t("settings.timezone.placeholder")}
+            aria-invalid={timezoneInvalid()}
+            classList={{ "wl-field-error": timezoneInvalid() }}
           />
         </label>
         <datalist id="wl-settings-timezones">
@@ -170,8 +284,18 @@ export function SettingsPanel() {
           <option value="GMT+09:00" />
           <option value="+09:00" />
         </datalist>
-        <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+        <div class="wl-settings-help">
           {t("settings.timezone.help")}
+        </div>
+        <Show when={timezoneInvalid()}>
+          <div class="wl-settings-help wl-settings-error" role="status">
+            {t("settings.timezone.invalid")}
+          </div>
+        </Show>
+        <div class="wl-settings-actions">
+          <button type="button" onClick={resetDisplayDefaults}>
+            {t("settings.display.reset")}
+          </button>
         </div>
       </section>
 
@@ -216,13 +340,21 @@ export function SettingsPanel() {
           />
           <span>{t("settings.source_start.send_rules")}</span>
         </label>
-        <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+        <div class="wl-settings-help">
           {t("settings.source_start.help")}
+        </div>
+        <div class="wl-settings-actions">
+          <button type="button" onClick={resetSourceStartDefaults}>
+            {t("settings.source_start.reset")}
+          </button>
         </div>
       </section>
 
       <section class="wl-settings-section">
         <h2>{t("settings.classification.title")}</h2>
+        <p class="wl-settings-help" data-testid="classification-scope-help">
+          {t("settings.classification.scope_help")}
+        </p>
         <label class="wl-settings-row">
           <span>{t("settings.classification.match_kind")}</span>
           <select
@@ -244,8 +376,14 @@ export function SettingsPanel() {
             value={ruleContains()}
             onInput={(ev) => setRuleContains(ev.currentTarget.value)}
             placeholder={t("settings.classification.contains_placeholder")}
+            aria-invalid={rulePatternError() ? "true" : undefined}
           />
         </div>
+        <Show when={rulePatternError()}>
+          <p class="wl-settings-rule-error" role="alert">
+            {t("settings.classification.invalid_regex")}: {rulePatternError()}
+          </p>
+        </Show>
         <div class="wl-settings-row">
           <span>{t("settings.classification.tag")}</span>
           <input
@@ -301,7 +439,7 @@ export function SettingsPanel() {
                   <td>{rule.tag}</td>
                   <td>{rule.caseSensitive ? t("settings.classification.yes") : t("settings.classification.no")}</td>
                   <td>
-                    <button type="button" onClick={() => deleteClassificationRule(rule.id)}>
+                    <button type="button" onClick={() => deleteRuleWithConfirm(rule.id)}>
                       {t("settings.classification.delete")}
                     </button>
                   </td>
@@ -346,22 +484,34 @@ export function SettingsPanel() {
           <span>{t("settings.tile_min_width")}</span>
           <input
             type="number"
-            min="120"
-            max="1200"
+            min={DISPLAY_SETTING_LIMITS.tileMinWidth.min}
+            max={DISPLAY_SETTING_LIMITS.tileMinWidth.max}
             value={displaySettings.tileMinWidth}
-            onInput={(ev) => updateDisplaySettings({ tileMinWidth: numberValue(ev.currentTarget.value) })}
+            aria-invalid={clampNotices().tileMinWidth !== undefined ? "true" : undefined}
+            onInput={(ev) => applyNumericSetting("tileMinWidth", ev.currentTarget.value)}
           />
         </label>
+        <Show when={clampNotices().tileMinWidth !== undefined}>
+          <div class="wl-settings-help wl-settings-clamp" role="status">
+            {clampMessage("tileMinWidth")}
+          </div>
+        </Show>
         <label class="wl-settings-row">
           <span>{t("settings.tile_min_height")}</span>
           <input
             type="number"
-            min="80"
-            max="900"
+            min={DISPLAY_SETTING_LIMITS.tileMinHeight.min}
+            max={DISPLAY_SETTING_LIMITS.tileMinHeight.max}
             value={displaySettings.tileMinHeight}
-            onInput={(ev) => updateDisplaySettings({ tileMinHeight: numberValue(ev.currentTarget.value) })}
+            aria-invalid={clampNotices().tileMinHeight !== undefined ? "true" : undefined}
+            onInput={(ev) => applyNumericSetting("tileMinHeight", ev.currentTarget.value)}
           />
         </label>
+        <Show when={clampNotices().tileMinHeight !== undefined}>
+          <div class="wl-settings-help wl-settings-clamp" role="status">
+            {clampMessage("tileMinHeight")}
+          </div>
+        </Show>
       </section>
 
       <section class="wl-settings-section">
@@ -389,18 +539,48 @@ export function SettingsPanel() {
           }}
           onBlur={syncSelectedLogTypeNote}
           placeholder={t("settings.log_type_notes.placeholder")}
+          disabled={annotationBusy()}
+          aria-busy={annotationBusy() ? "true" : undefined}
+          maxlength={MAX_LOG_TYPE_NOTE_LENGTH}
           style={{ width: "100%", "min-height": "86px", resize: "vertical" }}
         />
+        <Show when={annotationBusy()}>
+          <p class="wl-settings-help" role="status">
+            {t("settings.log_type_notes.loading")}
+          </p>
+        </Show>
+        <div class="wl-settings-count-row">
+          <span
+            class="wl-source-count"
+            classList={{
+              "wl-source-count-limit": selectedLogTypeNote().length >= MAX_LOG_TYPE_NOTE_LENGTH,
+            }}
+          >
+            {selectedLogTypeNote().length}/{MAX_LOG_TYPE_NOTE_LENGTH}
+          </span>
+          <Show when={selectedLogTypeNote().length >= MAX_LOG_TYPE_NOTE_LENGTH}>
+            <span class="wl-settings-clamp" role="status">
+              {t("settings.log_type_notes.limit_reached")}
+            </span>
+          </Show>
+        </div>
         <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px", "margin-top": "4px", display: "flex", gap: "8px", "align-items": "center", "flex-wrap": "wrap" }}>
           <span>{t("settings.log_type_notes.help")}</span>
           <button
             type="button"
             onClick={syncSelectedLogTypeNote}
-            disabled={logTypeSyncStatus() === "loading" || logTypeSyncStatus() === "syncing"}
+            disabled={annotationBusy()}
           >
             {t("annotations.sync.now")}
           </button>
-          <span>{annotationSyncLabel(logTypeSyncStatus())}</span>
+          <Show when={logTypeSyncStatus() === "error"}>
+            <button type="button" class="wl-settings-rule-retry" onClick={retryLogTypeNotesSync}>
+              {t("settings.log_type_notes.retry")}
+            </button>
+          </Show>
+          <span class={logTypeSyncStatus() === "error" ? "wl-settings-rule-error" : undefined}>
+            {annotationSyncLabel(logTypeSyncStatus())}
+          </span>
         </div>
       </section>
     </div>

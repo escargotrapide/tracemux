@@ -295,7 +295,7 @@ macOS:
 | Risk | Mitigation |
 | --- | --- |
 | `pcap` makes normal builds require Npcap/libpcap. | Feature-gate real backend and keep fake backend default for CI. |
-| Windows SDK setup is fragile. | Document setup and surface `E-1101` style source-open errors clearly. |
+| Windows SDK setup is fragile. | Document setup and surface pcap-specific source-open errors clearly. |
 | pcapng output compatibility issues. | Use `pcap-file = "2.0"`, add synthetic fixtures, test with importer/Wireshark. |
 | Too much dependency churn. | Add only `pcap-file` and `etherparse` first; add `pcap` when real backend starts. |
 | License/source policy failures. | Avoid `pcarp`; run `cargo deny` after dependency changes. |

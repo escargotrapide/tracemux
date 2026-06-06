@@ -16,8 +16,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rcgen::{generate_simple_self_signed, CertifiedKey};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::ServerConfig;
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use thiserror::Error;
 use tracemux_core::{ErrorId, TraceMuxError};
 
@@ -140,18 +141,16 @@ impl CertBundle {
     pub fn parse(
         &self,
     ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), TlsError> {
-        let mut cert_reader = self.cert_pem.as_bytes();
-        let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_reader)
-            .collect::<Result<_, _>>()
-            .map_err(|e| TlsError::Pem(format!("certs: {e}")))?;
+        let certs: Vec<CertificateDer<'static>> =
+            CertificateDer::pem_slice_iter(self.cert_pem.as_bytes())
+                .collect::<Result<_, _>>()
+                .map_err(|e| TlsError::Pem(format!("certs: {e}")))?;
         if certs.is_empty() {
             return Err(TlsError::Pem("no certificates in PEM".into()));
         }
 
-        let mut key_reader = self.key_pem.as_bytes();
-        let key = rustls_pemfile::private_key(&mut key_reader)
-            .map_err(|e| TlsError::Pem(format!("key: {e}")))?
-            .ok_or_else(|| TlsError::Pem("no private key in PEM".into()))?;
+        let key = PrivateKeyDer::from_pem_slice(self.key_pem.as_bytes())
+            .map_err(|e| TlsError::Pem(format!("key: {e}")))?;
 
         Ok((certs, key))
     }

@@ -1,9 +1,10 @@
 # Error catalogue
 
 Every public-facing error in `tracemux` is identified by an
-`E-NNNN` code. Codes are allocated in
-[`crates/core/src/error_id.rs`](../../crates/core/src/error_id.rs)
-and documented one-per-file under this directory.
+`E-NNNN` code. Core/server codes are allocated in
+[`crates/core/src/error_id.rs`](../../crates/core/src/error_id.rs).
+UI-only codes are emitted by the web app in the `E-4000..E-4099`
+range. All public codes are documented one-per-file under this directory.
 
 ## Allocation ranges
 
@@ -30,6 +31,10 @@ and documented one-per-file under this directory.
 | `E-1003` | Framer overflow | [E-1003.md](E-1003.md) |
 | `E-1101` | Source open failed | [E-1101.md](E-1101.md) |
 | `E-1102` | Source closed unexpectedly | [E-1102.md](E-1102.md) |
+| `E-1103` | Packet capture backend unavailable | [E-1103.md](E-1103.md) |
+| `E-1104` | Packet capture permission denied | [E-1104.md](E-1104.md) |
+| `E-1105` | Packet capture filter invalid | [E-1105.md](E-1105.md) |
+| `E-1106` | Packet capture interface unavailable | [E-1106.md](E-1106.md) |
 | `E-1301` | Decoder schema mismatch | [E-1301.md](E-1301.md) |
 | `E-1401` | WAL fsync failed | [E-1401.md](E-1401.md) |
 | `E-1402` | Log rotation failed | [E-1402.md](E-1402.md) |
@@ -38,6 +43,8 @@ and documented one-per-file under this directory.
 | `E-2101` | Auth rejected | [E-2101.md](E-2101.md) |
 | `E-2102` | TLS handshake failed | [E-2102.md](E-2102.md) |
 | `E-2103` | TOFU fingerprint mismatch | [E-2103.md](E-2103.md) |
+| `E-4001` | UI wire frame ignored | [E-4001.md](E-4001.md) |
+| `E-4002` | UI WebSocket send failed | [E-4002.md](E-4002.md) |
 
 ## Adding a new code
 

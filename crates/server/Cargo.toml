@@ -18,7 +18,7 @@ serial = ["tracemux-core/serial"]
 pcap-capture = ["tracemux-core/pcap-capture"]
 
 [dependencies]
-tracemux-core = { path = "../core" }
+tracemux-core = { path = "../core", version = "0.1.0" }
 axum = { workspace = true }
 axum-server = { workspace = true }
 tower = { workspace = true }
@@ -34,7 +34,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
+rustls-pki-types = { workspace = true }
 rcgen = { workspace = true }
 argon2 = { workspace = true }
 sha2 = { workspace = true }

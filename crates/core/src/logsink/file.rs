@@ -132,6 +132,9 @@ impl LogSink for FileLogSink {
                     tags: record.tags.clone(),
                 })
                 .map_err(|e| log_err("appending lines.jsonl", e))?;
+            self.lines
+                .flush()
+                .map_err(|e| log_err("flushing lines.jsonl", e))?;
         }
         self.frames
             .append(&FrameEntry {
@@ -140,6 +143,9 @@ impl LogSink for FileLogSink {
                 record: record.clone(),
             })
             .map_err(|e| log_err("appending frames.jsonl", e))?;
+        self.frames
+            .flush()
+            .map_err(|e| log_err("flushing frames.jsonl", e))?;
         Ok(())
     }
 
@@ -308,6 +314,38 @@ mod tests {
         assert_eq!(index_row["sid"], sid.to_string());
         assert_eq!(index_row["off"], 0);
         assert_eq!(index_row["len"], 4);
+        sink.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn decoded_records_are_visible_before_close() {
+        let dir = tempdir();
+        let sid = Uuid::new_v4();
+        let mut sink = FileLogSink::create(&dir, sid).unwrap();
+
+        sink.append_record(
+            &ts(),
+            &Record {
+                schema_id: Some("schema:v1".to_string()),
+                level: Some(Level::Warn),
+                text: Some("visible before close".to_string()),
+                fields: json!({"k":"v"}),
+                tags: vec!["tag-a".to_string()],
+                correlation_id: Some("corr-1".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let lines = std::fs::read_to_string(dir.join("lines.jsonl")).unwrap();
+        let line_row: serde_json::Value = serde_json::from_str(lines.trim()).unwrap();
+        assert_eq!(line_row["text"], "visible before close");
+        assert_eq!(line_row["level"], "warn");
+
+        let frames = std::fs::read_to_string(dir.join("frames.jsonl")).unwrap();
+        let frame_row: serde_json::Value = serde_json::from_str(frames.trim()).unwrap();
+        assert_eq!(frame_row["decoder"], "unknown");
+        assert_eq!(frame_row["record"]["schema_id"], "schema:v1");
         sink.close().await.unwrap();
     }
 }

@@ -117,6 +117,41 @@ describe("sessionExportZip", () => {
     ]);
   });
 
+  it("honors abort signals before requesting server-side bundle tickets", async () => {
+    // REQ: FR-UI-018
+    stubLocation();
+    const controller = new AbortController();
+    controller.abort();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(downloadSessionExportZip([
+      { sid: "sid-a", sourceName: "Loopback" },
+    ], {
+      format: "text",
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("passes abort signals to server-side bundle ticket requests", async () => {
+    // REQ: FR-UI-018
+    stubLocation();
+    const controller = new AbortController();
+    const abortErr = new Error("aborted");
+    abortErr.name = "AbortError";
+    const fetchMock = vi.fn(async () => Promise.reject(abortErr));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(downloadSessionExportZip([
+      { sid: "sid-a", sourceName: "Loopback" },
+    ], {
+      format: "text",
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal).toBe(controller.signal);
+  });
+
   it("writes ZIP local and end-of-central-directory signatures", () => {
     // REQ: FR-UI-018
     const zip = createStoredZip([

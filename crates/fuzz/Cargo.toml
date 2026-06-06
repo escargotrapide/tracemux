@@ -1,0 +1,59 @@
+[package]
+name = "tracemux-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+bytes = "1.6"
+libfuzzer-sys = "0.4"
+serde_json = "1"
+tracemux-core = { path = "../core" }
+tracemux-server = { path = "../server" }
+
+[[bin]]
+name = "telnet_iac"
+path = "fuzz_targets/telnet_iac.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vt_escape"
+path = "fuzz_targets/vt_escape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "index_jsonl"
+path = "fuzz_targets/index_jsonl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wire_proto"
+path = "fuzz_targets/wire_proto.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "framer"
+path = "fuzz_targets/framer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decoder"
+path = "fuzz_targets/decoder.rs"
+test = false
+doc = false
+bench = false

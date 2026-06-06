@@ -418,10 +418,11 @@ async fn handle_write(
                 AuditResult::Error,
                 serde_json::json!({ "seq": env.seq, "error": err.to_string() }),
             );
-            let reply = ctl_error_with_id(
+            let reply = ctl_error_with_sid(
                 env.seq,
                 format!("write failed: {err}"),
                 anyhow_error_id(&err),
+                sid,
             );
             queue_envelope(out_tx, &reply, peer).await
         }
@@ -683,8 +684,8 @@ async fn start_source_ctl(
         Err(err) => {
             let reply = ctl_error_with_id(
                 env.seq,
-                format!("source start failed: {err}"),
-                ErrorId::E1101SourceOpen,
+                lifecycle_error_message("source start failed", &err),
+                lifecycle_error_id(&err),
             );
             queue_envelope(out_tx, &reply, peer).await
         }
@@ -705,7 +706,12 @@ async fn stop_source_ctl(
         let reply = ctl_event(env.seq, "stopped", "source stopped", Some(sid));
         queue_envelope(out_tx, &reply, peer).await
     } else {
-        let reply = ctl_error(env.seq, "source sid is not active");
+        let reply = ctl_error_with_sid(
+            env.seq,
+            "source sid is not active",
+            ErrorId::E2001WireMalformed,
+            sid,
+        );
         queue_envelope(out_tx, &reply, peer).await
     }
 }
@@ -726,10 +732,11 @@ async fn resume_source_ctl(
             queue_envelope(out_tx, &reply, peer).await
         }
         Err(err) => {
-            let reply = ctl_error_with_id(
+            let reply = ctl_error_with_sid(
                 env.seq,
                 format!("source resume failed: {err}"),
                 lifecycle_error_id(&err),
+                sid,
             );
             queue_envelope(out_tx, &reply, peer).await
         }
@@ -759,10 +766,11 @@ async fn restart_source_ctl(
             queue_envelope(out_tx, &reply, peer).await
         }
         Err(err) => {
-            let reply = ctl_error_with_id(
+            let reply = ctl_error_with_sid(
                 env.seq,
-                format!("source restart failed: {err}"),
+                lifecycle_error_message("source restart failed", &err),
                 lifecycle_error_id(&err),
+                sid,
             );
             queue_envelope(out_tx, &reply, peer).await
         }
@@ -783,7 +791,12 @@ async fn remove_source_ctl(
         let reply = ctl_event(env.seq, "removed", "source removed", Some(sid));
         queue_envelope(out_tx, &reply, peer).await
     } else {
-        let reply = ctl_error(env.seq, "source sid is unknown");
+        let reply = ctl_error_with_sid(
+            env.seq,
+            "source sid is unknown",
+            ErrorId::E2001WireMalformed,
+            sid,
+        );
         queue_envelope(out_tx, &reply, peer).await
     }
 }
@@ -890,25 +903,53 @@ fn ctl_event(seq: u64, event: &'static str, message: &'static str, sid: Option<U
 }
 
 fn ctl_error(seq: u64, message: impl Into<String>) -> Envelope {
-    ctl_error_with_id(seq, message, ErrorId::E2001WireMalformed)
+    ctl_error_inner(seq, message, ErrorId::E2001WireMalformed, None)
 }
 
 fn ctl_error_with_id(seq: u64, message: impl Into<String>, error_id: ErrorId) -> Envelope {
-    Envelope::new(
-        FrameType::Ctl,
-        seq,
-        Value::Map(vec![
-            (Value::String("event".into()), Value::String("error".into())),
-            (
-                Value::String("message".into()),
-                Value::String(message.into().into()),
-            ),
-            (
-                Value::String("error_id".into()),
-                Value::String(error_id.code().into()),
-            ),
-        ]),
-    )
+    ctl_error_inner(seq, message, error_id, None)
+}
+
+/// Like [`ctl_error_with_id`] but tags the error with the originating `sid` so
+/// the UI can attach it to that source's error history (a bare `ctl_error`
+/// reply is dropped by the client because it has no `sid`).
+fn ctl_error_with_sid(
+    seq: u64,
+    message: impl Into<String>,
+    error_id: ErrorId,
+    sid: Uuid,
+) -> Envelope {
+    ctl_error_inner(seq, message, error_id, Some(sid))
+}
+
+fn ctl_error_inner(
+    seq: u64,
+    message: impl Into<String>,
+    error_id: ErrorId,
+    sid: Option<Uuid>,
+) -> Envelope {
+    let mut payload = vec![
+        (Value::String("event".into()), Value::String("error".into())),
+        (
+            Value::String("message".into()),
+            Value::String(message.into().into()),
+        ),
+        (
+            Value::String("error_id".into()),
+            Value::String(error_id.code().into()),
+        ),
+    ];
+    if let Some(sid) = sid {
+        payload.push((
+            Value::String("sid".into()),
+            Value::String(sid.to_string().into()),
+        ));
+    }
+    let mut env = Envelope::new(FrameType::Ctl, seq, Value::Map(payload));
+    if let Some(sid) = sid {
+        env = env.with_sid(sid.to_string());
+    }
+    env
 }
 
 fn write_ack(seq: u64, sid: Uuid, ch: u32, bytes_written: usize) -> Envelope {
@@ -940,8 +981,12 @@ fn write_ack(seq: u64, sid: Uuid, ch: u32, bytes_written: usize) -> Envelope {
 }
 
 fn anyhow_error_id(err: &anyhow::Error) -> ErrorId {
-    err.downcast_ref::<TraceMuxError>()
-        .map_or(ErrorId::E1001PipelineGeneric, |err| err.id)
+    trace_mux_error_id(err).unwrap_or(ErrorId::E1001PipelineGeneric)
+}
+
+fn trace_mux_error_id(err: &anyhow::Error) -> Option<ErrorId> {
+    err.chain()
+        .find_map(|cause| cause.downcast_ref::<TraceMuxError>().map(|err| err.id))
 }
 
 fn audit_write(
@@ -974,6 +1019,10 @@ fn audit_ts() -> String {
 }
 
 fn lifecycle_error_id(err: &anyhow::Error) -> ErrorId {
+    if let Some(id) = trace_mux_error_id(err) {
+        return id;
+    }
+
     let message = err.to_string();
     if message.contains("unknown")
         || message.contains("already active")
@@ -984,6 +1033,15 @@ fn lifecycle_error_id(err: &anyhow::Error) -> ErrorId {
     } else {
         ErrorId::E1101SourceOpen
     }
+}
+
+fn lifecycle_error_message(prefix: &str, err: &anyhow::Error) -> String {
+    let causes = err
+        .chain()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(": ");
+    format!("{prefix}: {causes}")
 }
 
 const fn source_status_token(status: SourceStatus) -> &'static str {
@@ -1512,6 +1570,37 @@ mod tests {
             }
             other => panic!("wrong: {other:?}"),
         }
+    }
+
+    #[test]
+    fn lifecycle_errors_include_cause_chain() {
+        let err = anyhow::anyhow!("pcap capture backend is not available in this build")
+            .context("Source::open failed")
+            .context("pcap source exited before session registration");
+
+        assert_eq!(
+            lifecycle_error_message("source start failed", &err),
+            concat!(
+                "source start failed: pcap source exited before session registration: ",
+                "Source::open failed: ",
+                "pcap capture backend is not available in this build"
+            )
+        );
+    }
+
+    #[test]
+    fn lifecycle_error_id_uses_nested_tracemux_error() {
+        let err = anyhow::Error::from(TraceMuxError::new(
+            ErrorId::E1103PcapBackendUnavailable,
+            "pcap capture backend is not available in this build",
+        ))
+        .context("Source::open failed")
+        .context("pcap source exited before session registration");
+
+        assert_eq!(
+            lifecycle_error_id(&err),
+            ErrorId::E1103PcapBackendUnavailable
+        );
     }
 
     #[test]

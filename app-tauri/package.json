@@ -1,6 +1,6 @@
 {
   "name": "@tracemux/app-tauri",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "private": true,
   "description": "Tauri 2 desktop shell for tracemux. Spawns the `tracemux serve` sidecar and loads the SolidJS UI.",
   "type": "module",

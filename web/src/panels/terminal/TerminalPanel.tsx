@@ -24,6 +24,7 @@ import { t } from "~/i18n";
 import {
   pushToast,
   clearClientDisplayBuffers,
+  connState,
   displayClearVersion,
   selectTerminalChannel,
   sendWrite,
@@ -66,8 +67,28 @@ const encoder = new TextEncoder();
 const DATA_KINDS: DataPayload["kind"][] = ["bytes", "datagram", "frame", "record"];
 const LOG_TYPE_ALL = "all";
 const LOG_TYPE_CUSTOM = "custom";
+// Re-decoding and redrawing the whole buffer is cheap for small buffers, so the
+// confirmation only appears once a channel holds enough records to make the
+// full repaint noticeable.
+const ENCODING_CHANGE_CONFIRM_THRESHOLD = 500;
+// Text-filter inputs (tag / source) drive a full buffer redraw, so typing is
+// debounced to keep the terminal responsive while the user is still typing.
+const FILTER_REDRAW_DEBOUNCE_MS = 200;
 
 type LogTypeSelection = typeof LOG_TYPE_ALL | typeof LOG_TYPE_CUSTOM | `kind:${DataPayload["kind"]}` | `tag:${string}`;
+
+function connectionDetail(status: string): string {
+  if (status === "connecting") return t("status.connecting_detail");
+  if (status === "closed") return t("status.closed_detail");
+  if (status === "error") return t("status.error_detail");
+  return t(`status.${status}`);
+}
+
+function connectionTone(status: string): "ok" | "warn" | "err" {
+  if (status === "open") return "ok";
+  if (status === "connecting" || status === "idle") return "warn";
+  return "err";
+}
 
 function kindSelection(kind: DataPayload["kind"]): LogTypeSelection {
   return `kind:${kind}`;
@@ -104,8 +125,18 @@ export function TerminalPanel(props: TerminalPanelProps) {
   );
   const [filterTag, setFilterTag] = createSignal(DEFAULT_DISPLAY_FILTER.tagQuery);
   const [filterSource, setFilterSource] = createSignal(DEFAULT_DISPLAY_FILTER.sourceQuery);
+  // Debounced mirrors of the text filters above. The redraw effect and the
+  // live-render filter read these so a full buffer repaint only happens after
+  // typing settles, not on every keystroke.
+  const [debouncedFilterTag, setDebouncedFilterTag] = createSignal(
+    DEFAULT_DISPLAY_FILTER.tagQuery,
+  );
+  const [debouncedFilterSource, setDebouncedFilterSource] = createSignal(
+    DEFAULT_DISPLAY_FILTER.sourceQuery,
+  );
   const [logTypeSelection, setLogTypeSelection] = createSignal<LogTypeSelection>(LOG_TYPE_ALL);
   const [bufferVersion, setBufferVersion] = createSignal(0);
+  const [encodingResetVersion, setEncodingResetVersion] = createSignal(0);
 
   const sidOptions = createMemo(() => Object.values(sourcesStore));
   const chOptions = createMemo(() => {
@@ -113,6 +144,13 @@ export function TerminalPanel(props: TerminalPanelProps) {
     return s ? s.channels : [ch()];
   });
   const hasActiveSource = createMemo(() => Boolean(sourcesStore[sid()]));
+  const connectionStatus = createMemo(() => connState().status);
+  const canSend = createMemo(() => hasActiveSource() && connectionStatus() === "open");
+  const sendUnavailableReason = createMemo(() => {
+    if (!hasActiveSource()) return t("terminal.no_source");
+    if (connectionStatus() !== "open") return connectionDetail(connectionStatus());
+    return "";
+  });
   const currentEncodingFallback = createMemo(() => {
     sourceEncodingsVersion();
     return sourceEncodings[sourceEncodingKey(sid())]?.encoding
@@ -122,6 +160,10 @@ export function TerminalPanel(props: TerminalPanelProps) {
   const currentEncoding = createMemo(() => {
     sourceEncodingsVersion();
     return encodingForChannel(sid(), ch(), currentEncodingFallback());
+  });
+  const encodingSelectValue = createMemo(() => {
+    encodingResetVersion();
+    return currentEncoding();
   });
   const encodingOptions = createMemo(() => {
     const options = [...SUPPORTED_SOURCE_ENCODINGS] as string[];
@@ -134,8 +176,8 @@ export function TerminalPanel(props: TerminalPanelProps) {
   });
   const activeFilter = createMemo<DisplayFilter>(() => ({
     kind: filterKind(),
-    tagQuery: filterTag(),
-    sourceQuery: filterSource(),
+    tagQuery: debouncedFilterTag(),
+    sourceQuery: debouncedFilterSource(),
   }));
   const logTypeOptions = createMemo(() => {
     bufferVersion();
@@ -165,19 +207,25 @@ export function TerminalPanel(props: TerminalPanelProps) {
 
   function applyLogTypeSelection(selection: LogTypeSelection): void {
     setLogTypeSelection(selection);
+    // Dropdown-driven changes should redraw immediately (no typing in flight),
+    // so flush the debounced mirrors alongside the raw filter signals.
+    const setTag = (value: string): void => {
+      setFilterTag(value);
+      setDebouncedFilterTag(value);
+    };
     if (selection === LOG_TYPE_ALL) {
       setFilterKind("all");
-      setFilterTag("");
+      setTag("");
       return;
     }
     if (selection === LOG_TYPE_CUSTOM) return;
     if (selection.startsWith("kind:")) {
       setFilterKind(selection.slice("kind:".length) as DataPayload["kind"]);
-      setFilterTag("");
+      setTag("");
       return;
     }
     setFilterKind("all");
-    setFilterTag(selection.slice("tag:".length));
+    setTag(selection.slice("tag:".length));
   }
 
   function isAtBottom(): boolean {
@@ -285,6 +333,10 @@ export function TerminalPanel(props: TerminalPanelProps) {
   function sendTextInput(): void {
     const text = txText();
     if (!hasActiveSource() || text.length === 0) return;
+    if (!canSend()) {
+      showSendErrorToast();
+      return;
+    }
     const bytes = encoder.encode(text);
     if (sendWrite(sid(), ch(), bytes)) {
       setTxText("");
@@ -299,6 +351,22 @@ export function TerminalPanel(props: TerminalPanelProps) {
 
   function updateTerminalEncoding(encoding: string): void {
     if (!hasActiveSource()) return;
+    if (encoding === currentEncoding()) return;
+    const bufferedRecords = getChannelFrames(
+      sid(),
+      ch(),
+      displaySettings.terminalMaxRecords,
+    ).length;
+    if (
+      bufferedRecords >= ENCODING_CHANGE_CONFIRM_THRESHOLD &&
+      !window.confirm(
+        t("terminal.encoding_change_confirm").replace("{count}", String(bufferedRecords)),
+      )
+    ) {
+      // Restore the controlled <select> to the unchanged value.
+      setEncodingResetVersion((v) => v + 1);
+      return;
+    }
     updateChannelEncoding(
       sid(),
       ch(),
@@ -347,7 +415,10 @@ export function TerminalPanel(props: TerminalPanelProps) {
 
     // TX: forward keystrokes to the server.
     term.onData((data) => {
-      if (!hasActiveSource()) return;
+      if (!canSend()) {
+        if (hasActiveSource()) showSendErrorToast();
+        return;
+      }
       const bytes = encoder.encode(data);
       if (!sendWrite(sid(), ch(), bytes)) showSendErrorToast();
     });
@@ -370,9 +441,19 @@ export function TerminalPanel(props: TerminalPanelProps) {
   });
 
   createEffect(() => {
+    const tag = filterTag();
+    const source = filterSource();
+    const handle = setTimeout(() => {
+      setDebouncedFilterTag(tag);
+      setDebouncedFilterSource(source);
+    }, FILTER_REDRAW_DEBOUNCE_MS);
+    onCleanup(() => clearTimeout(handle));
+  });
+
+  createEffect(() => {
     filterKind();
-    filterTag();
-    filterSource();
+    debouncedFilterTag();
+    debouncedFilterSource();
     displaySettings.showTimestamp;
     displaySettings.showKind;
     displaySettings.showSource;
@@ -448,7 +529,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
           <span class="wl-terminal-field-label">{t("terminal.encoding")}</span>
           <select
             class="wl-terminal-select wl-terminal-encoding-select"
-            value={currentEncoding()}
+            value={encodingSelectValue()}
             onChange={(e) => updateTerminalEncoding(e.currentTarget.value)}
             aria-label={t("terminal.encoding")}
             disabled={!hasActiveSource()}
@@ -510,6 +591,14 @@ export function TerminalPanel(props: TerminalPanelProps) {
         <span class="wl-terminal-target" title={sid()}>
           {t("terminal.target")}: {targetLabel()}
         </span>
+        <span
+          class={`wl-terminal-connection wl-terminal-connection-${connectionStatus()}`}
+          title={connectionDetail(connectionStatus())}
+          aria-label={`${t("metrics.connection")}: ${t(`status.${connectionStatus()}`)}`}
+        >
+          <span class={`wl-status-dot ${connectionTone(connectionStatus())}`} />
+          {t(`status.${connectionStatus()}`)}
+        </span>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -524,10 +613,15 @@ export function TerminalPanel(props: TerminalPanelProps) {
             value={txText()}
             onInput={(e) => setTxText(e.currentTarget.value)}
             placeholder={t("terminal.send_placeholder")}
-            disabled={!hasActiveSource()}
+            disabled={!canSend()}
+            title={sendUnavailableReason() || undefined}
             aria-label={t("terminal.send_label")}
           />
-          <button type="submit" disabled={!hasActiveSource() || txText().length === 0}>
+          <button
+            type="submit"
+            disabled={!canSend() || txText().length === 0}
+            title={sendUnavailableReason() || undefined}
+          >
             {t("terminal.send")}
           </button>
         </form>

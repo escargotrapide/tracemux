@@ -12,6 +12,7 @@ import {
   terminalFocusRequest,
   terminalOpenRequest,
   sourcesStore,
+  sourceErrorHistoryStore,
   toastsStore,
   notificationHistoryStore,
   pushToast,
@@ -370,6 +371,42 @@ describe("state frame handler", () => {
     expect(t.level).toBe("error");
     expect(t.errorId).toBe("E-2001");
     expect(notificationHistoryStore[notificationHistoryStore.length - 1]?.errorId).toBe("E-2001");
+  });
+
+  it("records recent source-scoped lifecycle errors", () => {
+    // REQ: FR-UI-009
+    __ingestFrameForTest({
+      type: "ctl",
+      seq: 31,
+      payload: {
+        event: "error",
+        sid: "sid-error-history",
+        message: "source start failed: permission denied",
+        error_id: "E-1104",
+      },
+    });
+    __ingestFrameForTest({
+      type: "ctl",
+      seq: 32,
+      payload: {
+        event: "disconnected",
+        sid: "sid-error-history",
+        message: "source disconnected",
+      },
+    });
+
+    expect(sourceErrorHistoryStore["sid-error-history"]).toHaveLength(2);
+    expect(sourceErrorHistoryStore["sid-error-history"]?.[0]).toMatchObject({
+      level: "warn",
+      event: "disconnected",
+      message: "source disconnected",
+    });
+    expect(sourceErrorHistoryStore["sid-error-history"]?.[1]).toMatchObject({
+      level: "error",
+      event: "error",
+      message: "source start failed: permission denied",
+      errorId: "E-1104",
+    });
   });
 
   it("ctl lifecycle ack frames produce info toasts", () => {

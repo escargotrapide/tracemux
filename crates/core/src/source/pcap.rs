@@ -361,7 +361,7 @@ impl PcapSource {
     /// Construct with the default backend for this build.
     ///
     /// Builds without `pcap-capture` use an unavailable backend that reports
-    /// `E-1101` on open. Builds with `pcap-capture` use Npcap/libpcap.
+    /// `E-1103` on open. Builds with `pcap-capture` use Npcap/libpcap.
     #[must_use]
     pub fn new(config: PcapConfig) -> Self {
         #[cfg(feature = "pcap-capture")]
@@ -817,8 +817,42 @@ fn i32_field(value: u32, field: &str) -> Result<i32> {
 
 #[cfg(feature = "pcap-capture")]
 fn pcap_err(id: ErrorId, context: &'static str, err: pcap::Error) -> TraceMuxError {
+    let id = if id == ErrorId::E1101SourceOpen {
+        classify_pcap_open_error(context, &err.to_string())
+    } else {
+        id
+    };
     let message = format!("{context}: {err}");
     TraceMuxError::new(id, message).with_source(err)
+}
+
+#[cfg(any(feature = "pcap-capture", test))]
+fn classify_pcap_open_error(context: &str, message: &str) -> ErrorId {
+    if context == "applying pcap BPF filter" {
+        return ErrorId::E1105PcapInvalidFilter;
+    }
+
+    let message = message.to_ascii_lowercase();
+    if message.contains("permission")
+        || message.contains("access is denied")
+        || message.contains("not permitted")
+        || message.contains("privilege")
+    {
+        return ErrorId::E1104PcapPermissionDenied;
+    }
+
+    if (context == "creating pcap capture" || context == "activating pcap capture")
+        && (message.contains("no such device")
+            || message.contains("device doesn't exist")
+            || message.contains("device does not exist")
+            || message.contains("not found")
+            || message.contains("cannot find")
+            || message.contains("can't find"))
+    {
+        return ErrorId::E1106PcapInterfaceUnavailable;
+    }
+
+    ErrorId::E1101SourceOpen
 }
 
 #[cfg(feature = "pcap-capture")]
@@ -841,7 +875,7 @@ struct UnavailablePcapBackend;
 impl PcapBackend for UnavailablePcapBackend {
     async fn open(&mut self, _config: &PcapConfig) -> Result<()> {
         Err(TraceMuxError::new(
-            ErrorId::E1101SourceOpen,
+            ErrorId::E1103PcapBackendUnavailable,
             "pcap capture backend is not available in this build; enable the pcap-capture feature",
         ))
     }
@@ -941,7 +975,27 @@ mod tests {
 
         let err = source.open().await.unwrap_err();
 
-        assert_eq!(err.id, ErrorId::E1101SourceOpen);
+        assert_eq!(err.id, ErrorId::E1103PcapBackendUnavailable);
+    }
+
+    #[test]
+    fn pcap_open_errors_are_classified_for_operator_action() {
+        assert_eq!(
+            classify_pcap_open_error("applying pcap BPF filter", "syntax error"),
+            ErrorId::E1105PcapInvalidFilter
+        );
+        assert_eq!(
+            classify_pcap_open_error("activating pcap capture", "permission denied"),
+            ErrorId::E1104PcapPermissionDenied
+        );
+        assert_eq!(
+            classify_pcap_open_error("creating pcap capture", "No such device exists"),
+            ErrorId::E1106PcapInterfaceUnavailable
+        );
+        assert_eq!(
+            classify_pcap_open_error("activating pcap capture", "backend refused capture"),
+            ErrorId::E1101SourceOpen
+        );
     }
 
     #[cfg(feature = "pcap-capture")]

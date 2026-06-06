@@ -51,11 +51,17 @@ remaining driver-free.
 For local UI work on Windows, run the browser and virtual-peer checks without
 installing COM or packet-capture drivers:
 
+- `just local-smoke` verifies the TCP peer, WSS source control, session-dir
+  persistence, peer transcript, and HTTP export route in one command.
+- `just gui-smoke` builds the CLI + virtual peer, then drives the *live* browser
+  UI against a real server and TCP peer (browser -> WSS -> source -> xterm
+  render). Unlike the injected `pnpm --dir web e2e` suite, it exercises the real
+  `WireClient` with no spy/injection client.
 - `corepack pnpm --dir web e2e` starts Vite through Playwright and verifies the
   injected browser shell, connection-loss UI, export controls, and source note
   flows.
-- `cargo test -p tracemux-virt-peer --test tcp_wss_e2e` verifies the TCP peer,
-  WSS source control, session-dir persistence, and HTTP export route.
+- `cargo test -p tracemux-virt-peer --test tcp_wss_e2e` is the direct test
+  command behind `just local-smoke`.
 
 These checks are the default driverless runtime gate. COM-pair and Npcap-backed
 packet-capture validation remain manual or environment-gated follow-ups.
@@ -65,6 +71,9 @@ packet-capture validation remain manual or environment-gated follow-ups.
 AI agents can verify the virtual counterparty path without special hardware by
 running the TCP E2E test or the aggregate repository gate:
 
+- `just local-smoke` is the preferred fast driver-free runtime smoke.
+- `just gui-smoke` is the driver-free GUI runtime smoke (live UI -> WSS -> TCP
+  peer -> xterm render).
 - `cargo test -p tracemux-virt-peer --test tcp_wss_e2e` verifies the virtual
   peer binary, server WSS control path, WSS subscription delivery, session-dir
   persistence, and peer transcript in one deterministic test.

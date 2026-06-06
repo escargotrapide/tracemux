@@ -448,8 +448,9 @@ CLI paths that accept source specs can parse URI-style pcap specs such as
 `pcap://Ethernet?snaplen=65535&promisc=1&filter=tcp%20port%20502`. Parsed specs
 round-trip through `ChannelSpec::Pcap` and render filesystem-safe kind/interface
 tags. Without the native capture feature or required OS driver, opening a pcap
-source fails with a clear `E-1101` source-open error and does not register a
-partially opened session.
+source fails with a clear public source-open error such as `E-1103` for backend
+unavailable or `E-1101` for unclassified backend failures, and does not
+register a partially opened session.
 
 ### FR-UI-PCAP  Packet capture UI
 The web UI provides packet capture controls and packet views while preserving
@@ -476,7 +477,10 @@ explicit counters rather than silent loss.
 
 ### NFR-REL-PCAP  Packet capture error handling
 Missing native drivers, missing permissions, invalid interfaces, invalid BPF
-filters, and pcapng writer failures are reported as public errors. Startup
+filters, and pcapng writer failures are reported as public errors. Where the
+backend provides enough signal, pcap startup failures use `E-1103` through
+`E-1106` for backend unavailable, permission denied, invalid BPF filter, and
+interface unavailable categories. Startup
 failures before all required writers are ready must not register a live source
 session. Completed or stopped captures leave durable artifacts readable for the
 storage mode that was selected.

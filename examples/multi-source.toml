@@ -1,0 +1,31 @@
+config_version = 1
+
+[server]
+bind = "127.0.0.1:9000"
+session_root = "tracemux-sessions"
+encoding = "utf-8"
+detect_mode = "suggest"
+require_auth = false
+session_name_pattern = "{prefix}_{kind}_{iface}_{timestamp}"
+
+[export]
+timezone = "UTC"
+encoding = "utf-8"
+
+[channels.demo]
+label = "mock demo"
+[channels.demo.spec]
+kind = "mock"
+tag = "demo"
+
+[channels.tcp]
+label = "bench device tcp"
+[channels.tcp.spec]
+kind = "tcp"
+addr = "127.0.0.1:5555"
+
+[channels.syslog_udp]
+label = "local udp syslog"
+[channels.syslog_udp.spec]
+kind = "udp"
+bind = "127.0.0.1:5514"

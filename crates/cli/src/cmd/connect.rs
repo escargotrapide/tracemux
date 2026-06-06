@@ -254,10 +254,14 @@ mod tests {
     // REQ: FR-CLI-010
     #[tokio::test]
     async fn save_writes_session_dir_while_connecting() {
-        let dir = tempfile::tempdir().unwrap();
-        let input = dir.path().join("input.bin");
-        let session = dir.path().join("session");
-        std::fs::write(&input, b"hello").unwrap();
+        // Create the temp dir relative to CWD so the spec path (which the
+        // parser strips of its leading `/`) resolves correctly on Unix too.
+        let cwd = std::env::current_dir().unwrap();
+        let dir = tempfile::tempdir_in(&cwd).unwrap();
+        let rel_dir = dir.path().strip_prefix(&cwd).unwrap().to_path_buf();
+        let input = rel_dir.join("input.bin");
+        let session = rel_dir.join("session");
+        std::fs::write(dir.path().join("input.bin"), b"hello").unwrap();
 
         run(Options {
             spec: format!("file:///{}", input.display()),

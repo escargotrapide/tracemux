@@ -14,7 +14,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.0-dev"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -81,12 +81,12 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 # crypto / tls
 rcgen = "0.13"
 rustls = "0.23"
-rustls-pemfile = "2"
+rustls-pki-types = "1.14"
 argon2 = "0.5"
 sha2 = "0.10"
 # network / web
 axum = { version = "0.7", features = ["ws", "macros"] }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
 # cli
@@ -105,3 +105,4 @@ crc32fast = "1.4"
 keyring = "2"
 # test helpers
 tempfile = "3"
+criterion = "0.5"

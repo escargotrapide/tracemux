@@ -19,6 +19,7 @@ import {
   openTerminalChannel,
   connState,
   sourcesStore,
+  sourceErrorHistoryStore,
   sendCtl,
   pushToast,
   type SourceInfo,
@@ -26,6 +27,7 @@ import {
 import {
   BUILTIN_SOURCE_PRESETS,
   deleteUserSourcePreset,
+  isValidPresetName,
   loadUserSourcePresets,
   saveUserSourcePreset,
 } from "~/state/sourcePresets";
@@ -41,7 +43,7 @@ import {
   type PcapInterfaceInfo,
   type PcapPublishMode,
 } from "~/state/sourceDiscovery";
-import { sourceAliases, updateSourceAlias } from "~/state/sourceAliases";
+import { MAX_SOURCE_ALIAS_LENGTH, sourceAliases, updateSourceAlias } from "~/state/sourceAliases";
 import {
   channelEncodingKey,
   encodingForChannel,
@@ -50,12 +52,16 @@ import {
   updateChannelEncoding,
   updateSourceEncoding,
 } from "~/state/sourceEncodings";
-import { exportSettings, updateExportSettings } from "~/state/exportSettings";
+import {
+  exportSettings,
+  MAX_EXPORT_FILENAME_PATTERN_LENGTH,
+  updateExportSettings,
+} from "~/state/exportSettings";
 import {
   loadAndApplySourceAnnotations,
   syncSourceNoteToServer,
 } from "~/state/annotationSync";
-import { sourceNotes, updateSourceNote } from "~/state/sourceNotes";
+import { MAX_SOURCE_NOTE_LENGTH, sourceNotes, updateSourceNote } from "~/state/sourceNotes";
 import {
   normalizeEncoding,
   sourceStartOptions,
@@ -67,6 +73,7 @@ import { parseSourceSpec } from "~/state/sourceSpec";
 import { t } from "~/i18n";
 
 function onAction(sid: string, action: "stop" | "restart" | "remove"): void {
+  if (action === "remove" && !window.confirm(t("sources.action.remove_confirm"))) return;
   try {
     const sent = sendCtl(sid, action);
     pushToast({
@@ -129,16 +136,35 @@ function statusLabel(status: string): string {
   return t(`sources.status.${status}`);
 }
 
-function onOpenTerminal(sid: string, channels: number[]): void {
-  const ch = channels[0] ?? 0;
-  openTerminalChannel(sid, ch);
-  pushToast({ level: "info", message: t("sources.open_terminal.requested") });
+// Per-source channel chosen for the next "open terminal" action. Defaults to
+// the source's first channel; only surfaced in the UI when a source exposes
+// more than one channel so single-channel sources stay one-click.
+const [openChannelSelection, setOpenChannelSelection] = createSignal<Record<string, number>>({});
+
+function selectedOpenChannel(sid: string, channels: number[]): number {
+  const chosen = openChannelSelection()[sid];
+  if (chosen !== undefined && channels.includes(chosen)) return chosen;
+  return channels[0] ?? 0;
 }
 
-function onOpenNewTerminal(sid: string, channels: number[]): void {
-  const ch = channels[0] ?? 0;
+function setSelectedOpenChannel(sid: string, ch: number): void {
+  setOpenChannelSelection((prev) => ({ ...prev, [sid]: ch }));
+}
+
+function onOpenTerminal(sid: string, ch: number): void {
+  openTerminalChannel(sid, ch);
+  pushToast({
+    level: "info",
+    message: `${t("sources.open_terminal.requested")} (ch ${ch})`,
+  });
+}
+
+function onOpenNewTerminal(sid: string, ch: number): void {
   openNewTerminalChannel(sid, ch);
-  pushToast({ level: "info", message: t("sources.open_terminal.new_requested") });
+  pushToast({
+    level: "info",
+    message: `${t("sources.open_terminal.new_requested")} (ch ${ch})`,
+  });
 }
 
 function sourceTextEncodingFallback(sid: string): string {
@@ -165,6 +191,23 @@ function sourceDisplayEncoding(sid: string): string {
   return sourceEncodings[sourceEncodingKey(sid)]?.encoding ?? sourceTextEncodingFallback(sid);
 }
 
+function sourceServerEncoding(sid: string): string {
+  return sourcesStore[sid]?.encoding ?? sourceStartOptions.encoding;
+}
+
+function sourceEncodingOrigin(sid: string): "inherited" | "source" {
+  return sourceEncodings[sourceEncodingKey(sid)]?.encoding ? "source" : "inherited";
+}
+
+function channelEncodingOrigin(sid: string, ch: number): "inherited" | "source" | "channel" {
+  if (sourceEncodings[channelEncodingKey(sid, ch)]?.encoding) return "channel";
+  return sourceEncodingOrigin(sid);
+}
+
+function encodingOriginLabel(origin: "inherited" | "source" | "channel"): string {
+  return t(`sources.detail.encoding_origin.${origin}`);
+}
+
 function channelDisplayEncoding(sid: string, ch: number): string {
   return encodingForChannel(sid, ch, sourceTextEncodingFallback(sid));
 }
@@ -177,10 +220,33 @@ function suggestedEncodingForSource(source: SourceInfo): string | null {
 }
 
 const EXPORT_FORMATS: SessionExportFormat[] = ["text", "csv", "jsonl", "pcapng"];
+const PCAP_PUBLISH_MODES: PcapPublishMode[] = ["stats-only", "sampled", "full"];
 type AnnotationSyncStatus = "idle" | "loading" | "syncing" | "synced" | "error";
+type SerialOpenResultStatus = "requested" | "failed";
+type SerialOpenResult = {
+  port: string;
+  status: SerialOpenResultStatus;
+  detail: string;
+};
 
 function annotationSyncLabel(status: AnnotationSyncStatus): string {
   return t(`annotations.sync.${status}`);
+}
+
+function pcapPublishModeLabel(mode: PcapPublishMode): string {
+  return t(`sources.pcap.publish_mode.${mode}`);
+}
+
+function pcapPublishModeHint(mode: PcapPublishMode): string {
+  return t(`sources.pcap.publish_hint.${mode}`);
+}
+
+function serialOpenStatusLabel(status: SerialOpenResultStatus): string {
+  return t(`sources.serial.open_result.${status}`);
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
 }
 
 export function SourcesPanel() {
@@ -193,6 +259,7 @@ export function SourcesPanel() {
   const [selectedSid, setSelectedSid] = createSignal<string | null>(null);
   const [serialCandidates, setSerialCandidates] = createSignal<string[]>([]);
   const [selectedSerialPorts, setSelectedSerialPorts] = createSignal<string[]>([]);
+  const [serialOpenResults, setSerialOpenResults] = createSignal<SerialOpenResult[]>([]);
   const [serialDetecting, setSerialDetecting] = createSignal(false);
   const [serialBaud, setSerialBaud] = createSignal(115_200);
   const [pcapInterfaces, setPcapInterfaces] = createSignal<PcapInterfaceInfo[]>([]);
@@ -205,8 +272,12 @@ export function SourcesPanel() {
   const [exporting, setExporting] = createSignal<string | null>(null);
   const [bulkExporting, setBulkExporting] = createSignal<SessionExportFormat | null>(null);
   const [bulkProgress, setBulkProgress] = createSignal<{ completed: number; total: number } | null>(null);
+  const [bulkExportAbort, setBulkExportAbort] = createSignal<AbortController | null>(null);
+  const [bulkExportCancelling, setBulkExportCancelling] = createSignal(false);
+  const [pendingStarts, setPendingStarts] = createSignal<Array<{ id: number; label: string }>>([]);
   const [loadedNotesSid, setLoadedNotesSid] = createSignal<string | null>(null);
   const [sourceNoteSyncStatus, setSourceNoteSyncStatus] = createSignal<Record<string, AnnotationSyncStatus>>({});
+  let pendingStartSeq = 1;
   const rows = () =>
     filterAndSortSources(
       Object.values(sourcesStore),
@@ -218,8 +289,17 @@ export function SourcesPanel() {
     const sid = selectedSid();
     return sid ? sourcesStore[sid] : undefined;
   };
+  const selectedSourceErrors = () => {
+    const sid = selectedSid();
+    return sid ? sourceErrorHistoryStore[sid] ?? [] : [];
+  };
   const persistentSources = createMemo(() => Object.values(sourcesStore).filter((source) => source.persistent));
-  const exportableSources = (format: SessionExportFormat) => {
+  const selectedPcapDown = createMemo(() => {
+    const iface = selectedPcapInterface();
+    if (!iface) return false;
+    const flags = iface.flags.map((flag) => flag.toLowerCase());
+    return flags.includes("down") || (!flags.includes("up") && !flags.includes("running"));
+  });  const exportableSources = (format: SessionExportFormat) => {
     const sources = persistentSources();
     return format === "pcapng" ? sources.filter((source) => source.kind === "pcap") : sources;
   };
@@ -227,6 +307,45 @@ export function SourcesPanel() {
     const progress = bulkProgress();
     if (!progress) return "";
     return `${progress.completed}/${progress.total}`;
+  });
+  const serialDetectProgressLabel = createMemo(() => (
+    serialDetecting() ? t("sources.serial.detect_progress") : ""
+  ));
+  const bulkExportProgressLabel = createMemo(() => {
+    const format = bulkExporting();
+    if (!format) return "";
+    if (bulkExportCancelling()) return t("sources.export_all.cancelling");
+    return `${t("sources.export_all.progress")} ${format.toUpperCase()} ${bulkProgressLabel()}`.trim();
+  });
+  const singleExportProgressLabel = createMemo(() => {
+    const format = exporting();
+    if (!format) return "";
+    return `${t("sources.export.progress")} ${format.toUpperCase()}`;
+  });
+  const presetNameInvalid = createMemo(() => {
+    const name = presetName().trim();
+    return name.length > 0 && !isValidPresetName(name);
+  });
+
+  function queuePendingStart(label: string): void {
+    const id = pendingStartSeq++;
+    setPendingStarts((prev) => [...prev.filter((item) => item.label !== label), { id, label }].slice(-8));
+    window.setTimeout(() => {
+      setPendingStarts((prev) => prev.filter((item) => item.id !== id));
+    }, 8_000);
+  }
+
+  // Clear pending start requests as the server acknowledges them by registering
+  // new sources. Labels (specs) cannot be matched to server-assigned sids, so we
+  // retire the oldest pending entries as the live source count grows.
+  let lastSourceCount = Object.keys(sourcesStore).length;
+  createEffect(() => {
+    const count = Object.keys(sourcesStore).length;
+    const added = count - lastSourceCount;
+    lastSourceCount = count;
+    if (added > 0 && pendingStarts().length > 0) {
+      setPendingStarts((prev) => prev.slice(added));
+    }
   });
 
   createEffect(() => {
@@ -249,6 +368,7 @@ export function SourcesPanel() {
     try {
       const spec = parseSourceSpec(specInput());
       const sent = sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>);
+      if (sent) queuePendingStart(specInput().trim());
       pushToast({
         level: sent ? "info" : "error",
         message: sent ? t("sources.start.requested") : t("sources.action.send_failed"),
@@ -275,6 +395,7 @@ export function SourcesPanel() {
   }
 
   function onDeletePreset(): void {
+    if (!window.confirm(t("sources.preset.delete_confirm"))) return;
     const next = deleteUserSourcePreset(presetName());
     setUserPresets(next);
     pushToast({ level: "info", message: t("sources.preset.deleted") });
@@ -286,6 +407,7 @@ export function SourcesPanel() {
       const report = await detectSources();
       setSerialCandidates(report.serial_candidates);
       setSelectedSerialPorts(report.serial_candidates);
+      setSerialOpenResults([]);
       setPcapInterfaces(report.pcap_interfaces);
       setSelectedPcapDevice((prev) => {
         if (report.pcap_interfaces.some((iface) => iface.device === prev)) return prev;
@@ -342,25 +464,37 @@ export function SourcesPanel() {
       return;
     }
     let requested = 0;
+    const results: SerialOpenResult[] = [];
     for (const port of ports) {
       try {
         const spec = parseSourceSpec(serialSpecForPort(port, { baud: serialBaud() }));
         if (sendCtl(undefined, "start", spec, startCtlOptions() as Record<string, unknown>)) {
           requested += 1;
+          results.push({
+            port,
+            status: "requested",
+            detail: t("sources.serial.open_result.start_sent"),
+          });
+          queuePendingStart(`serial ${port}`);
         } else {
-          pushToast({ level: "error", message: `${port}: ${t("sources.action.send_failed")}` });
+          const detail = t("sources.action.send_failed");
+          results.push({ port, status: "failed", detail });
+          pushToast({ level: "error", message: `${port}: ${detail}` });
         }
       } catch (err) {
+        const detail = (err as Error).message ?? t("sources.start.invalid");
+        results.push({ port, status: "failed", detail });
         pushToast({
           level: "error",
-          message: `${port}: ${(err as Error).message ?? t("sources.start.invalid")}`,
+          message: `${port}: ${detail}`,
         });
       }
     }
+    setSerialOpenResults(results);
     if (requested > 0) {
       pushToast({
         level: "info",
-        message: `${t("sources.serial.open_requested")} (${requested})`,
+        message: `${t("sources.serial.open_requested")} (${requested}/${ports.length})`,
       });
     }
   }
@@ -406,6 +540,9 @@ export function SourcesPanel() {
       sourceName: sourceAliases[source.sid]?.label ?? source.name ?? source.sid,
       encoding: sourceEncodings[sourceEncodingKey(source.sid)]?.encoding,
     }));
+    const abortController = new AbortController();
+    setBulkExportAbort(abortController);
+    setBulkExportCancelling(false);
     setBulkExporting(format);
     setBulkProgress({ completed: 0, total: entries.length });
     try {
@@ -413,6 +550,7 @@ export function SourcesPanel() {
         format,
         timezone: exportTimezone(),
         filenamePattern: exportSettings.filenamePattern,
+        signal: abortController.signal,
         onProgress: ({ completed, total }) => setBulkProgress({ completed, total }),
       });
       pushToast({
@@ -420,6 +558,10 @@ export function SourcesPanel() {
         message: `${t("sources.export_all.requested")} (${entries.length})`,
       });
     } catch (err) {
+      if (isAbortError(err)) {
+        pushToast({ level: "info", message: t("sources.export_all.cancelled") });
+        return;
+      }
       pushToast({
         level: "error",
         message: (err as Error).message ?? t("sources.export_all.failed"),
@@ -427,7 +569,48 @@ export function SourcesPanel() {
     } finally {
       setBulkExporting(null);
       setBulkProgress(null);
+      setBulkExportAbort(null);
+      setBulkExportCancelling(false);
     }
+  }
+
+  function onCancelBulkExport(): void {
+    const controller = bulkExportAbort();
+    if (!controller || controller.signal.aborted) return;
+    setBulkExportCancelling(true);
+    controller.abort();
+  }
+
+  function exportSettingsControls() {
+    return (
+      <div class="wl-export-settings-controls">
+        <input
+          type="text"
+          value={exportTimezone()}
+          onInput={(ev) => setExportTimezone(ev.currentTarget.value)}
+          placeholder={t("sources.export.timezone_placeholder")}
+          aria-label={t("sources.export.shared_timezone")}
+        />
+        <input
+          type="text"
+          value={exportSettings.filenamePattern}
+          onInput={(ev) => updateExportSettings({ filenamePattern: ev.currentTarget.value })}
+          placeholder={t("sources.export.filename_pattern_placeholder")}
+          aria-label={t("sources.export.shared_filename_pattern")}
+          maxLength={MAX_EXPORT_FILENAME_PATTERN_LENGTH}
+        />
+        <span
+          class="wl-source-count"
+          classList={{
+            "wl-source-count-limit":
+              exportSettings.filenamePattern.length >= MAX_EXPORT_FILENAME_PATTERN_LENGTH,
+          }}
+        >
+          {exportSettings.filenamePattern.length}/{MAX_EXPORT_FILENAME_PATTERN_LENGTH}
+        </span>
+        <span class="wl-export-settings-shared">{t("sources.export.shared_settings")}</span>
+      </div>
+    );
   }
 
   function onSourceNoteInput(sid: string, text: string): void {
@@ -485,6 +668,14 @@ export function SourcesPanel() {
           {t("sources.spec.help")}
         </span>
       </form>
+      <Show when={pendingStarts().length > 0}>
+        <div class="wl-source-pending" role="status" aria-live="polite">
+          <strong>{t("sources.pending.title")}</strong>
+          <For each={pendingStarts()}>
+            {(item) => <span class="wl-source-pending-item">{item.label}</span>}
+          </For>
+        </div>
+      </Show>
       <div
         style={{
           display: "grid",
@@ -564,22 +755,27 @@ export function SourcesPanel() {
           onInput={(ev) => setPresetName(ev.currentTarget.value)}
           placeholder={t("sources.preset.name_placeholder")}
           aria-label={t("sources.preset.name_label")}
+          pattern="[A-Za-z0-9_.-]+"
+          title={t("sources.preset.name_help")}
           style={{ width: "160px" }}
         />
-        <button type="button" onClick={onSavePreset} disabled={!presetName().trim()}>
+        <button type="button" onClick={onSavePreset} disabled={!presetName().trim() || presetNameInvalid()}>
           {t("sources.preset.save")}
         </button>
         <button type="button" onClick={onDeletePreset} disabled={!presetName().trim()}>
           {t("sources.preset.delete")}
         </button>
-        <span style={{ color: "var(--wl-fg-muted)" }}>{t("sources.preset.help")}</span>
+        <span style={{ color: presetNameInvalid() ? "var(--wl-error)" : "var(--wl-fg-muted)" }}>
+          {presetNameInvalid() ? t("sources.preset.name_invalid") : t("sources.preset.help")}
+        </span>
       </div>
       <div class="wl-serial-detect">
-        <div class="wl-serial-detect-actions">
+        <div class="wl-serial-detect-actions" aria-busy={serialDetecting()}>
           <button
             type="button"
             onClick={() => void onDetectSerial()}
             disabled={serialDetecting()}
+            aria-busy={serialDetecting()}
           >
             {serialDetecting() ? t("sources.serial.detecting") : t("sources.serial.detect")}
           </button>
@@ -600,6 +796,11 @@ export function SourcesPanel() {
             {t("sources.serial.open_selected")}
           </button>
           <span style={{ color: "var(--wl-fg-muted)" }}>{t("sources.serial.help")}</span>
+          <Show when={serialDetecting()}>
+            <span class="wl-operation-progress" role="status" aria-live="polite">
+              {serialDetectProgressLabel()}
+            </span>
+          </Show>
         </div>
         <Show when={serialCandidates().length > 0}>
           <div class="wl-serial-candidates" aria-label={t("sources.serial.candidates")}>
@@ -615,6 +816,27 @@ export function SourcesPanel() {
                 </label>
               )}
             </For>
+          </div>
+        </Show>
+        <Show when={serialOpenResults().length > 0}>
+          <div
+            class="wl-serial-open-results"
+            role="status"
+            aria-live="polite"
+            aria-label={t("sources.serial.open_results")}
+          >
+            <strong>{t("sources.serial.open_results")}</strong>
+            <div class="wl-serial-open-result-list">
+              <For each={serialOpenResults()}>
+                {(result) => (
+                  <div class={`wl-serial-open-result wl-serial-open-result-${result.status}`}>
+                    <code>{result.port}</code>
+                    <span>{serialOpenStatusLabel(result.status)}</span>
+                    <span class="wl-serial-open-result-detail">{result.detail}</span>
+                  </div>
+                )}
+              </For>
+            </div>
           </div>
         </Show>
         <Show when={pcapInterfaces().length > 0}>
@@ -634,6 +856,37 @@ export function SourcesPanel() {
                 </For>
               </select>
             </label>
+            <Show when={selectedPcapInterface()}>
+              {(iface) => (
+                <div class="wl-pcap-iface-info" role="status">
+                  <Show when={iface().description}>
+                    <span class="wl-pcap-iface-desc">{iface().description}</span>
+                  </Show>
+                  <Show when={iface().flags.length > 0}>
+                    <span class="wl-pcap-iface-flags">
+                      {t("sources.pcap.iface_flags")}: {iface().flags.join(", ")}
+                    </span>
+                  </Show>
+                  <Show
+                    when={iface().addresses.length > 0}
+                    fallback={
+                      <span class="wl-pcap-iface-addrs wl-pcap-iface-empty">
+                        {t("sources.pcap.iface_no_address")}
+                      </span>
+                    }
+                  >
+                    <span class="wl-pcap-iface-addrs">
+                      {t("sources.pcap.iface_addresses")}: {iface().addresses.join(", ")}
+                    </span>
+                  </Show>
+                  <Show when={selectedPcapDown()}>
+                    <span class="wl-pcap-iface-down" role="alert">
+                      {t("sources.pcap.iface_down")}
+                    </span>
+                  </Show>
+                </div>
+              )}
+            </Show>
             <label>
               {t("sources.pcap.snaplen")} {" "}
               <input
@@ -655,13 +908,17 @@ export function SourcesPanel() {
               {t("sources.pcap.publish")} {" "}
               <select
                 value={pcapPublishMode()}
+                aria-describedby="pcap-publish-mode-hint"
                 onChange={(ev) => setPcapPublishMode(ev.currentTarget.value as PcapPublishMode)}
               >
-                <option value="stats-only">stats-only</option>
-                <option value="sampled">sampled</option>
-                <option value="full">full</option>
+                <For each={PCAP_PUBLISH_MODES}>
+                  {(mode) => <option value={mode}>{pcapPublishModeLabel(mode)}</option>}
+                </For>
               </select>
             </label>
+            <span id="pcap-publish-mode-hint" class="wl-pcap-publish-hint">
+              {pcapPublishModeHint(pcapPublishMode())}
+            </span>
             <input
               type="text"
               value={pcapFilter()}
@@ -718,28 +975,16 @@ export function SourcesPanel() {
           </select>
         </label>
       </div>
-      <div class="wl-source-bulk-export">
+      <div class="wl-source-bulk-export" aria-busy={bulkExporting() !== null}>
         <strong>{t("sources.export_all.title")}</strong>
-        <input
-          type="text"
-          value={exportTimezone()}
-          onInput={(ev) => setExportTimezone(ev.currentTarget.value)}
-          placeholder={t("sources.export.timezone_placeholder")}
-          aria-label={t("sources.export_all.timezone")}
-        />
-        <input
-          type="text"
-          value={exportSettings.filenamePattern}
-          onInput={(ev) => updateExportSettings({ filenamePattern: ev.currentTarget.value })}
-          placeholder={t("sources.export.filename_pattern_placeholder")}
-          aria-label={t("sources.export_all.filename_pattern")}
-        />
+        {exportSettingsControls()}
         <For each={EXPORT_FORMATS}>
           {(format) => (
             <button
               type="button"
               onClick={() => void onDownloadAllExports(format)}
               disabled={exportableSources(format).length === 0 || bulkExporting() !== null}
+              aria-busy={bulkExporting() === format}
               title={
                 exportableSources(format).length === 0
                   ? t(
@@ -756,6 +1001,22 @@ export function SourcesPanel() {
             </button>
           )}
         </For>
+        <Show when={bulkExporting() !== null}>
+          <span class="wl-operation-progress" role="status" aria-live="polite">
+            {bulkExportProgressLabel()}
+          </span>
+        </Show>
+        <Show when={bulkExporting() !== null}>
+          <button
+            type="button"
+            onClick={onCancelBulkExport}
+            disabled={bulkExportCancelling()}
+          >
+            {bulkExportCancelling()
+              ? t("sources.export_all.cancelling")
+              : t("sources.export_all.cancel")}
+          </button>
+        </Show>
         <span style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
           {persistentSources().length > 0
             ? `${t("sources.export_all.help")} (${persistentSources().length})`
@@ -809,7 +1070,7 @@ export function SourcesPanel() {
                   <td>
                     <div class="wl-source-actions">
                       <select
-                        aria-label={`${s.name} encoding`}
+                        aria-label={`${s.name} ${t("sources.detail.encoding")}`}
                         title={t("sources.detail.encoding")}
                         value={sourceDisplayEncoding(s.sid)}
                         onChange={(ev) => updateSourceDisplayEncoding(s.sid, ev.currentTarget.value)}
@@ -825,19 +1086,45 @@ export function SourcesPanel() {
                     >
                       {t("sources.action.details")}
                     </button>{" "}
+                    <Show when={s.channels.length > 1}>
+                      <select
+                        class="wl-source-channel-select"
+                        aria-label={`${s.name} ${t("sources.action.select_channel")}`}
+                        title={t("sources.action.select_channel")}
+                        value={selectedOpenChannel(s.sid, s.channels)}
+                        onChange={(ev) =>
+                          setSelectedOpenChannel(s.sid, Number(ev.currentTarget.value))
+                        }
+                      >
+                        <For each={s.channels}>
+                          {(channel) => <option value={channel}>ch {channel}</option>}
+                        </For>
+                      </select>{" "}
+                    </Show>
                     <button
                       type="button"
-                      onClick={() => onOpenTerminal(s.sid, s.channels)}
-                      title={t("sources.action.open_terminal")}
+                      onClick={() => onOpenTerminal(s.sid, selectedOpenChannel(s.sid, s.channels))}
+                      title={`${
+                        s.channels.length > 1
+                          ? t("sources.action.open_terminal_selected_channel")
+                          : t("sources.action.open_terminal_first_channel")
+                      } ch ${selectedOpenChannel(s.sid, s.channels)}`}
                     >
-                      {t("sources.action.open_terminal")}
+                      {t("sources.action.open_terminal")} ch {selectedOpenChannel(s.sid, s.channels)}
                     </button>{" "}
                     <button
                       type="button"
-                      onClick={() => onOpenNewTerminal(s.sid, s.channels)}
-                      title={t("sources.action.open_new_terminal")}
+                      onClick={() =>
+                        onOpenNewTerminal(s.sid, selectedOpenChannel(s.sid, s.channels))
+                      }
+                      title={`${
+                        s.channels.length > 1
+                          ? t("sources.action.open_new_terminal_selected_channel")
+                          : t("sources.action.open_new_terminal_first_channel")
+                      } ch ${selectedOpenChannel(s.sid, s.channels)}`}
                     >
-                      {t("sources.action.open_new_terminal")}
+                      {t("sources.action.open_new_terminal")} ch{" "}
+                      {selectedOpenChannel(s.sid, s.channels)}
                     </button>{" "}
                     <button
                       type="button"
@@ -911,10 +1198,11 @@ export function SourcesPanel() {
                   value={sourceAliases[source().sid]?.label ?? ""}
                   onInput={(ev) => updateSourceAlias(source().sid, ev.currentTarget.value)}
                   placeholder={t("sources.detail.alias_placeholder")}
+                  maxLength={MAX_SOURCE_ALIAS_LENGTH}
                   style={{ width: "100%" }}
                 />
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
-                  {t("sources.detail.alias_help")}
+                  {t("sources.detail.alias_help")} <span class="wl-source-count" classList={{ "wl-source-count-limit": (sourceAliases[source().sid]?.label ?? "").length >= MAX_SOURCE_ALIAS_LENGTH }}>{(sourceAliases[source().sid]?.label ?? "").length}/{MAX_SOURCE_ALIAS_LENGTH}</span>
                 </div>
               </dd>
               <dt>{t("sources.detail.encoding")}</dt>
@@ -930,6 +1218,11 @@ export function SourcesPanel() {
                       {(encoding) => <option value={encoding}>{encoding}</option>}
                     </For>
                   </select>
+                  <span
+                    class={`wl-encoding-origin wl-encoding-origin-${sourceEncodingOrigin(source().sid)}`}
+                  >
+                    {encodingOriginLabel(sourceEncodingOrigin(source().sid))}
+                  </span>
                   <button
                     type="button"
                     onClick={() => onRestartWithServerEncoding(source().sid)}
@@ -937,6 +1230,10 @@ export function SourcesPanel() {
                   >
                     {t("sources.detail.server_encoding_apply")}
                   </button>
+                </div>
+                <div class="wl-encoding-server" style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+                  {t("sources.detail.server_encoding")}: <code>{sourceServerEncoding(source().sid)}</code>
+                  {" "}{t("sources.detail.server_encoding_value_help")}
                 </div>
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {t("sources.detail.encoding_help")} {t("sources.detail.server_encoding_help")}
@@ -1002,13 +1299,21 @@ export function SourcesPanel() {
                             {(encoding) => <option value={encoding}>{encoding}</option>}
                           </For>
                         </select>
-                        <Show when={sourceEncodings[channelEncodingKey(source().sid, channel)]?.encoding}>
-                          <span style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>override</span>
-                        </Show>
+                        <span
+                          class={`wl-encoding-origin wl-encoding-origin-${channelEncodingOrigin(source().sid, channel)}`}
+                          style={{ "font-size": "12px" }}
+                        >
+                          {encodingOriginLabel(channelEncodingOrigin(source().sid, channel))}
+                        </span>
                       </label>
                     )}
                   </For>
                 </div>
+                <Show when={exporting() !== null}>
+                  <div class="wl-operation-progress" role="status" aria-live="polite">
+                    {singleExportProgressLabel()}
+                  </div>
+                </Show>
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {t("sources.detail.channel_encoding_help")}
                 </div>
@@ -1037,29 +1342,18 @@ export function SourcesPanel() {
               </dd>
               <dt>{t("sources.export.title")}</dt>
               <dd>
-                <div style={{ display: "flex", gap: "6px", "flex-wrap": "wrap" }}>
-                  <input
-                    type="text"
-                    value={exportTimezone()}
-                    onInput={(ev) => setExportTimezone(ev.currentTarget.value)}
-                    placeholder={t("sources.export.timezone_placeholder")}
-                    aria-label={t("sources.export.timezone")}
-                    style={{ "min-width": "160px" }}
-                  />
-                  <input
-                    type="text"
-                    value={exportSettings.filenamePattern}
-                    onInput={(ev) => updateExportSettings({ filenamePattern: ev.currentTarget.value })}
-                    placeholder={t("sources.export.filename_pattern_placeholder")}
-                    aria-label={t("sources.export.filename_pattern")}
-                    style={{ "min-width": "260px" }}
-                  />
+                <div
+                  style={{ display: "flex", gap: "6px", "flex-wrap": "wrap" }}
+                  aria-busy={exporting() !== null}
+                >
+                  {exportSettingsControls()}
                   <For each={EXPORT_FORMATS}>
                     {(format) => (
                       <button
                         type="button"
                         onClick={() => void onDownloadExport(source().sid, format)}
                         disabled={!source().persistent || exporting() !== null}
+                        aria-busy={exporting() === format}
                       >
                         {exporting() === format
                           ? t("sources.export.downloading")
@@ -1068,6 +1362,11 @@ export function SourcesPanel() {
                     )}
                   </For>
                 </div>
+                <Show when={exporting() !== null}>
+                  <div class="wl-operation-progress" role="status" aria-live="polite">
+                    {singleExportProgressLabel()}
+                  </div>
+                </Show>
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
                   {source().persistent
                     ? `${t("sources.export.help")} ${t("sources.export.filename_pattern_help")}`
@@ -1080,6 +1379,30 @@ export function SourcesPanel() {
               <dd>{source().bytesIn}</dd>
               <dt>{t("sources.detail.last")}</dt>
               <dd>{source().lastTsMs ? new Date(source().lastTsMs).toISOString() : "-"}</dd>
+              <dt>{t("sources.detail.recent_errors")}</dt>
+              <dd>
+                <Show
+                  when={selectedSourceErrors().length > 0}
+                  fallback={<span style={{ color: "var(--wl-fg-muted)" }}>{t("sources.detail.no_recent_errors")}</span>}
+                >
+                  <div class="wl-source-error-history">
+                    <For each={selectedSourceErrors()}>
+                      {(entry) => (
+                        <div class={`wl-source-error-history-item wl-source-error-history-${entry.level}`}>
+                          <time dateTime={new Date(entry.ts).toISOString()}>
+                            {new Date(entry.ts).toLocaleTimeString()}
+                          </time>
+                          <span class="wl-source-error-event">{entry.event}</span>
+                          <span class="wl-source-error-message">{entry.message}</span>
+                          <Show when={entry.errorId}>
+                            {(errorId) => <code>{errorId()}</code>}
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </dd>
               <dt>{t("sources.detail.notes")}</dt>
               <dd>
                 <textarea
@@ -1088,6 +1411,7 @@ export function SourcesPanel() {
                   onInput={(ev) => onSourceNoteInput(source().sid, ev.currentTarget.value)}
                   onBlur={() => onSourceNoteBlur(source().sid)}
                   placeholder={t("sources.detail.notes_placeholder")}
+                  maxLength={MAX_SOURCE_NOTE_LENGTH}
                   style={{
                     width: "100%",
                     "min-height": "84px",
@@ -1096,6 +1420,7 @@ export function SourcesPanel() {
                 />
                 <div style={{ color: "var(--wl-fg-muted)", "font-size": "12px", display: "flex", gap: "8px", "align-items": "center", "flex-wrap": "wrap" }}>
                   <span>{t("sources.detail.notes_help")}</span>
+                  <span class="wl-source-count" classList={{ "wl-source-count-limit": (sourceNotes[source().sid]?.text ?? "").length >= MAX_SOURCE_NOTE_LENGTH }}>{(sourceNotes[source().sid]?.text ?? "").length}/{MAX_SOURCE_NOTE_LENGTH}</span>
                   <button
                     type="button"
                     onClick={() => syncSourceNoteNow(source().sid)}
@@ -1105,6 +1430,11 @@ export function SourcesPanel() {
                   </button>
                   <span>{annotationSyncLabel(sourceNoteStatus(source().sid))}</span>
                 </div>
+                <Show when={sourceNoteStatus(source().sid) === "error"}>
+                  <p class="wl-source-note-local-only" role="status">
+                    {t("sources.detail.notes_local_only")}
+                  </p>
+                </Show>
               </dd>
             </dl>
           </aside>

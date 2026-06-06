@@ -91,6 +91,7 @@ mod tests {
     #[cfg(unix)]
     mod unix_pty {
         use super::*;
+        use serialport::SerialPort as _;
         use std::io::Write as _;
         use tracemux_core::source::Frame;
 

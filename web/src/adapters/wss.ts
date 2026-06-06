@@ -164,7 +164,7 @@ const unpackr = new Unpackr({ useRecords: false, mapsAsObjects: true });
 export type FrameListener = (frame: Frame) => void;
 export type StateListener = (state: ConnState) => void;
 export interface WireClientError {
-  errorId: "E-UI-0010" | "E-UI-0011";
+  errorId: "E-4001" | "E-4002";
   message: string;
   cause?: unknown;
 }
@@ -243,7 +243,7 @@ export class WireClient {
       this.send({
         type: "hello",
         seq: 0,
-        payload: { app: "tracemux-web", version: "0.1.0-dev" },
+        payload: { app: "tracemux-web", version: "0.1.0" },
       });
     });
 
@@ -257,14 +257,14 @@ export class WireClient {
         const frame = unpackr.unpack(new Uint8Array(data));
         if (!isFrameEnvelope(frame)) {
           this.emitError({
-            errorId: "E-UI-0010",
+            errorId: "E-4001",
             message: "Malformed WSS frame ignored",
           });
           return;
         }
         if (!isKnownFrameType(frame.type)) {
           this.emitError({
-            errorId: "E-UI-0010",
+            errorId: "E-4001",
             message: "Unsupported WSS frame ignored",
           });
           return;
@@ -273,9 +273,9 @@ export class WireClient {
           fn(frame as Frame);
         }
       } catch (err) {
-        console.warn("E-UI-0010 unpack failed", err);
+        console.warn("E-4001 unpack failed", err);
         this.emitError({
-          errorId: "E-UI-0010",
+          errorId: "E-4001",
           message: "Malformed WSS frame ignored",
           cause: err,
         });
@@ -326,7 +326,7 @@ export class WireClient {
       return true;
     } catch (err) {
       this.emitError({
-        errorId: "E-UI-0011",
+        errorId: "E-4002",
         message: "WebSocket send failed",
         cause: err,
       });

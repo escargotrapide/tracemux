@@ -7,11 +7,12 @@
 // REQ: FR-UI-014
 // REQ: FR-UI-018
 
-import { createEffect, createMemo, For, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, For, onCleanup, onMount, Show } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import {
   clearClientDisplayBuffers,
+  connState,
   displayClearVersion,
   pushToast,
   sourcesStore,
@@ -45,6 +46,19 @@ interface TileBinding {
 }
 
 const BOTTOM_TOLERANCE_PX = 8;
+
+function connectionTone(status: string): "ok" | "warn" | "err" {
+  if (status === "open") return "ok";
+  if (status === "connecting" || status === "idle") return "warn";
+  return "err";
+}
+
+function connectionDetail(status: string): string {
+  if (status === "connecting") return t("status.connecting_detail");
+  if (status === "closed") return t("status.closed_detail");
+  if (status === "error") return t("status.error_detail");
+  return t(`status.${status}`);
+}
 
 interface ScrollSnapshot {
   follow: boolean;
@@ -201,6 +215,10 @@ function Tile(props: TileBinding) {
     term.open(host);
     requestAnimationFrame(safeFit);
     unsub = useChannel(props.sid, props.ch, (p: DataPayload) => {
+      // High-throughput escape hatch: while tile rendering is paused, live
+      // frames are dropped from the (expensive) xterm draw path. The data is
+      // still on the server; resuming redraws from the buffer.
+      if (displaySettings.tileRenderingPaused) return;
       renderFrame(p);
     });
     redrawFromBuffer(true);
@@ -220,6 +238,9 @@ function Tile(props: TileBinding) {
     displayClearVersion();
     currentEncoding();
     enabledClassificationRules();
+    // While paused we freeze the current frame instead of repainting; the
+    // resume transition (paused -> false) re-runs this effect and redraws.
+    if (displaySettings.tileRenderingPaused) return;
     redrawFromBuffer();
     requestAnimationFrame(safeFit);
   });
@@ -243,6 +264,9 @@ function Tile(props: TileBinding) {
 
 export function TileGridPanel() {
   const tiles = createMemo(deriveBindings);
+  const connectionStatus = createMemo(() => connState().status);
+  const isLive = createMemo(() => connectionStatus() === "open");
+  const renderingPaused = createMemo(() => displaySettings.tileRenderingPaused);
   const gridStyle = () => ({
     "grid-template-columns": `repeat(auto-fit, minmax(${displaySettings.tileMinWidth}px, 1fr))`,
     "grid-auto-rows": `minmax(${displaySettings.tileMinHeight}px, 1fr)`,
@@ -279,8 +303,46 @@ export function TileGridPanel() {
         <button type="button" onClick={clearDisplay}>
           {t("display.clear_all")}
         </button>
+        <button
+          type="button"
+          class="wl-tile-pause"
+          aria-pressed={displaySettings.tileRenderingPaused}
+          onClick={() =>
+            updateDisplaySettings({
+              tileRenderingPaused: !displaySettings.tileRenderingPaused,
+            })}
+          title={t("tiles.pause_rendering_help")}
+        >
+          {displaySettings.tileRenderingPaused
+            ? t("tiles.resume_rendering")
+            : t("tiles.pause_rendering")}
+        </button>
+        <span
+          class={`wl-tile-connection wl-terminal-connection-${connectionStatus()}`}
+          title={connectionDetail(connectionStatus())}
+          aria-label={`${t("metrics.connection")}: ${t(`status.${connectionStatus()}`)}`}
+        >
+          <span class={`wl-status-dot ${connectionTone(connectionStatus())}`} />
+          {t(`status.${connectionStatus()}`)}
+        </span>
+        <Show when={!isLive()}>
+          <span class="wl-tile-stale" role="status">
+            {t("tiles.stale_data")}
+          </span>
+        </Show>
+        <Show when={renderingPaused()}>
+          <span class="wl-tile-paused" role="status">
+            {t("tiles.rendering_paused")}
+          </span>
+        </Show>
       </div>
-      <div class="wl-tile-grid" data-testid="tile-grid" style={gridStyle()}>
+      <div
+        class="wl-tile-grid"
+        data-testid="tile-grid"
+        data-stale={isLive() ? undefined : "true"}
+        data-paused={renderingPaused() ? "true" : undefined}
+        style={gridStyle()}
+      >
         {tiles().length === 0 ? (
           <div style={{ color: "var(--wl-fg-muted)", padding: "8px" }}>
             {t("tiles.empty")}

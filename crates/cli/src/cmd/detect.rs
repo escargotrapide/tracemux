@@ -1,4 +1,4 @@
-//! `tracemux detect` ? list available transports.
+//! `tracemux detect` -- list available transports.
 //!
 //! v0.1 lists statically known transport kinds and probes the host for
 //! serial-port candidates. On Windows this uses the serial-port backend
@@ -35,6 +35,10 @@ fn scan_serial_candidates() -> Vec<String> {
     let out: Vec<String> = serialport::available_ports()
         .map(|ports| ports.into_iter().map(|port| port.port_name).collect())
         .unwrap_or_default();
+    // Shadow with a mutable binding only on unix so the `mut` is never
+    // spurious on Windows (which would trigger `-D unused-mut`).
+    #[cfg(unix)]
+    let mut out = out;
     #[cfg(unix)]
     {
         if let Ok(rd) = std::fs::read_dir("/dev") {

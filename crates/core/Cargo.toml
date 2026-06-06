@@ -50,3 +50,12 @@ serialport = { workspace = true, optional = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 tempfile = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "framer_line"
+harness = false
+
+[[bench]]
+name = "packet_summary"
+harness = false

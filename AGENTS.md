@@ -61,6 +61,8 @@ The canonical task runner is **`just`**.
 | Format check               | `just fmt-check`       |
 | Lint (deny warnings)       | `just clippy`          |
 | Tests                      | `just test`            |
+| Driver-free local smoke    | `just local-smoke`     |
+| Driver-free GUI smoke      | `just gui-smoke`       |
 | Security audit             | `just audit`           |
 | License/source policy      | `just deny`            |
 | Coverage (llvm-cov)        | `just coverage`        |

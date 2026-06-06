@@ -4,7 +4,7 @@
 //! replay | extcap | import | export | ai-verify | json-schema`.
 
 use clap::{Parser, Subcommand};
-use tracemux_core::config::schema_v1::ConfigV1;
+use tracemux_core::config::{migrate::migrate_config_to_latest, schema_v1::ConfigV1};
 use tracemux_server::{
     run_with_session_root_classifier_encoding_pattern_startup_and_options as run_server_with_options,
     ServerRunOptions,
@@ -29,24 +29,58 @@ enum Cmd {
     /// Open a single channel and pipe to stdout.
     Connect(ConnectArgs),
     /// Send bytes to a running server session via WSS write-back.
+    #[command(
+        long_about = "Send bytes to a running server session via WSS write-back.\n\n\
+        Payload precedence: --text (encoded via --encoding), then --file, then --hex; \
+        if none are given the bytes are read from stdin. Use --udp-target host:port for \
+        UDP sessions and --wait-ack to block until the server replies with ctl.write_ack \
+        or ctl.error. Source-only transports (pcap, RTT, CAN) have no write path and will \
+        reject writes."
+    )]
     Send(SendArgs),
     /// Subscribe to a running server session and emit data frames as JSONL.
+    #[command(
+        long_about = "Subscribe to a running server session and emit data frames as JSONL.\n\n\
+        One JSON object is printed per data frame. --encoding auto (default) projects binary \
+        bodies using the server's per-source encoding snapshot; pass an explicit encoding \
+        (e.g. shift_jis) to override. Use --max-frames to exit after a fixed count."
+    )]
     Watch(WatchArgs),
     /// Hash a bearer token into argon2id PHC format for `serve --token-phc-file`.
     TokenHash(TokenHashArgs),
     /// Auto-detect available transports.
+    #[command(long_about = "Auto-detect available transports.\n\n\
+        v0.1 lists the statically known transport kinds and probes the host for serial-port \
+        candidates only; TCP/UDP/process probes are placeholders for later releases. Use \
+        --format json for a machine-readable report.")]
     Detect,
     /// Log a single channel to a session-dir.
     Log(LogArgs),
     /// Manage saved profiles.
     Profile(ProfileArgs),
     /// Replay an existing session-dir.
+    #[command(long_about = "Replay an existing session-dir.\n\n\
+        --rate is a wall-clock multiplier (2.0 = twice as fast); --rate 0 replays in lockstep \
+        as fast as possible. --seed makes any jitter deterministic for reproducible runs.")]
     Replay(ReplayArgs),
     /// Wireshark extcap interface.
+    #[command(long_about = "Wireshark extcap interface.\n\n\
+        Implements the Wireshark extcap protocol modes (--extcap-interfaces, --extcap-dlts, \
+        --extcap-config, --capture). Not intended to be run by hand; Wireshark invokes it. \
+        Live packet capture additionally requires the optional `pcap-capture` build feature \
+        and platform capture libraries (Npcap on Windows, libpcap on Unix).")]
     Extcap(ExtcapArgs),
     /// Import a foreign log artefact into a session-dir.
+    #[command(long_about = "Import a foreign log artefact into a session-dir.\n\n\
+        Supported kinds in v0.1: `text`, `csv`. `teraterm` and `pcapng` are reserved but \
+        not yet implemented and will exit with a clear error. The destination must be empty \
+        to avoid overwriting an existing session.")]
     Import(ImportArgs),
     /// Export a session-dir to a foreign format.
+    #[command(long_about = "Export a session-dir to a foreign format.\n\n\
+        Supported kinds: `csv`, `text`, `jsonl`, `pcapng`. Use --tz to format timestamps in a \
+        fixed timezone (UTC, GMT+9, +09:00, Asia/Tokyo) and --encoding to decode raw text \
+        bodies with a specific encoding instead of the session metadata.")]
     Export(ExportArgs),
     /// Run the aggregate AI verification gate.
     AiVerify,
@@ -233,7 +267,8 @@ struct ReplayArgs {
 
 #[derive(Debug, clap::Args)]
 struct ImportArgs {
-    /// Importer kind (`teraterm`, `pcapng`, `csv`).
+    /// Importer kind: `text` and `csv` work; `teraterm` and `pcapng` are
+    /// reserved but not implemented in v0.1 (they exit with an error).
     kind: String,
     /// Source artefact.
     src: std::path::PathBuf,
@@ -420,15 +455,8 @@ fn load_serve_config(path: Option<&std::path::Path>) -> anyhow::Result<Option<Co
     };
     let body = std::fs::read_to_string(path)
         .map_err(|err| anyhow::anyhow!("reading config {}: {err}", path.display()))?;
-    let config: ConfigV1 = toml::from_str(&body)
+    let config = migrate_config_to_latest(&body)
         .map_err(|err| anyhow::anyhow!("parsing config {}: {err}", path.display()))?;
-    if config.config_version != 1 {
-        anyhow::bail!(
-            "unsupported config_version {} in {}; expected 1",
-            config.config_version,
-            path.display()
-        );
-    }
     Ok(Some(config))
 }
 

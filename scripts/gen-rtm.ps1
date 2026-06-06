@@ -50,7 +50,9 @@ function Get-UniqueLocations {
         [string]$Id
     )
     if (-not $Table.ContainsKey($Id)) { return '(none)' }
-    return ($Table[$Id] | Sort-Object -Unique) -join '<br>'
+    $arr = [string[]]($Table[$Id] | Select-Object -Unique)
+    [System.Array]::Sort($arr, [System.StringComparer]::Ordinal)
+    return ($arr -join '<br>')
 }
 
 foreach ($dir in $searchDirs) {

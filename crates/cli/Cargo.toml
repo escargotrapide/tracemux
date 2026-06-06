@@ -24,9 +24,9 @@ pcap-capture = ["tracemux-core/pcap-capture", "tracemux-server/pcap-capture"]
 headless = []
 
 [dependencies]
-tracemux-core = { path = "../core" }
-tracemux-server = { path = "../server" }
-tracemux-replay = { path = "../replay" }
+tracemux-core = { path = "../core", version = "0.1.0" }
+tracemux-server = { path = "../server", version = "0.1.0" }
+tracemux-replay = { path = "../replay", version = "0.1.0" }
 clap = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

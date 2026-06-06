@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "TraceMux",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "identifier": "io.github.tracemux",
   "build": {
     "beforeDevCommand": "pnpm --filter ../web dev",

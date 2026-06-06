@@ -28,8 +28,9 @@ features remain stubbed or experimental; see
 - **Dual timestamps** on every record (`ts_origin` + `ts_ingest` plus
   `mono_ns`, `boot_id`, `node_id`, `clock_offset_ms`,
   `clock_quality`) — multi-PC log alignment is a first-class concern.
-- **Secure-by-default**: rustls + `argon2id` bearer tokens + TOFU
-  fingerprint pin + OS keyring secrets + `unsafe_code = "deny"`.
+- **Secure-by-default**: rustls + `argon2id` bearer tokens + certificate
+  fingerprint visibility / TOFU pin-store primitives + OS keyring secrets +
+  `unsafe_code = "deny"`.
 - **AI-maintainable**: `AGENTS.md`, `.github/skills/<task>/SKILL.md`,
   ADR + RTM, `human-review-required` label gate, `just ai-verify`.
 - **Independent semver** for `wire-protocol`, `log-format`,
@@ -51,8 +52,14 @@ features remain stubbed or experimental; see
 cargo install just
 just build           # build the workspace
 just test            # run tests
+just local-smoke     # driver-free TCP peer -> WSS -> session-dir/export smoke
+just gui-smoke       # driver-free GUI smoke: live UI -> WSS -> TCP peer -> xterm
 just ai-verify       # full gate (fmt + clippy + test + audit + deny + …)
 ```
+
+First-run guides live under [`docs/guides/`](docs/guides/): start with
+the Windows setup guide, then the first-session walkthrough. Ready-to-edit
+configuration examples live under [`examples/`](examples/).
 
 For local UI development:
 
@@ -170,6 +177,10 @@ For hardware-free source testing, use the virtual counterparty tool documented
 in [`docs/dev/virtual-peer.md`](docs/dev/virtual-peer.md). Its TCP mode is the
 driver-free E2E path; its serial mode works with an existing COM port or a
 virtual COM pair.
+Run `just local-smoke` for the single-PC TCP peer -> server WSS -> session-dir ->
+export check that needs no device drivers or external services. Run
+`just gui-smoke` to drive the live browser UI against a real server + TCP peer
+(browser -> WSS -> source -> xterm render), also driver-free.
 
 For remote COM sessions where one PC owns the COM port and another PC, human UI,
 or AI client needs to observe and send commands, see

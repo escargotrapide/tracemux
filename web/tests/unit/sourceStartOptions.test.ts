@@ -6,6 +6,7 @@ import {
   normalizeDetectionMode,
   normalizeEncoding,
   normalizeSourceStartOptions,
+  resetSourceStartOptions,
   saveSourceStartOptions,
   startCtlOptions,
   updateSourceStartOptions,
@@ -60,6 +61,10 @@ describe("source start options", () => {
       storage,
     );
     expect(loadSourceStartOptions(storage)).toEqual(saved);
+
+    const reset = resetSourceStartOptions(storage);
+    expect(reset.encoding).toBe(DEFAULT_SOURCE_ENCODING);
+    expect(loadSourceStartOptions(storage)).toEqual(reset);
   });
 
   it("builds start ctl options", () => {
