@@ -6,6 +6,11 @@
 //!   [`Frame::Other { kind: "stderr", data }`].
 //! - When the child exits, [`ControlEvt::Eof`] is queued and
 //!   subsequent `recv()` returns `None`.
+//!
+//! Stdout and stderr are drained by independent tokio tasks that
+//! send frames to an unbounded channel. This avoids the `select!`
+//! race condition where one branch can consume and drop buffered
+//! data from the other pipe on Linux.
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
@@ -14,7 +19,8 @@ use std::process::Stdio;
 use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::io::AsyncReadExt;
-use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::mpsc;
 
 use super::{ChannelMeta, ControlEvt, Frame, Source};
 use crate::sink::process::ProcessSink;
@@ -27,8 +33,7 @@ const READ_CHUNK: usize = 8 * 1024;
 pub struct ProcessSource {
     argv: Vec<String>,
     child: Option<Child>,
-    stdout: Option<ChildStdout>,
-    stderr: Option<ChildStderr>,
+    rx: Option<mpsc::UnboundedReceiver<Result<Frame>>>,
     pending_ctl: VecDeque<ControlEvt>,
     eof: bool,
 }
@@ -44,8 +49,7 @@ impl ProcessSource {
         Self {
             argv,
             child: None,
-            stdout: None,
-            stderr: None,
+            rx: None,
             pending_ctl: VecDeque::new(),
             eof: false,
         }
@@ -95,8 +99,64 @@ impl ProcessSource {
             .with_source(e)
         })?;
         let stdin = child.stdin.take();
-        self.stdout = child.stdout.take();
-        self.stderr = child.stderr.take();
+
+        // Drain stdout and stderr in independent tasks to avoid select! races.
+        let (tx, rx) = mpsc::unbounded_channel::<Result<Frame>>();
+        self.rx = Some(rx);
+
+        if let Some(mut stdout) = child.stdout.take() {
+            let tx2 = tx.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; READ_CHUNK];
+                loop {
+                    match stdout.read(&mut buf).await {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let data = Bytes::copy_from_slice(&buf[..n]);
+                            if tx2.send(Ok(Frame::Bytes(data))).is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx2.send(Err(read_err("stdout", e)));
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        if let Some(mut stderr) = child.stderr.take() {
+            let tx2 = tx.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; READ_CHUNK];
+                loop {
+                    match stderr.read(&mut buf).await {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let data = Bytes::copy_from_slice(&buf[..n]);
+                            if tx2
+                                .send(Ok(Frame::Other {
+                                    kind: "stderr",
+                                    data,
+                                }))
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx2.send(Err(read_err("stderr", e)));
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        // Drop the original sender so the channel closes when both tasks exit.
+        drop(tx);
+
         self.child = Some(child);
         self.pending_ctl.push_back(ControlEvt::Connected);
         Ok(stdin)
@@ -114,58 +174,20 @@ impl Source for ProcessSource {
         if self.eof {
             return Ok(None);
         }
-        // Retry loop: when one stream closes we drop it and try the other
-        // rather than immediately signalling EOF (which would lose buffered
-        // data in the surviving stream).
-        let frame = 'read: loop {
-            let mut out_buf = vec![0u8; READ_CHUNK];
-            let mut err_buf = vec![0u8; READ_CHUNK];
-            let n_out = self.stdout.as_mut();
-            let n_err = self.stderr.as_mut();
-            match (n_out, n_err) {
-                (Some(out), Some(err)) => {
-                    let outcome = tokio::select! {
-                        r = out.read(&mut out_buf) => match r {
-                            Ok(0) => { self.stdout = None; None }
-                            Ok(n) => { out_buf.truncate(n); Some(Ok(Frame::Bytes(Bytes::from(out_buf)))) }
-                            Err(e) => Some(Err(read_err("stdout", e))),
-                        },
-                        r = err.read(&mut err_buf) => match r {
-                            Ok(0) => { self.stderr = None; None }
-                            Ok(n) => {
-                                err_buf.truncate(n);
-                                Some(Ok(Frame::Other { kind: "stderr", data: Bytes::from(err_buf) }))
-                            }
-                            Err(e) => Some(Err(read_err("stderr", e))),
-                        },
-                    };
-                    match outcome {
-                        None => {} // one stream closed; loop continues to retry with the other
-                        Some(Ok(f)) => break 'read Some(f),
-                        Some(Err(e)) => return Err(e),
-                    }
-                }
-                (Some(out), None) => break 'read match out.read(&mut out_buf).await {
-                    Ok(0) => None,
-                    Ok(n) => { out_buf.truncate(n); Some(Frame::Bytes(Bytes::from(out_buf))) }
-                    Err(e) => return Err(read_err("stdout", e)),
-                },
-                (None, Some(err)) => break 'read match err.read(&mut err_buf).await {
-                    Ok(0) => None,
-                    Ok(n) => {
-                        err_buf.truncate(n);
-                        Some(Frame::Other { kind: "stderr", data: Bytes::from(err_buf) })
-                    }
-                    Err(e) => return Err(read_err("stderr", e)),
-                },
-                (None, None) => break 'read None,
-            }
-        };
-        if frame.is_none() {
+        let Some(rx) = self.rx.as_mut() else {
             self.eof = true;
             self.pending_ctl.push_back(ControlEvt::Eof);
+            return Ok(None);
+        };
+        match rx.recv().await {
+            Some(Ok(frame)) => Ok(Some(frame)),
+            Some(Err(e)) => Err(e),
+            None => {
+                self.eof = true;
+                self.pending_ctl.push_back(ControlEvt::Eof);
+                Ok(None)
+            }
         }
-        Ok(frame)
     }
 
     async fn recv_ctl(&mut self) -> Result<Option<ControlEvt>> {
@@ -184,8 +206,7 @@ impl Source for ProcessSource {
         if let Some(mut c) = self.child.take() {
             let _ = c.start_kill();
         }
-        self.stdout = None;
-        self.stderr = None;
+        self.rx = None;
         Ok(())
     }
 }
