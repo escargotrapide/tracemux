@@ -114,19 +114,43 @@ impl Source for ProcessSource {
         if self.eof {
             return Ok(None);
         }
-        let mut out_buf = vec![0u8; READ_CHUNK];
-        let mut err_buf = vec![0u8; READ_CHUNK];
-        // Race stdout vs stderr; whichever delivers first wins.
-        let n_out = self.stdout.as_mut();
-        let n_err = self.stderr.as_mut();
-        let frame = match (n_out, n_err) {
-            (Some(out), Some(err)) => tokio::select! {
-                r = out.read(&mut out_buf) => match r {
+        // Retry loop: when one stream closes we drop it and try the other
+        // rather than immediately signalling EOF (which would lose buffered
+        // data in the surviving stream).
+        let frame = 'read: loop {
+            let mut out_buf = vec![0u8; READ_CHUNK];
+            let mut err_buf = vec![0u8; READ_CHUNK];
+            let n_out = self.stdout.as_mut();
+            let n_err = self.stderr.as_mut();
+            match (n_out, n_err) {
+                (Some(out), Some(err)) => {
+                    let outcome = tokio::select! {
+                        r = out.read(&mut out_buf) => match r {
+                            Ok(0) => { self.stdout = None; None }
+                            Ok(n) => { out_buf.truncate(n); Some(Ok(Frame::Bytes(Bytes::from(out_buf)))) }
+                            Err(e) => Some(Err(read_err("stdout", e))),
+                        },
+                        r = err.read(&mut err_buf) => match r {
+                            Ok(0) => { self.stderr = None; None }
+                            Ok(n) => {
+                                err_buf.truncate(n);
+                                Some(Ok(Frame::Other { kind: "stderr", data: Bytes::from(err_buf) }))
+                            }
+                            Err(e) => Some(Err(read_err("stderr", e))),
+                        },
+                    };
+                    match outcome {
+                        None => {} // one stream closed; loop continues to retry with the other
+                        Some(Ok(f)) => break 'read Some(f),
+                        Some(Err(e)) => return Err(e),
+                    }
+                }
+                (Some(out), None) => break 'read match out.read(&mut out_buf).await {
                     Ok(0) => None,
                     Ok(n) => { out_buf.truncate(n); Some(Frame::Bytes(Bytes::from(out_buf))) }
                     Err(e) => return Err(read_err("stdout", e)),
                 },
-                r = err.read(&mut err_buf) => match r {
+                (None, Some(err)) => break 'read match err.read(&mut err_buf).await {
                     Ok(0) => None,
                     Ok(n) => {
                         err_buf.truncate(n);
@@ -134,27 +158,8 @@ impl Source for ProcessSource {
                     }
                     Err(e) => return Err(read_err("stderr", e)),
                 },
-            },
-            (Some(out), None) => match out.read(&mut out_buf).await {
-                Ok(0) => None,
-                Ok(n) => {
-                    out_buf.truncate(n);
-                    Some(Frame::Bytes(Bytes::from(out_buf)))
-                }
-                Err(e) => return Err(read_err("stdout", e)),
-            },
-            (None, Some(err)) => match err.read(&mut err_buf).await {
-                Ok(0) => None,
-                Ok(n) => {
-                    err_buf.truncate(n);
-                    Some(Frame::Other {
-                        kind: "stderr",
-                        data: Bytes::from(err_buf),
-                    })
-                }
-                Err(e) => return Err(read_err("stderr", e)),
-            },
-            (None, None) => None,
+                (None, None) => break 'read None,
+            }
         };
         if frame.is_none() {
             self.eof = true;
