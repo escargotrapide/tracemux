@@ -1,6 +1,6 @@
 # ADR-0004: ConPTY/PTY interactive terminal source and wire resize signalling
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-09
 - **Deciders:** tracemux maintainers
 - **Related requirements:** FR-SRC-PROCESS, FR-SINK-PROCESS, FR-WIRE-001,

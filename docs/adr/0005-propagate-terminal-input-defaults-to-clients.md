@@ -1,6 +1,6 @@
 # ADR-0005: Propagating server-configured terminal-input defaults to clients
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-09
 - **Deciders:** tracemux maintainers
 - **Related requirements:** FR-WIRE-001, FR-UI-002, FR-UI-011
