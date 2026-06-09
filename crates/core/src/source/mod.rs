@@ -182,6 +182,18 @@ pub enum ChannelSpec {
         /// Argv.
         argv: Vec<String>,
     },
+    /// Spawn a child attached to a pseudo-console (ConPTY/openpty) as a real
+    /// interactive terminal. Requires the server `pty` feature to open.
+    Pty {
+        /// Argv.
+        argv: Vec<String>,
+        /// Initial terminal columns (0 = default 80).
+        #[serde(default)]
+        cols: u16,
+        /// Initial terminal rows (0 = default 24).
+        #[serde(default)]
+        rows: u16,
+    },
     /// In-memory mock for tests.
     Mock {
         /// Free-form tag.
@@ -296,6 +308,7 @@ pub mod mqtt;
 pub mod pcap;
 pub mod pipe;
 pub mod process;
+pub mod pty;
 pub mod remote_stub;
 pub mod replay;
 pub mod rtt_stub;

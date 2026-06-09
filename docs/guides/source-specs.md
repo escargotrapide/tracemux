@@ -81,6 +81,25 @@ A future ConPTY-backed source is required for a fully interactive terminal;
 that change touches the frozen wire-protocol (a `resize` frame) and needs an
 ADR plus human review.
 
+### Fully interactive terminal (`pty://`, ConPTY)
+
+A server built with `--features pty` can open a `pty://` source (or
+`process://...?pty=1`) that attaches the child to a pseudo-console (Windows
+ConPTY / Unix openpty). Unlike the pipe-based `process://` source, a PTY gives
+colour, prompt repaint, line editing, full-screen TUIs, and terminal resize:
+
+```text
+pty:///cmd.exe?args=/K;chcp%2065001&cols=120&rows=40
+pty:///powershell.exe?args=-NoLogo&cols=120&rows=30
+```
+
+- `cols`/`rows` set the initial size (clamped to `1..=10000`; `0`/omitted =
+  80x24). The Terminal panel forwards live resizes over the wire.
+- For `pty` sources the UI runs raw mode and hides the local-echo / line-ending
+  selectors below (the PTY echoes and has its own line discipline).
+- Without the `pty` feature the source fails with `E-1107` and registers
+  nothing. See ADR-0004.
+
 ### Terminal input: local echo and line ending
 
 Local echo and the Enter line ending are configurable per source, because a

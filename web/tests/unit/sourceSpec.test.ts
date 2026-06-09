@@ -43,6 +43,12 @@ describe("parseSourceSpec", () => {
       kind: "process",
       argv: ["cmd", "/C", "echo hi"],
     });
+    expect(parseSourceSpec("pty:///cmd.exe?args=/K;chcp%2065001&cols=120&rows=40")).toEqual({
+      kind: "pty",
+      argv: ["cmd.exe", "/K", "chcp 65001"],
+      cols: 120,
+      rows: 40,
+    });
   });
 
   it("parses remote mirror specs", () => {

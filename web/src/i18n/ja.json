@@ -141,7 +141,7 @@
   "sources.empty": "実行中のソースはまだありません。上のソース指定から追加できます。",
   "sources.spec.label": "ソース指定",
   "sources.spec.placeholder": "file:///C:/logs/app.log?follow=1 または tcp://127.0.0.1:5555",
-  "sources.spec.help": "URI 形式: file, tcp, udp, serial, pcap, process, pipe, mock。",
+  "sources.spec.help": "URI 形式: file, tcp, udp, serial, pcap, process, pty, pipe, mock。",
   "sources.preset.label": "ソースプリセット",
   "sources.preset.placeholder": "プリセット/プロファイルを適用...",
   "sources.preset.builtin": "組み込みプリセット",

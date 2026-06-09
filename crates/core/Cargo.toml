@@ -15,6 +15,7 @@ workspace = true
 default = []
 metrics = []
 serial = ["dep:tokio-serial", "dep:serialport"]
+pty = ["dep:portable-pty"]
 pcap-capture = ["dep:pcap"]
 visa-vxi11 = []
 visa-nivisa = []
@@ -46,6 +47,7 @@ crc32fast = { workspace = true }
 keyring = { workspace = true }
 tokio-serial = { workspace = true, optional = true }
 serialport = { workspace = true, optional = true }
+portable-pty = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }

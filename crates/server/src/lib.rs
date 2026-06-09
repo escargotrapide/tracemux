@@ -51,6 +51,10 @@ pub struct StartupChannel {
     pub label: Option<String>,
     /// Source specification to open.
     pub spec: ChannelSpec,
+    /// Operator-declared default local-echo mode (`auto`/`on`/`off`).
+    pub local_echo: Option<String>,
+    /// Operator-declared default line ending (`auto`/`cr`/`lf`/`crlf`).
+    pub newline: Option<String>,
 }
 
 /// Serial/COM startup configuration for `tracemux serve`.
@@ -464,6 +468,8 @@ async fn start_configured_channels(
     for channel in channels {
         let mut channel_options = start_options.clone();
         channel_options.label.clone_from(&channel.label);
+        channel_options.local_echo.clone_from(&channel.local_echo);
+        channel_options.newline.clone_from(&channel.newline);
         match source_manager
             .start_spec_with_options(channel.spec.clone(), channel_options)
             .await
@@ -504,6 +510,8 @@ fn source_manager_default_start_options(
         detection_mode: Some(source_manager.detection_mode()),
         session_name_pattern: Some(source_manager.session_name_pattern()),
         label: None,
+        local_echo: None,
+        newline: None,
     }
 }
 

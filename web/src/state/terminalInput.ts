@@ -126,6 +126,11 @@ function looksLikePosixShell(name: string): boolean {
 
 /** Resolve the `auto` line-ending preset for a source kind/name. */
 export function presetNewline(kind: string, name: string): NewlineMode {
+  if (kind === "pty") {
+    // A PTY has a real line discipline; Enter sends a bare CR and the child
+    // translates it. Raw mode forwards bytes verbatim regardless.
+    return "cr";
+  }
   if (kind === "process") {
     if (looksLikePosixShell(name) && !looksLikeWindowsShell(name)) return "lf";
     return "crlf";
@@ -137,7 +142,27 @@ export function presetNewline(kind: string, name: string): NewlineMode {
 /** Resolve the `auto` local-echo preset for a source kind. */
 export function presetLocalEcho(kind: string): LocalEchoMode {
   // Pipe-based process children do not echo stdin, so echo locally by default.
+  // A PTY child echoes itself, so local echo is off.
   return kind === "process" ? "on" : "off";
+}
+
+/**
+ * Seed a source's stored setting from server-declared config defaults the
+ * first time it is seen, without overwriting an explicit user choice. Values
+ * outside the allowed token sets are ignored.
+ */
+export function seedTerminalInputDefaults(
+  sid: string,
+  localEchoDefault: string | undefined,
+  newlineDefault: string | undefined,
+): void {
+  const key = sourceKey(sid);
+  if (!key || terminalInput[key]) return;
+  const patch: Partial<Pick<TerminalInputSetting, "localEcho" | "newline">> = {};
+  if (isLocalEchoMode(localEchoDefault)) patch.localEcho = localEchoDefault;
+  if (isNewlineMode(newlineDefault)) patch.newline = newlineDefault;
+  if (patch.localEcho === undefined && patch.newline === undefined) return;
+  updateTerminalInput(sid, patch);
 }
 
 /** Resolve whether local echo is effectively enabled for a source. */

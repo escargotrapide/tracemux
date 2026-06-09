@@ -141,7 +141,7 @@
   "sources.empty": "No live sources yet. Add one with a source spec above.",
   "sources.spec.label": "Source spec",
   "sources.spec.placeholder": "file:///C:/logs/app.log?follow=1 or tcp://127.0.0.1:5555",
-  "sources.spec.help": "URI style: file, tcp, udp, serial, pcap, process, pipe, mock.",
+  "sources.spec.help": "URI style: file, tcp, udp, serial, pcap, process, pty, pipe, mock.",
   "sources.preset.label": "Source preset",
   "sources.preset.placeholder": "Apply preset/profile...",
   "sources.preset.builtin": "Built-in presets",

@@ -15,6 +15,7 @@ workspace = true
 default = []
 metrics = ["tracemux-core/metrics"]
 serial = ["tracemux-core/serial"]
+pty = ["tracemux-core/pty"]
 pcap-capture = ["tracemux-core/pcap-capture"]
 
 [dependencies]

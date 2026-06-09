@@ -29,7 +29,7 @@ use tracemux_core::session_name::{
 use tracemux_core::sink::Sink;
 use tracemux_core::source::{
     file::FileSource, http_webhook::HttpWebhookSource, mock::MockSource, mqtt::MqttSource,
-    pcap::PcapConfig, pcap::PcapSource, pipe::PipeSource, process::ProcessSource,
+    pcap::PcapConfig, pcap::PcapSource, pipe::PipeSource, process::ProcessSource, pty::PtySource,
     replay::ReplaySource, serial::SerialSource, syslog::SyslogSource, tcp::TcpSource,
     udp::UdpSource, ChannelMeta, ChannelSpec, ControlEvt, Frame, Source,
 };
@@ -81,6 +81,12 @@ pub struct SourceSnapshot {
     pub detection_mode: Option<DetectionMode>,
     /// Content-detection report for this source lifetime.
     pub detection: Option<ContentDetectionReport>,
+    /// Operator-declared default local-echo mode for interactive terminals
+    /// (`auto`/`on`/`off`); informational, consumed by clients.
+    pub local_echo: Option<String>,
+    /// Operator-declared default line ending the terminal sends on Enter
+    /// (`auto`/`cr`/`lf`/`crlf`); informational, consumed by clients.
+    pub newline: Option<String>,
 }
 
 /// Optional per-start pipeline settings for a source.
@@ -99,6 +105,12 @@ pub struct SourceStartOptions {
     pub session_name_pattern: Option<String>,
     /// Optional display label for the registered source session.
     pub label: Option<String>,
+    /// Operator-declared default local-echo mode for interactive terminals
+    /// (`auto`/`on`/`off`); the server does not echo, this is for clients.
+    pub local_echo: Option<String>,
+    /// Operator-declared default line ending the terminal sends on Enter
+    /// (`auto`/`cr`/`lf`/`crlf`); for clients.
+    pub newline: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -597,6 +609,10 @@ impl SourceManager {
                 self.start_process_spec(sid, spec, time, session_dir, start_options)
                     .await
             }
+            ChannelSpec::Pty { .. } => {
+                self.start_pty_spec(sid, spec, time, session_dir, start_options)
+                    .await
+            }
             ChannelSpec::Remote { .. } => {
                 self.start_remote_spec(sid, spec, time, session_dir, start_options)
             }
@@ -700,6 +716,30 @@ impl SourceManager {
             unreachable!("start_process_spec called with non-process spec");
         };
         let (source, sink) = ProcessSource::spawn_duplex(argv)?;
+        self.start_default_pipeline(
+            sid,
+            spec,
+            source,
+            time,
+            session_dir,
+            Some(Box::new(sink)),
+            start_options,
+        )
+        .await
+    }
+
+    async fn start_pty_spec(
+        &self,
+        sid: Uuid,
+        spec: ChannelSpec,
+        time: SystemTimeSource,
+        session_dir: Option<PathBuf>,
+        start_options: SourceStartOptions,
+    ) -> anyhow::Result<Uuid> {
+        let ChannelSpec::Pty { argv, cols, rows } = spec.clone() else {
+            unreachable!("start_pty_spec called with non-pty spec");
+        };
+        let (source, sink) = PtySource::spawn_duplex(argv, cols, rows)?;
         self.start_default_pipeline(
             sid,
             spec,
@@ -1211,15 +1251,20 @@ impl SourceManager {
     /// Write bytes back to the sink paired with a running source.
     ///
     /// `target` is currently used by UDP sinks (`host:port`). Other sinks
-    /// ignore it. The write path is serialised per session by an async mutex
-    /// so frame ordering follows the order in which the server handles write
-    /// frames.
+    /// ignore it. `resize` (a `"<cols>x<rows>"` payload) is delivered to the
+    /// sink as a `"resize"` control event for PTY sinks; other sinks ignore it.
+    /// Either `body` or `resize` (or both) may be present. The write path is
+    /// serialised per session by an async mutex so frame ordering follows the
+    /// order in which the server handles write frames.
+    ///
+    /// Returns the number of body bytes written (0 for a resize-only call).
     pub async fn write(
         &self,
         sid: Uuid,
         ch: u32,
-        body: Bytes,
+        body: Option<Bytes>,
         target: Option<String>,
+        resize: Option<Bytes>,
     ) -> anyhow::Result<usize> {
         let sink = {
             let mut sources = self.sources.lock();
@@ -1240,14 +1285,19 @@ impl SourceManager {
                 )
             })?
         };
-        let bytes = body.len();
+        let bytes = body.as_ref().map_or(0, Bytes::len);
         let mut sink = sink.lock().await;
+        if let Some(resize) = resize {
+            sink.ctl("resize", Some(resize)).await?;
+        }
         if let Some(target) = target {
             sink.ctl("udp-next-target", Some(Bytes::from(target)))
                 .await?;
         }
-        sink.write(body).await?;
-        sink.flush().await?;
+        if let Some(body) = body {
+            sink.write(body).await?;
+            sink.flush().await?;
+        }
         tracing::info!(%sid, ch, bytes, "source-manager: write-back complete");
         Ok(bytes)
     }
@@ -1339,6 +1389,12 @@ impl SourceManager {
                 .map_or_else(SourcePipelineMetadata::default, |entry| {
                     entry.pipeline.clone()
                 });
+            let (local_echo, newline) = sources.get(&sid).map_or((None, None), |entry| {
+                (
+                    entry.start_options.local_echo.clone(),
+                    entry.start_options.newline.clone(),
+                )
+            });
             let bytes_in = self
                 .ingest
                 .stats(&sid)
@@ -1358,6 +1414,8 @@ impl SourceManager {
                 encoding: pipeline.encoding,
                 detection_mode: pipeline.detection_mode,
                 detection: pipeline.detection,
+                local_echo,
+                newline,
             });
         }
         out.sort_by_key(|s| s.sid);
@@ -1390,6 +1448,8 @@ fn merge_start_options(
         detection_mode: overrides.detection_mode.or(base.detection_mode),
         session_name_pattern: overrides.session_name_pattern.or(base.session_name_pattern),
         label: overrides.label.or(base.label),
+        local_echo: overrides.local_echo.or(base.local_echo),
+        newline: overrides.newline.or(base.newline),
     }
 }
 
@@ -1451,6 +1511,7 @@ fn kind_tag(spec: &ChannelSpec) -> &'static str {
         ChannelSpec::Pcap { .. } => "pcap",
         ChannelSpec::Serial { .. } => "serial",
         ChannelSpec::Process { .. } => "process",
+        ChannelSpec::Pty { .. } => "pty",
         ChannelSpec::Pipe { .. } => "pipe",
         ChannelSpec::Mock { .. } => "mock",
         ChannelSpec::Replay { .. } => "replay",
@@ -1487,6 +1548,14 @@ fn iface_tag(spec: &ChannelSpec) -> String {
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("proc");
+            sanitize(last)
+        }
+        ChannelSpec::Pty { argv, .. } => {
+            let prog = argv.first().map_or("pty", String::as_str);
+            let last = std::path::Path::new(prog)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("pty");
             sanitize(last)
         }
         ChannelSpec::Mqtt { topic, .. } => sanitize(topic),
@@ -1751,6 +1820,8 @@ mod tests {
                     detection_mode: Some(DetectionMode::Auto),
                     session_name_pattern: None,
                     label: None,
+                    local_echo: None,
+                    newline: None,
                 },
             )
             .await
@@ -1805,6 +1876,8 @@ mod tests {
                     detection_mode: None,
                     session_name_pattern: Some("{prefix}-{kind}-{iface}-custom".to_string()),
                     label: None,
+                    local_echo: None,
+                    newline: None,
                 },
             )
             .await

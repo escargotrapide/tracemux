@@ -262,3 +262,73 @@ fn fixture_sources_with_detection_metadata() {
     let env = Envelope::new(FrameType::Ctl, 9, payload);
     check("sources_with_detection_metadata", &env);
 }
+
+// REQ: FR-WIRE-001
+// REQ: FR-SINK-WIRE
+// ADR-0004: additive resize-only write frame (no body).
+#[test]
+fn fixture_write_resize_only() {
+    let payload = Value::Map(vec![(
+        Value::String("resize".into()),
+        Value::Map(vec![
+            (Value::String("cols".into()), Value::from(120_u64)),
+            (Value::String("rows".into()), Value::from(40_u64)),
+        ]),
+    )]);
+    let env = Envelope::new(FrameType::Write, 11, payload)
+        .with_sid("00000000-0000-4000-8000-000000000001")
+        .with_ch(0);
+    check("write_resize_only", &env);
+}
+
+// REQ: FR-WIRE-001
+// REQ: FR-WIRE-003
+// ADR-0005: additive local_echo_default / newline_default on sources rows.
+#[test]
+fn fixture_sources_with_terminal_input_defaults() {
+    let row = Value::Map(vec![
+        (
+            Value::String("sid".into()),
+            Value::String("00000000-0000-4000-8000-000000000001".into()),
+        ),
+        (
+            Value::String("name".into()),
+            Value::String("cmd.exe".into()),
+        ),
+        (
+            Value::String("kind".into()),
+            Value::String("process".into()),
+        ),
+        (
+            Value::String("status".into()),
+            Value::String("running".into()),
+        ),
+        (
+            Value::String("channels".into()),
+            Value::Array(vec![Value::from(0_u64)]),
+        ),
+        (Value::String("bytes_in".into()), Value::from(12_u64)),
+        (Value::String("persistent".into()), Value::Boolean(true)),
+        (
+            Value::String("local_echo_default".into()),
+            Value::String("on".into()),
+        ),
+        (
+            Value::String("newline_default".into()),
+            Value::String("crlf".into()),
+        ),
+    ]);
+    let payload = Value::Map(vec![
+        (
+            Value::String("event".into()),
+            Value::String("sources".into()),
+        ),
+        (
+            Value::String("message".into()),
+            Value::String("sources listed".into()),
+        ),
+        (Value::String("sources".into()), Value::Array(vec![row])),
+    ]);
+    let env = Envelope::new(FrameType::Ctl, 12, payload);
+    check("sources_with_terminal_input_defaults", &env);
+}

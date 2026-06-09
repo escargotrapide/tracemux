@@ -62,8 +62,7 @@ a `ctl` error with `error_id = "E-2001"`.
 
 `write` frames route client-provided bytes to the `Sink` paired with a
 running source session. The envelope-level `sid` MUST be a UUID string
-for a registered session. `ch` defaults to `0` when omitted. The
-payload MUST contain `body` as a MessagePack bin value.
+for a registered session. `ch` defaults to `0` when omitted.
 
 ```msgpack
 {
@@ -72,11 +71,21 @@ payload MUST contain `body` as a MessagePack bin value.
   ch: 0,
   seq: 7,
   payload: {
-    body: bin,
-    target?: "host:port"  // UDP only; otherwise ignored
+    body?: bin,             // bytes to send to the sink
+    target?: "host:port",   // UDP only; otherwise ignored
+    resize?: { cols: u16, rows: u16 }  // PTY sinks only; otherwise ignored
   }
 }
 ```
+
+`body` and `resize` are both optional (additive change, ADR-0004), but a
+`write` payload MUST contain at least one of them; a payload with neither
+returns a `ctl` error with `error_id = "E-2001"`. When `body` is present it
+MUST be a MessagePack bin value. `resize` is an additive optional map that a
+client sends to change a PTY terminal's size; the server delivers it to the
+sink as a `"resize"` control event and clamps `cols`/`rows` to `1..=10000`.
+Non-PTY sinks ignore `resize`. A resize-only frame (no `body`) acknowledges
+with `bytes_written = 0`.
 
 Ordering is preserved per session by the server's per-sink write lock.
 Successful writes return a `ctl` acknowledgement with the same `seq`:
@@ -239,7 +248,9 @@ Server-to-client lifecycle acknowledgements also use `ctl` payloads:
     log_type_candidates: [
       { tag: "error-id", kind: "regex", pattern: "E-[0-9]{4}", count: 2, confidence: 85 }
     ]
-  }
+  },
+  local_echo_default?: "auto" | "on" | "off",      // operator-declared terminal-input default
+  newline_default?: "auto" | "cr" | "lf" | "crlf"  // operator-declared terminal-input default
 }
 ```
 
@@ -253,6 +264,13 @@ advisory metadata from bounded server-side startup sampling. Clients MAY
 display or accept suggestions by issuing a later `restart`, but MUST NOT
 persist log bytes directly based on these fields; they are
 display/navigation hints only.
+
+`local_echo_default` and `newline_default` are additive optional fields
+(ADR-0005), emitted only when the operator declared them for a channel in
+config. They are server-declared *defaults* for a client terminal's local
+echo and Enter line ending; a client SHOULD use them as the initial value
+for a source it has not overridden locally, and an explicit in-UI choice
+still wins. They never change what the server persists.
 
 Lifecycle wire/validation errors use `E-2001`; source-open failures use
 `E-1101`.
@@ -271,3 +289,33 @@ Lifecycle wire/validation errors use `E-2001`; source-open failures use
 | Subproto | `v1`    | `Sec-WebSocket-Protocol`                       |
 | Schema   | `1.0.0` | this file                                      |
 | Compat   | fixtures| `tests/compat/wire/v1/*`                       |
+
+## `hello` payload and capabilities
+
+The `hello` frame carries the peer's app name, app version, and an optional
+`capabilities` array of feature tokens:
+
+```msgpack
+{
+  type: "hello",
+  seq: 0,
+  payload: {
+    app: "tracemux",
+    version: "0.1.0",            // app capability version (independent of subproto)
+    capabilities?: ["pty", "terminal_input_defaults"]
+  }
+}
+```
+
+The subprotocol string stays `tracemux.v1` across additive changes (per the
+"unknown fields are ignored" rule); newer behaviour is signalled by bumping the
+**app** version and advertising `capabilities`. Current tokens:
+
+- `pty` — the server can open `pty` sources and honour the `resize` field on
+  `write` (ADR-0004).
+- `terminal_input_defaults` — the server may emit `local_echo_default` /
+  `newline_default` on `sources` rows (ADR-0005).
+
+A client MUST treat an absent capability as "not supported" and fall back to
+its own defaults.
+

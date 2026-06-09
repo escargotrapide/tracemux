@@ -136,6 +136,8 @@ export interface SourceSyncPayload {
   encoding?: string;
   detection_mode?: DetectionMode;
   detection?: DetectionReportPayload;
+  local_echo_default?: string;
+  newline_default?: string;
 }
 
 export type ConnState =
@@ -243,7 +245,11 @@ export class WireClient {
       this.send({
         type: "hello",
         seq: 0,
-        payload: { app: "tracemux-web", version: "0.1.0" },
+        payload: {
+          app: "tracemux-web",
+          version: "0.1.0",
+          capabilities: ["pty", "terminal_input_defaults"],
+        },
       });
     });
 

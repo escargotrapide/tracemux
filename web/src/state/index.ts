@@ -38,6 +38,8 @@ export interface SourceInfo {
   encoding?: string | undefined;
   detectionMode?: DetectionMode | undefined;
   detection?: DetectionReportPayload | undefined;
+  localEchoDefault?: string | undefined;
+  newlineDefault?: string | undefined;
 }
 
 export interface SourceErrorInfo {
@@ -404,6 +406,8 @@ function syncSources(items: SourceSyncPayload[]): void {
         encoding: item.encoding ?? existing?.encoding,
         detectionMode: item.detection_mode ?? existing?.detectionMode,
         detection: item.detection ?? existing?.detection,
+        localEchoDefault: item.local_echo_default ?? existing?.localEchoDefault,
+        newlineDefault: item.newline_default ?? existing?.newlineDefault,
       });
     }
     for (const sid of Object.keys(sources)) {
@@ -652,6 +656,18 @@ export function requestSourceList(): boolean {
 /** Send raw bytes to a (sid, ch). Used by terminal panel for TX. */
 export function sendWrite(sid: string, ch: number, body: Uint8Array): boolean {
   return getClient().send({ type: "write", sid, ch, payload: { body } });
+}
+
+/** Send a terminal resize to a (sid, ch). Honoured by PTY sinks (ADR-0004). */
+export function sendResize(sid: string, ch: number, cols: number, rows: number): boolean {
+  const c = Math.max(1, Math.min(10_000, Math.trunc(cols)));
+  const r = Math.max(1, Math.min(10_000, Math.trunc(rows)));
+  return getClient().send({
+    type: "write",
+    sid,
+    ch,
+    payload: { resize: { cols: c, rows: r } },
+  });
 }
 
 export const connState = conn;

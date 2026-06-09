@@ -97,6 +97,7 @@ dashmap = "6"
 # serial
 tokio-serial = "5.4"
 serialport = "4.3"
+portable-pty = "0.9"
 # compression
 zstd = "0.13"
 # checksums

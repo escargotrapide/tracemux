@@ -70,6 +70,11 @@ pub fn parse(spec: &str) -> Result<ChannelSpec> {
         "process" => ChannelSpec::Process {
             argv: parse_argv(body, &query)?,
         },
+        "pty" => ChannelSpec::Pty {
+            argv: parse_argv(body, &query)?,
+            cols: parse_num(&query, "cols", 0)?,
+            rows: parse_num(&query, "rows", 0)?,
+        },
         "pipe" => ChannelSpec::Pipe {
             path: body.trim_start_matches('/').to_string(),
         },
@@ -287,6 +292,25 @@ pub fn render(spec: &ChannelSpec) -> String {
                 format!("process:///{prog}?args={}", rest.join(";"))
             }
         }
+        ChannelSpec::Pty { argv, cols, rows } => {
+            let prog = argv.first().map_or("", String::as_str);
+            let rest: Vec<&str> = argv.iter().skip(1).map(String::as_str).collect();
+            let mut q: Vec<String> = Vec::new();
+            if !rest.is_empty() {
+                q.push(format!("args={}", rest.join(";")));
+            }
+            if *cols != 0 {
+                q.push(format!("cols={cols}"));
+            }
+            if *rows != 0 {
+                q.push(format!("rows={rows}"));
+            }
+            if q.is_empty() {
+                format!("pty:///{prog}")
+            } else {
+                format!("pty:///{prog}?{}", q.join("&"))
+            }
+        }
         ChannelSpec::Pipe { path } => format!("pipe:///{}", path.trim_start_matches('/')),
         ChannelSpec::Mock { tag } => format!("mock://{tag}"),
         ChannelSpec::Remote { url } => format!("remote://{}", pct_encode(url)),
@@ -305,6 +329,7 @@ pub fn kind_tag(spec: &ChannelSpec) -> &'static str {
         ChannelSpec::Pcap { .. } => "pcap",
         ChannelSpec::Serial { .. } => "serial",
         ChannelSpec::Process { .. } => "process",
+        ChannelSpec::Pty { .. } => "pty",
         ChannelSpec::Pipe { .. } => "pipe",
         ChannelSpec::Mock { .. } => "mock",
         ChannelSpec::Replay { .. } => "replay",
@@ -343,6 +368,14 @@ pub fn iface_tag(spec: &ChannelSpec) -> String {
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("proc");
+            sanitize(last)
+        }
+        ChannelSpec::Pty { argv, .. } => {
+            let prog = argv.first().map_or("pty", String::as_str);
+            let last = std::path::Path::new(prog)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("pty");
             sanitize(last)
         }
         ChannelSpec::Mqtt { topic, .. } => sanitize(topic),

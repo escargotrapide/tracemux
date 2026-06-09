@@ -61,6 +61,22 @@ compiled with the `serial` feature. It must:
   (`E1101SourceOpen`) as appropriate.
 - Without the `serial` feature, `open()` returns `E-1101` immediately.
 
+### FR-SRC-PTY  Pseudo-terminal source
+The `PtySource` struct spawns a child attached to a pseudo-console
+(Windows ConPTY / Unix openpty via `portable-pty`) when compiled with the
+`pty` feature. It must:
+- Accept `argv` and optional initial `cols`/`rows` (0 = 80x24 default),
+  clamping dimensions to `1..=10000`.
+- Emit the child's merged VT byte stream as `Frame::Bytes`.
+- Emit `ControlEvt::Connected` after spawning and `ControlEvt::Eof` when the
+  child exits.
+- Pair with a `PtySink` whose `write` sends bytes to the child and whose
+  `ctl("resize", "<cols>x<rows>")` resizes the live terminal.
+- Report PTY allocation/spawn failure with `E-1107` (`E1107PtyUnavailable`)
+  and empty `argv` with `E-1101`.
+- Without the `pty` feature, `spawn_duplex()`/`open()` return `E-1107`
+  immediately and do not register a partially opened source.
+
 ### FR-WIRE-001  WSS subprotocol
 The server accepts WSS connections with subprotocol `tracemux.v1`
 and exchanges MessagePack frames matching `docs/protocols/wire-protocol.md`.

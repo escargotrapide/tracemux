@@ -35,6 +35,8 @@ pub enum ErrorId {
     E1105PcapInvalidFilter,
     /// `E-1106` — packet capture interface unavailable.
     E1106PcapInterfaceUnavailable,
+    /// `E-1107` — pseudo-terminal (ConPTY/openpty) allocation failed.
+    E1107PtyUnavailable,
     // ---- decoder (1300..=1399) ----
     /// `E-1301` — decoder schema mismatch.
     E1301DecoderSchema,
@@ -71,6 +73,7 @@ impl ErrorId {
             Self::E1104PcapPermissionDenied => "E-1104",
             Self::E1105PcapInvalidFilter => "E-1105",
             Self::E1106PcapInterfaceUnavailable => "E-1106",
+            Self::E1107PtyUnavailable => "E-1107",
             Self::E1301DecoderSchema => "E-1301",
             Self::E1401WalFsync => "E-1401",
             Self::E1402RotateFail => "E-1402",
@@ -132,6 +135,7 @@ mod tests {
             ErrorId::E1104PcapPermissionDenied,
             ErrorId::E1105PcapInvalidFilter,
             ErrorId::E1106PcapInterfaceUnavailable,
+            ErrorId::E1107PtyUnavailable,
             ErrorId::E1301DecoderSchema,
             ErrorId::E1401WalFsync,
             ErrorId::E1402RotateFail,

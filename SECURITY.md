@@ -15,6 +15,9 @@ issue. Acknowledgement within 7 days; coordinated disclosure within
 - Adversary may attempt to exfiltrate logs via the wire protocol.
 - Adversary may attempt to inject malformed frames / sources.
 - A compromised UI **does not** imply server compromise.
+- `process://` and `pty://` sources execute arbitrary local programs and are
+  effectively remote code execution for anyone who can start a source. Treat a
+  server that exposes them as equivalent to a remote shell.
 
 ## Defaults
 
@@ -22,6 +25,9 @@ issue. Acknowledgement within 7 days; coordinated disclosure within
   on first connect.
 - Bearer tokens; `argon2id` (m=64 MB, t=3, p=1) on the server.
 - `--no-auth` is gated to `127.0.0.1` / `::1`.
+- `process://` / `pty://` sources are RCE by design: keep them on loopback or
+  behind authentication, never on a routable interface without a bearer token.
+  A PTY `resize` is bounded (`cols`/`rows` clamped to `1..=10000`).
 - WSS limits: at most 32 connections, at most 1 MiB per frame, 1 KiB/s sustained per
   connection without backpressure ack.
 - File permissions: `0600` on POSIX, Owner-only ACL on Windows.

@@ -16,6 +16,7 @@ import {
   For,
   onCleanup,
   onMount,
+  Show,
 } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -27,6 +28,7 @@ import {
   connState,
   displayClearVersion,
   selectTerminalChannel,
+  sendResize,
   sendWrite,
   sourcesStore,
   terminalChannel,
@@ -61,6 +63,7 @@ import {
   presetNewline,
   resolvedLocalEcho,
   resolvedNewlineBytes,
+  seedTerminalInputDefaults,
   terminalInputFor,
   terminalInputVersion,
   updateTerminalInput,
@@ -195,6 +198,10 @@ export function TerminalPanel(props: TerminalPanelProps) {
     terminalInputVersion();
     return terminalInputFor(sid()).newline;
   });
+  // A PTY source is a real terminal: it echoes stdin and has its own line
+  // discipline, so the panel forwards bytes raw and forwards resize events
+  // instead of running a local cooked mode.
+  const isPty = createMemo(() => sourcesStore[sid()]?.kind === "pty");
   const localEchoAutoLabel = createMemo(() => {
     const kind = sourcesStore[sid()]?.kind ?? "";
     return presetLocalEcho(kind) === "on"
@@ -427,6 +434,10 @@ export function TerminalPanel(props: TerminalPanelProps) {
       // Dockview may still be settling panel dimensions; the next
       // ResizeObserver tick will retry. Keep the UI smoke-test quiet.
     }
+    // Forward the new terminal size to PTY sources so the child repaints.
+    if (isPty() && canSend() && term) {
+      sendResize(sid(), ch(), term.cols, term.rows);
+    }
   }
 
   onMount(() => {
@@ -453,6 +464,12 @@ export function TerminalPanel(props: TerminalPanelProps) {
     term.onData((data) => {
       if (!canSend()) {
         if (hasActiveSource()) showSendErrorToast();
+        return;
+      }
+      // A PTY source is a real terminal (echoes stdin, has line discipline):
+      // forward keystrokes raw, exactly as xterm produced them.
+      if (sourcesStore[sid()]?.kind === "pty") {
+        if (!sendWrite(sid(), ch(), encoder.encode(data))) showSendErrorToast();
         return;
       }
       // Pipe-based process sources (cmd.exe, PowerShell) do not echo stdin and
@@ -517,6 +534,13 @@ export function TerminalPanel(props: TerminalPanelProps) {
     sid();
     ch();
     inputLine = "";
+  });
+
+  // Seed local echo / line ending from server-declared config defaults the
+  // first time a source is selected (user overrides always win).
+  createEffect(() => {
+    const s = sourcesStore[sid()];
+    if (s) seedTerminalInputDefaults(s.sid, s.localEchoDefault, s.newlineDefault);
   });
 
   createEffect(() => {
@@ -618,6 +642,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
             </For>
           </select>
         </label>
+        <Show when={!isPty()}>
         <label class="wl-terminal-field">
           <span class="wl-terminal-field-label">{t("terminal.local_echo")}</span>
           <select
@@ -666,6 +691,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
             </For>
           </select>
         </label>
+        </Show>
         <label class="wl-terminal-field">
           <span class="wl-terminal-field-label">{t("terminal.log_type_switch")}</span>
           <select

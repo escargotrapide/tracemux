@@ -55,3 +55,17 @@ argv = [
   "-Command",
   "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8",
 ]
+
+# Fully interactive PowerShell via a pseudo-console (ConPTY). Requires a server
+# built with `--features pty`. Unlike the pipe-based `process` channels above,
+# a `pty` source gives colour, prompt repaint, PSReadLine line editing, and
+# terminal resize. The UI forwards keystrokes raw and hides the local-echo /
+# line-ending selectors (the PTY echoes and has its own line discipline).
+[channels.powershell-pty]
+label = "PowerShell (ConPTY)"
+
+[channels.powershell-pty.spec]
+kind = "pty"
+argv = ["powershell.exe", "-NoLogo"]
+cols = 120
+rows = 30

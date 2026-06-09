@@ -31,6 +31,7 @@ pub trait Sink: Send + Sync + 'static {
 
 pub mod mock;
 pub mod process;
+pub mod pty;
 pub mod serial;
 pub mod tcp;
 pub mod udp;

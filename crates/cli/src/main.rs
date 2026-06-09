@@ -652,6 +652,8 @@ fn serve_startup_sources(
                 name: name.clone(),
                 label: channel.label.clone(),
                 spec: channel.spec.clone(),
+                local_echo: channel.local_echo.clone(),
+                newline: channel.newline.clone(),
             })
             .collect();
     }

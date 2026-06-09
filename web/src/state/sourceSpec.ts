@@ -133,6 +133,13 @@ export function parseSourceSpec(input: string): SourceSpec {
       return { kind: "pipe", path: decodePart(stripLeadingSlash(body)) };
     case "process":
       return { kind: "process", argv: parseProcessArgv(body, query) };
+    case "pty":
+      return {
+        kind: "pty",
+        argv: parseProcessArgv(body, query),
+        cols: parseNumber(query, "cols", 0),
+        rows: parseNumber(query, "rows", 0),
+      };
     case "mock":
       return { kind: "mock", tag: decodePart(body) };
     case "remote":

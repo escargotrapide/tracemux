@@ -44,7 +44,7 @@ use crate::audit::{AuditEvent, AuditKind, AuditLog, AuditResult};
 use crate::auth::{extract_bearer, is_loopback_allowed, BearerVerifier};
 use crate::ingest::Ingest;
 use crate::ratelimit::ConnCounter;
-use crate::source_manager::{SourceManager, SourceStartOptions, SourceStatus};
+use crate::source_manager::{SourceManager, SourceSnapshot, SourceStartOptions, SourceStatus};
 use crate::wire::{decode, encode, Envelope, FrameType, MAX_FRAME_BYTES};
 
 /// Subprotocol token advertised by the server.
@@ -381,22 +381,37 @@ async fn handle_write(
         }
     };
     let ch = env.ch.unwrap_or(0);
+    // `body` is optional: a resize-only frame omits it (wire-protocol additive
+    // change, ADR-0004). A frame with neither `body` nor `resize` is invalid.
     let body = match map_get(&env.payload, "body") {
-        Some(Value::Binary(body)) => bytes::Bytes::copy_from_slice(body),
-        _ => {
+        Some(Value::Binary(body)) => Some(bytes::Bytes::copy_from_slice(body)),
+        Some(_) => {
             audit_write(
                 audit,
                 peer,
                 format!("{sid}/ch{ch}"),
                 AuditResult::Denied,
-                serde_json::json!({ "seq": env.seq, "reason": "missing body" }),
+                serde_json::json!({ "seq": env.seq, "reason": "body not bin" }),
             );
-            let reply = ctl_error(env.seq, "write payload.body bin is required");
+            let reply = ctl_error(env.seq, "write payload.body must be a bin value");
             return queue_envelope(out_tx, &reply, peer).await;
         }
+        None => None,
     };
+    let resize = parse_resize_payload(&env.payload);
+    if body.is_none() && resize.is_none() {
+        audit_write(
+            audit,
+            peer,
+            format!("{sid}/ch{ch}"),
+            AuditResult::Denied,
+            serde_json::json!({ "seq": env.seq, "reason": "missing body and resize" }),
+        );
+        let reply = ctl_error(env.seq, "write payload requires body or resize");
+        return queue_envelope(out_tx, &reply, peer).await;
+    }
     let target = map_str(&env.payload, "target").map(ToString::to_string);
-    match source_manager.write(sid, ch, body, target).await {
+    match source_manager.write(sid, ch, body, target, resize).await {
         Ok(bytes_written) => {
             tracing::info!(%peer, %sid, ch, bytes_written, "ws: write-back accepted");
             audit_write(
@@ -453,6 +468,92 @@ async fn handle_ctl(
     }
 }
 
+/// Encode one `sources` row from a snapshot. Optional fields are emitted only
+/// when present, keeping the wire shape additive.
+fn source_row_value(source: SourceSnapshot) -> Value {
+    let mut row = vec![
+        (
+            Value::String("sid".into()),
+            Value::String(source.sid.to_string().into()),
+        ),
+        (
+            Value::String("name".into()),
+            Value::String(source.name.into()),
+        ),
+        (
+            Value::String("kind".into()),
+            Value::String(source.kind.into()),
+        ),
+        (
+            Value::String("status".into()),
+            Value::String(source_status_token(source.status).into()),
+        ),
+        (
+            Value::String("channels".into()),
+            Value::Array(
+                source
+                    .channels
+                    .into_iter()
+                    .map(|ch| Value::from(u64::from(ch)))
+                    .collect(),
+            ),
+        ),
+        (
+            Value::String("bytes_in".into()),
+            Value::from(source.bytes_in),
+        ),
+        (
+            Value::String("persistent".into()),
+            Value::Boolean(source.session_dir.is_some()),
+        ),
+    ];
+    if let Some(session_dir) = source.session_dir {
+        row.push((
+            Value::String("session_dir".into()),
+            Value::String(session_dir.to_string_lossy().to_string().into()),
+        ));
+    }
+    if let Some(decoder) = source.decoder {
+        row.push((
+            Value::String("decoder".into()),
+            Value::String(decoder.into()),
+        ));
+    }
+    if let Some(encoding) = source.encoding {
+        row.push((
+            Value::String("encoding".into()),
+            Value::String(encoding.into()),
+        ));
+    }
+    if let Some(detection_mode) = source.detection_mode {
+        row.push((
+            Value::String("detection_mode".into()),
+            Value::String(detection_mode.as_str().into()),
+        ));
+    }
+    if let Some(detection) = source.detection {
+        row.push((
+            Value::String("detection".into()),
+            detection_report_value(&detection),
+        ));
+    }
+    // Operator-declared terminal-input defaults (ADR-0005), emitted only when
+    // configured. Additive optional fields.
+    if let Some(local_echo) = source.local_echo {
+        row.push((
+            Value::String("local_echo_default".into()),
+            Value::String(local_echo.into()),
+        ));
+    }
+    if let Some(newline) = source.newline {
+        row.push((
+            Value::String("newline_default".into()),
+            Value::String(newline.into()),
+        ));
+    }
+    Value::Map(row)
+}
+
 async fn list_sources_ctl(
     env: &Envelope,
     source_manager: &Arc<SourceManager>,
@@ -471,80 +572,7 @@ async fn list_sources_ctl(
         ),
         (
             Value::String("sources".into()),
-            Value::Array(
-                sources
-                    .into_iter()
-                    .map(|source| {
-                        let mut row = vec![
-                            (
-                                Value::String("sid".into()),
-                                Value::String(source.sid.to_string().into()),
-                            ),
-                            (
-                                Value::String("name".into()),
-                                Value::String(source.name.into()),
-                            ),
-                            (
-                                Value::String("kind".into()),
-                                Value::String(source.kind.into()),
-                            ),
-                            (
-                                Value::String("status".into()),
-                                Value::String(source_status_token(source.status).into()),
-                            ),
-                            (
-                                Value::String("channels".into()),
-                                Value::Array(
-                                    source
-                                        .channels
-                                        .into_iter()
-                                        .map(|ch| Value::from(u64::from(ch)))
-                                        .collect(),
-                                ),
-                            ),
-                            (
-                                Value::String("bytes_in".into()),
-                                Value::from(source.bytes_in),
-                            ),
-                            (
-                                Value::String("persistent".into()),
-                                Value::Boolean(source.session_dir.is_some()),
-                            ),
-                        ];
-                        if let Some(session_dir) = source.session_dir {
-                            row.push((
-                                Value::String("session_dir".into()),
-                                Value::String(session_dir.to_string_lossy().to_string().into()),
-                            ));
-                        }
-                        if let Some(decoder) = source.decoder {
-                            row.push((
-                                Value::String("decoder".into()),
-                                Value::String(decoder.into()),
-                            ));
-                        }
-                        if let Some(encoding) = source.encoding {
-                            row.push((
-                                Value::String("encoding".into()),
-                                Value::String(encoding.into()),
-                            ));
-                        }
-                        if let Some(detection_mode) = source.detection_mode {
-                            row.push((
-                                Value::String("detection_mode".into()),
-                                Value::String(detection_mode.as_str().into()),
-                            ));
-                        }
-                        if let Some(detection) = source.detection {
-                            row.push((
-                                Value::String("detection".into()),
-                                detection_report_value(&detection),
-                            ));
-                        }
-                        Value::Map(row)
-                    })
-                    .collect(),
-            ),
+            Value::Array(sources.into_iter().map(source_row_value).collect()),
         ),
     ]);
     queue_envelope(
@@ -1083,6 +1111,19 @@ fn map_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     map_get(value, key).and_then(Value::as_str)
 }
 
+/// Parse an optional `resize: { cols, rows }` map from a `write` payload into a
+/// `"<cols>x<rows>"` ASCII control payload for a PTY sink (ADR-0004). Returns
+/// `None` when `resize` is absent or malformed; out-of-range values are
+/// clamped to `1..=10000` by the sink.
+fn parse_resize_payload(payload: &Value) -> Option<bytes::Bytes> {
+    let resize = map_get(payload, "resize")?;
+    let cols = map_get(resize, "cols").and_then(Value::as_u64)?;
+    let rows = map_get(resize, "rows").and_then(Value::as_u64)?;
+    let cols = u16::try_from(cols).ok()?;
+    let rows = u16::try_from(rows).ok()?;
+    Some(bytes::Bytes::from(format!("{cols}x{rows}")))
+}
+
 fn required_str(value: &Value, key: &str) -> Result<String, String> {
     map_str(value, key)
         .map(ToString::to_string)
@@ -1191,6 +1232,27 @@ fn required_string_array(value: &Value, key: &str) -> Result<Vec<String>, String
         .collect()
 }
 
+/// Parse a `pty` channel spec (argv + optional cols/rows).
+fn pty_spec_from_value(value: &Value) -> Result<ChannelSpec, String> {
+    Ok(ChannelSpec::Pty {
+        argv: required_string_array(value, "argv")?,
+        cols: u16::try_from(optional_u32(value, "cols", 0)?).unwrap_or(0),
+        rows: u16::try_from(optional_u32(value, "rows", 0)?).unwrap_or(0),
+    })
+}
+
+/// Parse a `serial` channel spec.
+fn serial_spec_from_value(value: &Value) -> Result<ChannelSpec, String> {
+    Ok(ChannelSpec::Serial {
+        port: required_str(value, "port")?,
+        baud: required_u32(value, "baud")?,
+        data_bits: required_u8(value, "data_bits")?,
+        parity: required_str(value, "parity")?,
+        stop_bits: required_u8(value, "stop_bits")?,
+        flow: required_str(value, "flow")?,
+    })
+}
+
 fn optional_payload_str(value: &Value, key: &str) -> Result<Option<String>, String> {
     match map_get(value, key) {
         Some(Value::String(s)) => Ok(s.as_str().map(str::trim).and_then(|s| {
@@ -1212,6 +1274,8 @@ fn start_options_from_payload(value: &Value) -> Result<SourceStartOptions, Strin
         session_name_pattern: optional_payload_str(value, "session_name_pattern")?,
         classifier: classifier_from_payload(value)?,
         label: None,
+        local_echo: None,
+        newline: None,
     })
 }
 
@@ -1298,14 +1362,7 @@ fn classifier_rule_optional_str(value: &Value, key: &str) -> Result<Option<Strin
 fn channel_spec_from_value(value: &Value) -> Result<ChannelSpec, String> {
     let kind = required_str(value, "kind")?;
     match kind.as_str() {
-        "serial" => Ok(ChannelSpec::Serial {
-            port: required_str(value, "port")?,
-            baud: required_u32(value, "baud")?,
-            data_bits: required_u8(value, "data_bits")?,
-            parity: required_str(value, "parity")?,
-            stop_bits: required_u8(value, "stop_bits")?,
-            flow: required_str(value, "flow")?,
-        }),
+        "serial" => serial_spec_from_value(value),
         "tcp" => Ok(ChannelSpec::Tcp {
             addr: required_str(value, "addr")?,
         }),
@@ -1349,6 +1406,7 @@ fn channel_spec_from_value(value: &Value) -> Result<ChannelSpec, String> {
         "process" => Ok(ChannelSpec::Process {
             argv: required_string_array(value, "argv")?,
         }),
+        "pty" => pty_spec_from_value(value),
         "mock" => Ok(ChannelSpec::Mock {
             tag: required_str(value, "tag")?,
         }),
