@@ -9,5 +9,7 @@ settings for your environment.
 - `tcp-listener.toml`: local TCP source.
 - `multi-source.toml`: mock plus TCP plus UDP.
 - `packet-capture.toml`: packet capture with bounded UI publishing.
+- `windows-shell.toml`: cmd.exe / PowerShell via the pipe-based `process://`
+  source (loopback only; see limits in `docs/guides/source-specs.md`).
 
 For walkthroughs, see [`docs/guides/`](../docs/guides/).

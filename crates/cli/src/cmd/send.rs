@@ -36,6 +36,8 @@ pub struct Options {
     pub hex: Option<String>,
     /// Optional UDP target.
     pub udp_target: Option<String>,
+    /// Line ending appended to the payload (`none`, `cr`, `lf`, `crlf`).
+    pub newline: String,
     /// Whether to wait for acknowledgement.
     pub wait_ack: bool,
 }
@@ -48,7 +50,8 @@ pub struct Options {
 pub async fn run(options: Options) -> Result<()> {
     // REQ: FR-CLI-003
     let sid = Uuid::parse_str(&options.sid).context("--sid must be a UUID")?;
-    let body = read_payload(&options).await?;
+    let mut body = read_payload(&options).await?;
+    body.extend_from_slice(newline_bytes(&options.newline)?);
     let mut req = options
         .url
         .as_str()
@@ -86,6 +89,17 @@ pub async fn run(options: Options) -> Result<()> {
     }
     socket.close(None).await.ok();
     Ok(())
+}
+
+/// Maps a `--newline` selector to the bytes appended to the payload.
+fn newline_bytes(mode: &str) -> Result<&'static [u8]> {
+    match mode {
+        "none" => Ok(b""),
+        "cr" => Ok(b"\r"),
+        "lf" => Ok(b"\n"),
+        "crlf" => Ok(b"\r\n"),
+        other => bail!("--newline must be one of none, cr, lf, crlf (got `{other}`)"),
+    }
 }
 
 async fn read_payload(options: &Options) -> Result<Vec<u8>> {
@@ -198,6 +212,7 @@ mod tests {
             file: None,
             hex: None,
             udp_target: None,
+            newline: "none".to_string(),
             wait_ack: false,
         }
     }
@@ -211,6 +226,15 @@ mod tests {
     #[test]
     fn hex_rejects_odd_length() {
         assert!(decode_hex("abc").is_err());
+    }
+
+    #[test]
+    fn newline_bytes_maps_modes() {
+        assert_eq!(newline_bytes("none").unwrap(), b"");
+        assert_eq!(newline_bytes("cr").unwrap(), b"\r");
+        assert_eq!(newline_bytes("lf").unwrap(), b"\n");
+        assert_eq!(newline_bytes("crlf").unwrap(), b"\r\n");
+        assert!(newline_bytes("nope").is_err());
     }
 
     #[tokio::test]

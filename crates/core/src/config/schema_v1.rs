@@ -206,6 +206,14 @@ pub struct ChannelCfg {
     /// Optional human label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Optional default local-echo mode for interactive terminals
+    /// (`auto`, `on`, `off`). Consumed by clients; the server does not echo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_echo: Option<String>,
+    /// Optional default line ending the terminal sends on Enter
+    /// (`auto`, `cr`, `lf`, `crlf`). Consumed by clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub newline: Option<String>,
 }
 
 /// Export command defaults.

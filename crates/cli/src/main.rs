@@ -197,6 +197,10 @@ struct SendArgs {
     /// UDP destination `host:port` for UDP sessions.
     #[arg(long)]
     udp_target: Option<String>,
+    /// Line ending appended to the payload: `none` (default), `cr`, `lf`, `crlf`.
+    /// Use `crlf` for interactive cmd.exe, `lf` for POSIX shells.
+    #[arg(long, default_value = "none")]
+    newline: String,
     /// Wait for `ctl.write_ack` or `ctl.error` before exiting.
     #[arg(long)]
     wait_ack: bool,
@@ -546,6 +550,7 @@ async fn run_send(args: SendArgs) -> anyhow::Result<()> {
         file: args.file,
         hex: args.hex,
         udp_target: args.udp_target,
+        newline: args.newline,
         wait_ack: args.wait_ack,
     })
     .await

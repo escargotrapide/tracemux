@@ -54,6 +54,19 @@ import {
   updateChannelEncoding,
 } from "~/state/sourceEncodings";
 import { sourceStartOptions, SUPPORTED_SOURCE_ENCODINGS } from "~/state/sourceStartOptions";
+import {
+  LOCAL_ECHO_MODES,
+  NEWLINE_MODES,
+  presetLocalEcho,
+  presetNewline,
+  resolvedLocalEcho,
+  resolvedNewlineBytes,
+  terminalInputFor,
+  terminalInputVersion,
+  updateTerminalInput,
+  type LocalEchoMode,
+  type NewlineMode,
+} from "~/state/terminalInput";
 import { observeVisibility } from "~/state/visibility";
 import type { DataPayload } from "~/adapters/wss";
 
@@ -116,6 +129,10 @@ export function TerminalPanel(props: TerminalPanelProps) {
   let resizeObs: ResizeObserver | null = null;
   let renderedRecords = 0;
   let lastSendErrorToastMs = 0;
+  // Local cooked-mode line buffer for pipe-based process sources (cmd.exe,
+  // PowerShell). These do not echo stdin and have no line discipline, so the
+  // panel echoes typed input locally and only sends a completed line on Enter.
+  let inputLine = "";
 
   const [sid, setSid] = createSignal(props.sid);
   const [ch, setCh] = createSignal(props.ch);
@@ -169,6 +186,25 @@ export function TerminalPanel(props: TerminalPanelProps) {
     const options = [...SUPPORTED_SOURCE_ENCODINGS] as string[];
     const current = currentEncoding();
     return options.includes(current) ? options : [current, ...options];
+  });
+  const localEchoValue = createMemo<LocalEchoMode>(() => {
+    terminalInputVersion();
+    return terminalInputFor(sid()).localEcho;
+  });
+  const newlineValue = createMemo<NewlineMode>(() => {
+    terminalInputVersion();
+    return terminalInputFor(sid()).newline;
+  });
+  const localEchoAutoLabel = createMemo(() => {
+    const kind = sourcesStore[sid()]?.kind ?? "";
+    return presetLocalEcho(kind) === "on"
+      ? t("terminal.input_on")
+      : t("terminal.input_off");
+  });
+  const newlineAutoLabel = createMemo(() => {
+    const kind = sourcesStore[sid()]?.kind ?? "";
+    const name = sourcesStore[sid()]?.name ?? "";
+    return t(`terminal.newline_${presetNewline(kind, name)}`);
   });
   const targetLabel = createMemo(() => {
     if (!hasActiveSource()) return t("terminal.no_source");
@@ -419,8 +455,43 @@ export function TerminalPanel(props: TerminalPanelProps) {
         if (hasActiveSource()) showSendErrorToast();
         return;
       }
-      const bytes = encoder.encode(data);
-      if (!sendWrite(sid(), ch(), bytes)) showSendErrorToast();
+      // Pipe-based process sources (cmd.exe, PowerShell) do not echo stdin and
+      // have no line discipline. The local echo and line-ending behaviour is
+      // configurable per source (see the Local echo / Line ending selectors);
+      // `auto` resolves to a preset based on the source kind/name.
+      const k = sourcesStore[sid()]?.kind ?? "";
+      const name = sourcesStore[sid()]?.name ?? "";
+      const newlineBytes = resolvedNewlineBytes(sid(), k, name);
+      if (!resolvedLocalEcho(sid(), k)) {
+        // Raw mode: forward keystrokes as-is, translating Enter to the chosen
+        // line ending so the line-ending selector still applies.
+        const payload = data === "\r" ? newlineBytes : data;
+        if (!sendWrite(sid(), ch(), encoder.encode(payload))) showSendErrorToast();
+        return;
+      }
+      // Cooked mode: echo typed input locally, support Backspace, and send a
+      // whole line terminated by the chosen line ending on Enter.
+      for (const c of data) {
+        if (c === "\r" || c === "\n") {
+          term!.write("\r\n");
+          const line = `${inputLine}${newlineBytes}`;
+          inputLine = "";
+          if (!sendWrite(sid(), ch(), encoder.encode(line))) showSendErrorToast();
+        } else if (c === "\x7f" || c === "\b") {
+          if (inputLine.length > 0) {
+            inputLine = inputLine.slice(0, -1);
+            term!.write("\b \b");
+          }
+        } else if (c === "\x03") {
+          // Ctrl+C: abandon the local line and forward the interrupt byte.
+          term!.write("^C\r\n");
+          inputLine = "";
+          if (!sendWrite(sid(), ch(), encoder.encode("\x03"))) showSendErrorToast();
+        } else if (c >= " ") {
+          inputLine += c;
+          term!.write(c);
+        }
+      }
     });
 
     resizeObs = new ResizeObserver(() => requestAnimationFrame(safeFit));
@@ -438,6 +509,14 @@ export function TerminalPanel(props: TerminalPanelProps) {
   createEffect(() => {
     const scrollback = displaySettings.terminalScrollback;
     if (term) term.options.scrollback = scrollback;
+  });
+
+  // Drop any half-typed local input when the target source/channel changes so
+  // the cooked-mode buffer never leaks across sources.
+  createEffect(() => {
+    sid();
+    ch();
+    inputLine = "";
   });
 
   createEffect(() => {
@@ -536,6 +615,54 @@ export function TerminalPanel(props: TerminalPanelProps) {
           >
             <For each={encodingOptions()}>
               {(encoding) => <option value={encoding}>{encoding}</option>}
+            </For>
+          </select>
+        </label>
+        <label class="wl-terminal-field">
+          <span class="wl-terminal-field-label">{t("terminal.local_echo")}</span>
+          <select
+            class="wl-terminal-select wl-terminal-local-echo-select"
+            value={localEchoValue()}
+            onChange={(e) =>
+              updateTerminalInput(sid(), {
+                localEcho: e.currentTarget.value as LocalEchoMode,
+              })
+            }
+            aria-label={t("terminal.local_echo")}
+            disabled={!hasActiveSource()}
+          >
+            <For each={LOCAL_ECHO_MODES}>
+              {(mode) => (
+                <option value={mode}>
+                  {mode === "auto"
+                    ? `${t("terminal.input_auto")} (${localEchoAutoLabel()})`
+                    : t(`terminal.input_${mode}`)}
+                </option>
+              )}
+            </For>
+          </select>
+        </label>
+        <label class="wl-terminal-field">
+          <span class="wl-terminal-field-label">{t("terminal.newline")}</span>
+          <select
+            class="wl-terminal-select wl-terminal-newline-select"
+            value={newlineValue()}
+            onChange={(e) =>
+              updateTerminalInput(sid(), {
+                newline: e.currentTarget.value as NewlineMode,
+              })
+            }
+            aria-label={t("terminal.newline")}
+            disabled={!hasActiveSource()}
+          >
+            <For each={NEWLINE_MODES}>
+              {(mode) => (
+                <option value={mode}>
+                  {mode === "auto"
+                    ? `${t("terminal.input_auto")} (${newlineAutoLabel()})`
+                    : t(`terminal.newline_${mode}`)}
+                </option>
+              )}
             </For>
           </select>
         </label>

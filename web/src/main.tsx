@@ -10,6 +10,7 @@ import {
   connState,
   openTerminalChannel,
   sendCtl,
+  sendWrite,
   sourcesStore,
   useChannel,
 } from "./state";
@@ -34,6 +35,7 @@ if (import.meta.env.DEV) {
     connStatus: () => connState().status,
     sources: () => Object.values(sourcesStore).map((s) => ({ ...s })),
     sendCtl,
+    sendWrite,
     subscribe: useChannel,
     openTerminal: openTerminalChannel,
   };

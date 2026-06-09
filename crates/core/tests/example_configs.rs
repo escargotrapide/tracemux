@@ -13,6 +13,7 @@ fn shipped_example_configs_parse_as_v1() {
         "tcp-listener.toml",
         "multi-source.toml",
         "packet-capture.toml",
+        "windows-shell.toml",
     ];
     let examples_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
 

@@ -1,0 +1,57 @@
+# Windows shell (cmd / PowerShell) via the pipe-based `process://` source.
+#
+# SECURITY: launching a shell is remote code execution by design. Keep the
+# server bound to loopback (127.0.0.1) and never expose a process channel on a
+# routable interface without authentication. See SECURITY.md.
+#
+# This is the PIPE-mode process source. The child runs WITHOUT a pseudo-console
+# (ConPTY), so: no prompt repaint, no ANSI colours, no window resize, and
+# full-screen TUIs (vim/less/fzf) do not work. It is meant for line-oriented
+# command/REPL use and capturing tool output. See
+# docs/guides/source-specs.md ("Windows shell") for limits and encoding tips.
+
+config_version = 1
+
+[server]
+bind = "127.0.0.1:9000"
+session_root = "tracemux-sessions"
+encoding = "utf-8"
+detect_mode = "configured"
+require_auth = false
+
+# Interactive cmd.exe. `/K` runs the first command then stays open, reading
+# further commands from stdin. `chcp 65001` switches the console to UTF-8 so the
+# default `utf-8` channel encoding decodes output correctly. Use `chcp 932`
+# (and set the channel encoding to shift_jis in the UI) on a Japanese console.
+#
+# local_echo / newline are client-side terminal-input defaults: cmd.exe in pipe
+# mode does not echo stdin and needs CRLF to run a line. `auto` lets the UI pick
+# per source kind; set them explicitly to override.
+[channels.cmd]
+label = "cmd.exe"
+local_echo = "on"
+newline = "crlf"
+
+[channels.cmd.spec]
+kind = "process"
+argv = ["cmd.exe", "/K", "chcp 65001"]
+
+# Interactive PowerShell reading commands from stdin. `-NoProfile` avoids
+# profile side effects; `-NoExit` keeps the session open after the inline
+# command (which forces UTF-8 output encoding) so it then reads further
+# commands from stdin, mirroring `cmd /K`.
+[channels.powershell]
+label = "PowerShell"
+local_echo = "on"
+newline = "crlf"
+
+[channels.powershell.spec]
+kind = "process"
+argv = [
+  "powershell.exe",
+  "-NoLogo",
+  "-NoProfile",
+  "-NoExit",
+  "-Command",
+  "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8",
+]
