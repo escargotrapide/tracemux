@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SOURCE_ENCODING,
+  MONITOR_WINDOW_SECONDS_LIMITS,
   SOURCE_START_OPTIONS_STORAGE_KEY,
   loadSourceStartOptions,
   normalizeDetectionMode,
+  normalizeMonitorWindowSeconds,
   normalizeEncoding,
   normalizeSourceStartOptions,
   resetSourceStartOptions,
@@ -41,8 +43,45 @@ describe("source start options", () => {
     ).toEqual({
       encoding: "cp932",
       detectionMode: "suggest",
+      monitorWindowSeconds: 30,
       sessionNamePattern: "{prefix}-{kind}",
       sendClassificationRules: false,
+    });
+  });
+
+  it("normalizes and clamps the monitor window", () => {
+    expect(normalizeDetectionMode("MONITOR")).toBe("monitor");
+    expect(normalizeMonitorWindowSeconds("45")).toBe(45);
+    expect(normalizeMonitorWindowSeconds(0)).toBe(MONITOR_WINDOW_SECONDS_LIMITS.min);
+    expect(normalizeMonitorWindowSeconds(99999)).toBe(MONITOR_WINDOW_SECONDS_LIMITS.max);
+    expect(normalizeMonitorWindowSeconds("nope")).toBe(30);
+  });
+
+  it("includes monitor window in ctl options only for monitor mode", () => {
+    expect(
+      startCtlOptions({
+        encoding: "utf-8",
+        detectionMode: "monitor",
+        monitorWindowSeconds: 12,
+        sessionNamePattern: "",
+        sendClassificationRules: false,
+      }),
+    ).toEqual({
+      encoding: "utf-8",
+      detection_mode: "monitor",
+      monitor_window_secs: 12,
+    });
+    expect(
+      startCtlOptions({
+        encoding: "utf-8",
+        detectionMode: "auto",
+        monitorWindowSeconds: 12,
+        sessionNamePattern: "",
+        sendClassificationRules: false,
+      }),
+    ).toEqual({
+      encoding: "utf-8",
+      detection_mode: "auto",
     });
   });
 

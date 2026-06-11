@@ -15,14 +15,21 @@ export const SUPPORTED_DETECTION_MODES = [
   "configured",
   "auto",
   "suggest",
+  "monitor",
   "off",
 ] as const;
 
 export type DetectionMode = typeof SUPPORTED_DETECTION_MODES[number];
 
+/// Default observation window (seconds) for the `monitor` detection mode.
+export const DEFAULT_MONITOR_WINDOW_SECONDS = 30;
+/// Safe range for the `monitor` window in seconds.
+export const MONITOR_WINDOW_SECONDS_LIMITS = { min: 1, max: 3600 } as const;
+
 export interface SourceStartOptions {
   encoding: string;
   detectionMode: DetectionMode;
+  monitorWindowSeconds: number;
   sessionNamePattern: string;
   sendClassificationRules: boolean;
 }
@@ -30,6 +37,7 @@ export interface SourceStartOptions {
 export interface StartCtlOptions {
   encoding?: string;
   detection_mode?: DetectionMode;
+  monitor_window_secs?: number;
   session_name_pattern?: string;
   classifier?: ReturnType<typeof wireClassificationRules>;
 }
@@ -37,6 +45,7 @@ export interface StartCtlOptions {
 export const DEFAULT_SOURCE_START_OPTIONS: SourceStartOptions = {
   encoding: DEFAULT_SOURCE_ENCODING,
   detectionMode: "configured",
+  monitorWindowSeconds: DEFAULT_MONITOR_WINDOW_SECONDS,
   sessionNamePattern: "",
   sendClassificationRules: true,
 };
@@ -53,12 +62,23 @@ export function normalizeDetectionMode(value: unknown): DetectionMode {
     : "configured";
 }
 
+export function normalizeMonitorWindowSeconds(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_MONITOR_WINDOW_SECONDS;
+  const truncated = Math.trunc(n);
+  return Math.min(
+    Math.max(truncated, MONITOR_WINDOW_SECONDS_LIMITS.min),
+    MONITOR_WINDOW_SECONDS_LIMITS.max,
+  );
+}
+
 export function normalizeSourceStartOptions(value: unknown): SourceStartOptions {
   if (!value || typeof value !== "object") return { ...DEFAULT_SOURCE_START_OPTIONS };
   const input = value as Partial<SourceStartOptions>;
   return {
     encoding: normalizeEncoding(input.encoding),
     detectionMode: normalizeDetectionMode(input.detectionMode),
+    monitorWindowSeconds: normalizeMonitorWindowSeconds(input.monitorWindowSeconds),
     sessionNamePattern: typeof input.sessionNamePattern === "string"
       ? input.sessionNamePattern.trim().slice(0, 240)
       : "",
@@ -116,6 +136,9 @@ export function startCtlOptions(
     encoding: normalized.encoding,
     detection_mode: normalized.detectionMode,
   };
+  if (normalized.detectionMode === "monitor") {
+    out.monitor_window_secs = normalized.monitorWindowSeconds;
+  }
   if (normalized.sessionNamePattern) {
     out.session_name_pattern = normalized.sessionNamePattern;
   }

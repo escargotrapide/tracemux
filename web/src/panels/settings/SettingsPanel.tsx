@@ -34,9 +34,11 @@ import {
 } from "~/state/logTypeNotes";
 import {
   normalizeEncoding,
+  normalizeMonitorWindowSeconds,
   resetSourceStartOptions,
   sourceStartOptions,
   type DetectionMode,
+  MONITOR_WINDOW_SECONDS_LIMITS,
   SUPPORTED_DETECTION_MODES,
   SUPPORTED_SOURCE_ENCODINGS,
   updateSourceStartOptions,
@@ -114,6 +116,35 @@ export function SettingsPanel() {
       .replace("{min}", String(limits.min))
       .replace("{max}", String(limits.max))
       .replace("{value}", String(applied ?? ""));
+  }
+
+  // Selecting `monitor` pops up a prompt for the observation window (seconds,
+  // default 30); other modes are applied directly.
+  function onDetectionModeChange(mode: DetectionMode): void {
+    if (mode !== "monitor") {
+      updateSourceStartOptions({ detectionMode: mode });
+      return;
+    }
+    const current = sourceStartOptions.monitorWindowSeconds;
+    let monitorWindowSeconds = current;
+    try {
+      const answer = window.prompt(
+        t("settings.source_start.monitor_window_prompt")
+          .replace("{min}", String(MONITOR_WINDOW_SECONDS_LIMITS.min))
+          .replace("{max}", String(MONITOR_WINDOW_SECONDS_LIMITS.max)),
+        String(current),
+      );
+      // Cancel keeps the previous window value; an empty/invalid entry is
+      // normalised (clamped) into the safe range.
+      if (answer !== null) {
+        monitorWindowSeconds = normalizeMonitorWindowSeconds(answer);
+      }
+    } catch {
+      // Some embedded webviews disable window.prompt(); fall back to the
+      // current window so the monitor mode selection is never lost. The
+      // seconds can still be edited via the numeric field below.
+    }
+    updateSourceStartOptions({ detectionMode: mode, monitorWindowSeconds });
   }
   const selectedLogTypeNote = () => {
     const key = normalizeLogTypeKey(logTypeKey());
@@ -316,13 +347,29 @@ export function SettingsPanel() {
           <span>{t("settings.source_start.detection_mode")}</span>
           <select
             value={sourceStartOptions.detectionMode}
-            onChange={(ev) => updateSourceStartOptions({ detectionMode: ev.currentTarget.value as DetectionMode })}
+            onChange={(ev) => onDetectionModeChange(ev.currentTarget.value as DetectionMode)}
           >
             <For each={SUPPORTED_DETECTION_MODES}>
               {(mode) => <option value={mode}>{t(`settings.source_start.detection.${mode}`)}</option>}
             </For>
           </select>
         </label>
+        <Show when={sourceStartOptions.detectionMode === "monitor"}>
+          <label class="wl-settings-row">
+            <span>{t("settings.source_start.monitor_window")}</span>
+            <input
+              type="number"
+              min={MONITOR_WINDOW_SECONDS_LIMITS.min}
+              max={MONITOR_WINDOW_SECONDS_LIMITS.max}
+              value={sourceStartOptions.monitorWindowSeconds}
+              onInput={(ev) =>
+                updateSourceStartOptions({
+                  monitorWindowSeconds: normalizeMonitorWindowSeconds(ev.currentTarget.value),
+                })
+              }
+            />
+          </label>
+        </Show>
         <label class="wl-settings-row">
           <span>{t("settings.source_start.session_pattern")}</span>
           <input
