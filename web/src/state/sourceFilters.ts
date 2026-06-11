@@ -46,3 +46,31 @@ export function filterAndSortSources(
     .filter((source) => matchesQuery(source, query))
     .sort((a, b) => compareSource(a, b, sortKey));
 }
+
+// A source can take a bulk text-encoding override only if it is running a text
+// decoder. Binary / source-only kinds (e.g. pcap) have no text encoding and
+// are skipped so we never restart them with a meaningless encoding.
+export function isBulkEncodingEligible(source: SourceInfo): boolean {
+  if (source.status !== "running") return false;
+  if (source.decoder) return source.decoder.startsWith("utf8-text");
+  return source.kind !== "pcap";
+}
+
+export interface BulkEncodingTargets {
+  eligible: SourceInfo[];
+  skipped: SourceInfo[];
+}
+
+/**
+ * Split running sources into those that can take a bulk encoding override and
+ * those that are skipped (binary / source-only). Non-running sources are
+ * ignored entirely. REQ: FR-UI-014
+ */
+export function partitionBulkEncodingTargets(sources: SourceInfo[]): BulkEncodingTargets {
+  const running = sources.filter((source) => source.status === "running");
+  return {
+    eligible: running.filter(isBulkEncodingEligible),
+    skipped: running.filter((source) => !isBulkEncodingEligible(source)),
+  };
+}
+

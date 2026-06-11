@@ -33,6 +33,7 @@ import {
 } from "~/state/sourcePresets";
 import {
   filterAndSortSources,
+  partitionBulkEncodingTargets,
   type SourceSortKey,
   type SourceStatusFilter,
 } from "~/state/sourceFilters";
@@ -130,6 +131,43 @@ function onRestartWithSuggestedEncoding(sid: string, encoding: string): void {
       message: (err as Error).message ?? "ctl failed",
     });
   }
+}
+
+// A source can take a bulk text-encoding override only if it runs a text
+// decoder. Binary / source-only kinds (e.g. pcap) have no text encoding and
+// are skipped so we never restart them with a meaningless encoding.
+// Eligibility predicate and partitioning live in `~/state/sourceFilters`.
+
+function onApplyEncodingToAllSources(encoding: string): void {
+  const { eligible, skipped } = partitionBulkEncodingTargets(Object.values(sourcesStore));
+  if (eligible.length === 0) {
+    pushToast({ level: "info", message: t("sources.bulk_encoding.none") });
+    return;
+  }
+  if (!window.confirm(t("sources.bulk_encoding.confirm"))) return;
+  let applied = 0;
+  let failed = 0;
+  for (const source of eligible) {
+    try {
+      updateSourceEncoding(source.sid, encoding);
+      const sent = sendCtl(source.sid, "restart", undefined, {
+        ...(startCtlOptions() as Record<string, unknown>),
+        encoding,
+      });
+      if (sent) applied += 1;
+      else failed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  pushToast({
+    level: failed > 0 ? "error" : "info",
+    message: t("sources.bulk_encoding.result")
+      .replace("{encoding}", encoding)
+      .replace("{applied}", String(applied))
+      .replace("{skipped}", String(skipped.length))
+      .replace("{failed}", String(failed)),
+  });
 }
 
 function statusLabel(status: string): string {
@@ -256,6 +294,9 @@ export function SourcesPanel() {
   const [query, setQuery] = createSignal("");
   const [statusFilter, setStatusFilter] = createSignal<SourceStatusFilter>("all");
   const [sortKey, setSortKey] = createSignal<SourceSortKey>("name");
+  const [bulkEncoding, setBulkEncoding] = createSignal<string>(
+    normalizeEncoding(sourceStartOptions.encoding),
+  );
   const [selectedSid, setSelectedSid] = createSignal<string | null>(null);
   const [serialCandidates, setSerialCandidates] = createSignal<string[]>([]);
   const [selectedSerialPorts, setSelectedSerialPorts] = createSignal<string[]>([]);
@@ -294,6 +335,9 @@ export function SourcesPanel() {
     return sid ? sourceErrorHistoryStore[sid] ?? [] : [];
   };
   const persistentSources = createMemo(() => Object.values(sourcesStore).filter((source) => source.persistent));
+  const bulkEncodableSources = createMemo(
+    () => partitionBulkEncodingTargets(Object.values(sourcesStore)).eligible,
+  );
   const selectedPcapDown = createMemo(() => {
     const iface = selectedPcapInterface();
     if (!iface) return false;
@@ -1021,6 +1065,35 @@ export function SourcesPanel() {
           {persistentSources().length > 0
             ? `${t("sources.export_all.help")} (${persistentSources().length})`
             : t("sources.export_all.unavailable")}
+        </span>
+      </div>
+      <div class="wl-source-bulk-encoding">
+        <strong>{t("sources.bulk_encoding.title")}</strong>
+        <label>
+          {t("sources.start.encoding")}{" "}
+          <select
+            value={bulkEncoding()}
+            onChange={(ev) => setBulkEncoding(normalizeEncoding(ev.currentTarget.value))}
+          >
+            <For each={encodingOptions(bulkEncoding())}>
+              {(encoding) => <option value={encoding}>{encoding}</option>}
+            </For>
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => onApplyEncodingToAllSources(bulkEncoding())}
+          disabled={bulkEncodableSources().length === 0}
+          title={
+            bulkEncodableSources().length === 0
+              ? t("sources.bulk_encoding.none")
+              : t("sources.bulk_encoding.apply")
+          }
+        >
+          {t("sources.bulk_encoding.apply")}
+        </button>
+        <span style={{ color: "var(--wl-fg-muted)", "font-size": "12px" }}>
+          {`${t("sources.bulk_encoding.help")} (${bulkEncodableSources().length})`}
         </span>
       </div>
       <Show
