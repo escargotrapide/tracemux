@@ -1267,10 +1267,21 @@ fn optional_payload_str(value: &Value, key: &str) -> Result<Option<String>, Stri
     }
 }
 
+fn optional_payload_u64(value: &Value, key: &str) -> Result<Option<u64>, String> {
+    match map_get(value, key) {
+        Some(v) => v
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| format!("start.{key} must be a non-negative integer")),
+        None => Ok(None),
+    }
+}
+
 fn start_options_from_payload(value: &Value) -> Result<SourceStartOptions, String> {
     Ok(SourceStartOptions {
         encoding: optional_payload_str(value, "encoding")?,
         detection_mode: detection_mode_from_payload(value)?,
+        monitor_window_secs: optional_payload_u64(value, "monitor_window_secs")?,
         session_name_pattern: optional_payload_str(value, "session_name_pattern")?,
         classifier: classifier_from_payload(value)?,
         label: None,
@@ -1283,9 +1294,9 @@ fn detection_mode_from_payload(value: &Value) -> Result<Option<DetectionMode>, S
     let Some(raw) = optional_payload_str(value, "detection_mode")? else {
         return Ok(None);
     };
-    DetectionMode::parse(&raw)
-        .map(Some)
-        .ok_or_else(|| "start.detection_mode must be configured, auto, suggest, or off".to_string())
+    DetectionMode::parse(&raw).map(Some).ok_or_else(|| {
+        "start.detection_mode must be configured, auto, suggest, monitor, or off".to_string()
+    })
 }
 
 fn classifier_from_payload(value: &Value) -> Result<Option<LogClassifier>, String> {

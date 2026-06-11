@@ -170,7 +170,8 @@ siblings of `spec`. `restart` MAY include the same fields without
 | ----- | ---- | ------ |
 | `encoding` | string | Text encoding label for the source's decoder, e.g. `utf-8`, `shift_jis`, `cp932`. Unknown labels fall back to UTF-8 at the codec layer. |
 | `classifier` | array | Classification rules. Each item is either `{ contains: string, tag: string, case_sensitive?: bool }` or `{ regex: string, tag: string, case_sensitive?: bool }`. Matching tags are added to decoded persisted records. Invalid regex rules are rejected. |
-| `detection_mode` | string | Content detection mode: `configured`, `auto`, `suggest`, or `off`. `auto` may apply a high-confidence detected encoding; `suggest` reports candidates only. |
+| `detection_mode` | string | Content detection mode: `configured`, `auto`, `suggest`, `monitor`, or `off`. `auto` may apply a high-confidence detected encoding sampled from the startup prefix; `monitor` observes the source over a bounded time window (see `monitor_window_secs`) before applying a high-confidence encoding; `suggest` reports candidates only. |
+| `monitor_window_secs` | integer | Observation window in seconds for `monitor` detection mode. Optional and additive; when omitted the server default applies. Ignored for other detection modes. |
 | `session_name_pattern` | string | Session-dir naming pattern for this start, using the same tokens as the server `--name-pattern` option. |
 
 These fields override server defaults for this logical source lifetime
@@ -235,7 +236,7 @@ Server-to-client lifecycle acknowledgements also use `ctl` payloads:
   session_dir?: "tracemux-sessions/tracemux_serial_COM7_...",
   decoder?: "utf8-text:shift_jis",
   encoding?: "shift_jis",
-  detection_mode?: "configured" | "auto" | "suggest" | "off",
+  detection_mode?: "configured" | "auto" | "suggest" | "monitor" | "off",
   detection?: {
     mode: "auto",
     sample_bytes: 4096,

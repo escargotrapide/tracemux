@@ -124,7 +124,7 @@ struct ServeArgs {
     /// Default text encoding for server-side decoded records.
     #[arg(long)]
     encoding: Option<String>,
-    /// Content detection mode (`configured`, `auto`, `suggest`, `off`).
+    /// Content detection mode (`configured`, `auto`, `suggest`, `monitor`, `off`).
     #[arg(long = "detect-mode")]
     detect_mode: Option<String>,
     /// Add a server-side substring classifier as `contains=tag`.
@@ -420,7 +420,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let detect_mode = serve_detect_mode(&args, config.as_ref());
     let detection_mode = tracemux_core::detect::content::DetectionMode::parse(&detect_mode)
         .ok_or_else(|| {
-            anyhow::anyhow!("--detect-mode must be configured, auto, suggest, or off")
+            anyhow::anyhow!("--detect-mode must be configured, auto, suggest, monitor, or off")
         })?;
     let startup = serve_startup_sources(&args, config.as_ref());
     let bind = serve_bind(&args, config.as_ref());

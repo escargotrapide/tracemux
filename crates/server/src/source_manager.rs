@@ -14,12 +14,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use parking_lot::{Mutex, RwLock};
 use tokio::task::JoinHandle;
-use tokio::time::{timeout, Duration};
+use tokio::time::{timeout, Duration, Instant};
 use tracemux_core::classify::{ClassifyingDecoder, LogClassifier};
 use tracemux_core::decoder::{utf8_text::Utf8TextDecoder, Decoder};
 use tracemux_core::detect::content::{
     detect_content, ContentDetectionReport, ContentDetectionSettings, DetectionMode,
-    DEFAULT_MAX_SAMPLE_BYTES,
+    DEFAULT_MAX_SAMPLE_BYTES, DEFAULT_MONITOR_MAX_BYTES, DEFAULT_MONITOR_WINDOW_MS,
 };
 use tracemux_core::framer::{passthrough::PassthroughFramer, Framer};
 use tracemux_core::logsink::{fanout::FanoutLogSink, file::FileLogSink, LogSink};
@@ -101,6 +101,10 @@ pub struct SourceStartOptions {
     pub encoding: Option<String>,
     /// Content-detection mode for this source start.
     pub detection_mode: Option<DetectionMode>,
+    /// Observation window in seconds for `monitor` detection mode. When unset,
+    /// the server default (`DEFAULT_MONITOR_WINDOW_MS`) applies. Ignored for
+    /// modes other than `monitor`.
+    pub monitor_window_secs: Option<u64>,
     /// Session-dir name pattern used when a new session-dir is created.
     pub session_name_pattern: Option<String>,
     /// Optional display label for the registered source session.
@@ -1026,7 +1030,13 @@ impl SourceManager {
             .unwrap_or_else(|| self.classifier());
         let detection_mode = self.detection_mode_for(&start_options);
         let (source, detection) = self
-            .prefetch_for_detection(source, detection_mode, &configured_encoding, &classifier)
+            .prefetch_for_detection(
+                source,
+                detection_mode,
+                start_options.monitor_window_secs,
+                &configured_encoding,
+                &classifier,
+            )
             .await?;
         let encoding = detection.as_ref().map_or_else(
             || configured_encoding.clone(),
@@ -1062,28 +1072,60 @@ impl SourceManager {
         &self,
         mut source: S,
         detection_mode: DetectionMode,
+        monitor_window_secs: Option<u64>,
         configured_encoding: &str,
         classifier: &LogClassifier,
     ) -> anyhow::Result<(PrefetchedSource<S>, Option<ContentDetectionReport>)>
     where
         S: Source + Send + 'static,
     {
-        if !matches!(detection_mode, DetectionMode::Auto | DetectionMode::Suggest) {
+        if !matches!(
+            detection_mode,
+            DetectionMode::Auto | DetectionMode::Suggest | DetectionMode::Monitor
+        ) {
             return Ok((PrefetchedSource::unopened(source), None));
         }
 
         source.open().await?;
         let mut prefetched = VecDeque::new();
         let mut sample = Vec::new();
-        while sample.len() < DEFAULT_MAX_SAMPLE_BYTES {
-            let next = timeout(DETECTION_SAMPLE_TIMEOUT, source.recv()).await;
+        // `monitor` observes the source over a bounded total time window so
+        // slow / bursty sources still accumulate a usable sample; `auto` and
+        // `suggest` sample the startup prefix and stop at the first idle gap.
+        let max_sample_bytes = match detection_mode {
+            DetectionMode::Monitor => DEFAULT_MONITOR_MAX_BYTES,
+            _ => DEFAULT_MAX_SAMPLE_BYTES,
+        };
+        let monitor_deadline = match detection_mode {
+            DetectionMode::Monitor => {
+                let window_ms = monitor_window_secs
+                    .map_or(DEFAULT_MONITOR_WINDOW_MS, |secs| secs.saturating_mul(1000));
+                Some(Instant::now() + Duration::from_millis(window_ms))
+            }
+            _ => None,
+        };
+        while sample.len() < max_sample_bytes {
+            let recv_timeout = match monitor_deadline {
+                Some(deadline) => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        break;
+                    }
+                    remaining.min(DETECTION_SAMPLE_TIMEOUT)
+                }
+                None => DETECTION_SAMPLE_TIMEOUT,
+            };
+            let next = timeout(recv_timeout, source.recv()).await;
             let frame = match next {
                 Ok(Ok(Some(frame))) => frame,
-                Ok(Ok(None)) | Err(_) => break,
                 Ok(Err(err)) => return Err(err.into()),
+                // A recv timeout means an idle gap: for `monitor` keep waiting
+                // until the overall window deadline, otherwise stop sampling.
+                Err(_) if monitor_deadline.is_some() => continue,
+                Ok(Ok(None)) | Err(_) => break,
             };
             if let Some(bytes) = frame_bytes(&frame) {
-                let remaining = DEFAULT_MAX_SAMPLE_BYTES.saturating_sub(sample.len());
+                let remaining = max_sample_bytes.saturating_sub(sample.len());
                 sample.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
             }
             prefetched.push_back(frame);
@@ -1446,6 +1488,7 @@ fn merge_start_options(
         classifier: overrides.classifier.or(base.classifier),
         encoding: overrides.encoding.or(base.encoding),
         detection_mode: overrides.detection_mode.or(base.detection_mode),
+        monitor_window_secs: overrides.monitor_window_secs.or(base.monitor_window_secs),
         session_name_pattern: overrides.session_name_pattern.or(base.session_name_pattern),
         label: overrides.label.or(base.label),
         local_echo: overrides.local_echo.or(base.local_echo),
@@ -1818,6 +1861,7 @@ mod tests {
                     classifier: Some(classifier),
                     encoding: Some("utf-8".to_string()),
                     detection_mode: Some(DetectionMode::Auto),
+                    monitor_window_secs: None,
                     session_name_pattern: None,
                     label: None,
                     local_echo: None,
@@ -1852,6 +1896,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn monitor_detection_applies_encoding_to_buffered_window() {
+        // REQ: FR-CLI-011
+        let root = tempdir();
+        let input = root.join("input.log");
+        let (sample, had_errors) = encode_text("エラー: モータ停止\n", "shift_jis");
+        assert!(!had_errors);
+        std::fs::write(&input, sample).unwrap();
+        let sessions = root.join("sessions");
+        let ingest = Arc::new(Ingest::new());
+        let manager = SourceManager::with_session_root(ingest.clone(), &sessions);
+
+        let sid = manager
+            .start_spec_with_options(
+                ChannelSpec::File {
+                    path: input.to_string_lossy().to_string(),
+                    follow: false,
+                },
+                SourceStartOptions {
+                    classifier: None,
+                    encoding: Some("utf-8".to_string()),
+                    detection_mode: Some(DetectionMode::Monitor),
+                    monitor_window_secs: Some(2),
+                    session_name_pattern: None,
+                    label: None,
+                    local_echo: None,
+                    newline: None,
+                },
+            )
+            .await
+            .unwrap();
+        manager.wait(sid).await.unwrap().unwrap();
+
+        let session_dirs: Vec<_> = std::fs::read_dir(&sessions)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_dir())
+            .collect();
+        // The window frames are replayed through the detected decoder, so the
+        // buffered records are decoded with the estimated encoding.
+        let lines = std::fs::read_to_string(session_dirs[0].join("lines.jsonl")).unwrap();
+        assert!(lines.contains("エラー"));
+
+        let snapshot = manager
+            .list_sources()
+            .into_iter()
+            .find(|source| source.sid == sid)
+            .unwrap();
+        assert_eq!(snapshot.encoding.as_deref(), Some("shift_jis"));
+        let detection = snapshot.detection.expect("detection report");
+        assert_eq!(detection.mode, DetectionMode::Monitor);
+        assert_eq!(detection.effective_encoding, "shift_jis");
+
+        assert!(manager.remove(sid));
+        assert!(ingest.registry.get(&sid).is_none());
+    }
+
+    #[tokio::test]
     async fn start_spec_with_options_overrides_defaults_and_reuses_on_resume() {
         // REQ: FR-CLI-005
         // REQ: FR-CLI-006
@@ -1874,6 +1975,7 @@ mod tests {
                     classifier: Some(classifier),
                     encoding: Some("shift_jis".to_string()),
                     detection_mode: None,
+                    monitor_window_secs: None,
                     session_name_pattern: Some("{prefix}-{kind}-{iface}-custom".to_string()),
                     label: None,
                     local_echo: None,

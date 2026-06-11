@@ -508,6 +508,7 @@ fn source_manager_default_start_options(
         classifier: Some(source_manager.classifier()),
         encoding: Some(source_manager.encoding()),
         detection_mode: Some(source_manager.detection_mode()),
+        monitor_window_secs: None,
         session_name_pattern: Some(source_manager.session_name_pattern()),
         label: None,
         local_echo: None,

@@ -25,6 +25,15 @@ pub const DEFAULT_MIN_ENCODING_CONFIDENCE: u8 = 80;
 /// Default minimum confidence gap between first and second candidates.
 pub const DEFAULT_MIN_ENCODING_DELTA: u8 = 8;
 
+/// Default total time budget (milliseconds) for the `monitor` detection
+/// window: how long a source is observed before its encoding is estimated.
+/// Per-source overrides may shorten or lengthen this.
+pub const DEFAULT_MONITOR_WINDOW_MS: u64 = 30_000;
+
+/// Default maximum number of raw bytes buffered during the `monitor`
+/// detection window before estimation runs.
+pub const DEFAULT_MONITOR_MAX_BYTES: usize = DEFAULT_MAX_SAMPLE_BYTES;
+
 /// How content detection should influence source startup.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -36,6 +45,10 @@ pub enum DetectionMode {
     Auto,
     /// Report candidates but keep configured values active.
     Suggest,
+    /// Observe the source over a bounded time window, then apply a
+    /// high-confidence detected encoding (like [`DetectionMode::Auto`], but
+    /// with a longer, time-bounded sampling window for slow/bursty sources).
+    Monitor,
     /// Disable content detection.
     Off,
 }
@@ -48,6 +61,7 @@ impl DetectionMode {
             Self::Configured => "configured",
             Self::Auto => "auto",
             Self::Suggest => "suggest",
+            Self::Monitor => "monitor",
             Self::Off => "off",
         }
     }
@@ -59,6 +73,7 @@ impl DetectionMode {
             "configured" | "default" | "defaults" => Some(Self::Configured),
             "auto" | "automatic" => Some(Self::Auto),
             "suggest" | "suggestion" | "suggestions" => Some(Self::Suggest),
+            "monitor" | "monitoring" | "watch" => Some(Self::Monitor),
             "off" | "none" | "disabled" => Some(Self::Off),
             _ => None,
         }
@@ -175,7 +190,7 @@ pub fn detect_content(
         effective_encoding(&configured_encoding, &encoding_candidates, settings);
     let sampled_encoding = sampled_encoding(&configured_encoding, &encoding_candidates, settings);
     let log_type_candidates = match settings.mode {
-        DetectionMode::Auto | DetectionMode::Suggest => {
+        DetectionMode::Auto | DetectionMode::Suggest | DetectionMode::Monitor => {
             detect_log_types(sample, &sampled_encoding, &settings.classifier)
         }
         DetectionMode::Configured | DetectionMode::Off => Vec::new(),
@@ -241,7 +256,7 @@ fn effective_encoding(
     candidates: &[EncodingCandidate],
     settings: &ContentDetectionSettings,
 ) -> String {
-    if settings.mode != DetectionMode::Auto {
+    if !matches!(settings.mode, DetectionMode::Auto | DetectionMode::Monitor) {
         return configured.to_string();
     }
     let Some(best) = candidates.first() else {
@@ -410,6 +425,47 @@ mod tests {
             Some(DetectionMode::Configured)
         );
         assert_eq!(DetectionMode::parse("disabled"), Some(DetectionMode::Off));
+    }
+
+    #[test]
+    fn detection_mode_monitor_round_trips() {
+        // REQ: FR-CLI-011
+        assert_eq!(DetectionMode::parse("monitor"), Some(DetectionMode::Monitor));
+        assert_eq!(DetectionMode::parse("watch"), Some(DetectionMode::Monitor));
+        assert_eq!(DetectionMode::Monitor.as_str(), "monitor");
+        assert_eq!(
+            DetectionMode::parse(DetectionMode::Monitor.as_str()),
+            Some(DetectionMode::Monitor)
+        );
+    }
+
+    #[test]
+    fn detect_content_monitor_applies_shift_jis_when_confident() {
+        // REQ: FR-CLI-011
+        let (sample, had_errors) = encode_text("エラー: モータ停止\n", "shift_jis");
+        assert!(!had_errors);
+        let settings = ContentDetectionSettings {
+            mode: DetectionMode::Monitor,
+            configured_encoding: "utf-8".to_string(),
+            ..ContentDetectionSettings::default()
+        };
+        let report = detect_content(&sample, &settings);
+
+        assert_eq!(report.mode, DetectionMode::Monitor);
+        assert_eq!(report.effective_encoding, "shift_jis");
+    }
+
+    #[test]
+    fn detect_content_monitor_keeps_configured_on_ambiguity() {
+        // REQ: FR-CLI-011
+        let settings = ContentDetectionSettings {
+            mode: DetectionMode::Monitor,
+            configured_encoding: "shift_jis".to_string(),
+            ..ContentDetectionSettings::default()
+        };
+        let report = detect_content(b"plain ascii log\n", &settings);
+
+        assert_eq!(report.effective_encoding, "shift_jis");
     }
 
     #[test]
